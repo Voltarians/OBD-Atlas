@@ -1,0 +1,17 @@
+services:
+  receiver:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      OBD_ATLAS_API_KEY: ${OBD_ATLAS_API_KEY:?set OBD_ATLAS_API_KEY}
+      OBD_ATLAS_DATA: /data/captures
+      OBD_ATLAS_MAX_UPLOAD_BYTES: ${OBD_ATLAS_MAX_UPLOAD_BYTES:-268435456}
+    volumes:
+      - ./data/captures:/data/captures
+    ports:
+      - "${OBD_ATLAS_BIND:-127.0.0.1}:8080:8080"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp

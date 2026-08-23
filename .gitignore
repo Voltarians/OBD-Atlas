@@ -1,0 +1,8 @@
+.dart_tool/
+.packages
+build/
+.env
+data/
+android/local.properties
+ios/Pods/
+*.iml
