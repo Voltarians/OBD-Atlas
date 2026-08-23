@@ -5,6 +5,8 @@ Proxmox-ready fleet-data receiver.
 
 ## Version 0.1 scope
 
+- establish VIN, make, model, year, generation and configuration before capture
+- quarantine uncertain evidence under `UNCLASSIFIED` until operator confirmation
 - qualify ELM327/STN adapters before capture
 - inventory legislated OBD-II protocols and responding ECU addresses
 - record Atlas-compatible candump and detailed CSV logs
@@ -31,7 +33,10 @@ docker compose up -d --build
 ```
 
 The receiver accepts gzipped or plain session bundles at `/v1/captures`, stores
-immutable payloads on a mounted data volume, and records metadata in PostgreSQL.
+immutable payloads on a mounted data volume, and partitions confirmed evidence by
+make/model/year. Raw VIN uploads are rejected; uncertain evidence is stored under
+`UNCLASSIFIED`. The planned local VIN decoder uses NHTSA's standalone vPIC database
+on the operator-controlled Proxmox server.
 
 ## Safety
 
