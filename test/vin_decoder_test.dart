@@ -3,16 +3,17 @@ import 'package:obd_atlas/src/research_models.dart';
 import 'package:obd_atlas/src/vin_decoder.dart';
 
 void main() {
-  test('vPIC response creates a detected make/model/year identity', () {
-    const body = '''
-{"Results":[{"Make":"CHEVROLET","Model":"Volt","ModelYear":"2013",
-"EngineModel":"LUU","DisplacementL":"1.4","Trim":"Base",
-"BodyClass":"Hatchback/Liftback/Notchback","VehicleType":"PASSENGER CAR",
-"PlantCountry":"UNITED STATES (USA)"}]}
-''';
-    final result = NhtsaVpicDecoder.parseResponse(
+  test('local decoder creates a detected make/model/year identity', () {
+    final result = LocalVinDecoder.parseResult(
       vin: '1G1RA6E40DU100001',
-      body: body,
+      result: const {
+        'make': 'CHEVROLET',
+        'model': 'Volt',
+        'modelYear': 2013,
+        'generation': 'Gen 1',
+        'powertrain': 'LUU / 1.4 L',
+        'marketConfiguration': 'United States',
+      },
     );
     expect(result.status, VehicleIdentityStatus.detected);
     expect(result.make, 'CHEVROLET');
