@@ -134,7 +134,7 @@ class _VehicleIdentityPageState extends State<_VehicleIdentityPage> {
     widget.onChanged(identity);
     setState(() {
       _status = VinCodec.checkDigitValid(vin)
-          ? 'Identity confirmed. Capture partition: ' + identity.classificationKey
+          ? 'Identity confirmed. Capture partition: ${identity.classificationKey}'
           : 'Identity confirmed with a VIN check-digit warning. Verify the VIN manually.';
     });
   }
@@ -259,7 +259,7 @@ class _DiscoveryPage extends StatelessWidget {
           _GateCard(
             title: identity.classified ? 'Identity gate passed' : 'Identity gate incomplete',
             detail: identity.classified
-                ? 'Research will be stored under ' + identity.classificationKey
+                ? 'Research will be stored under ${identity.classificationKey}'
                 : 'Discovery may proceed, but evidence remains in UNCLASSIFIED quarantine.',
           ),
           const _GateCard(
@@ -282,7 +282,7 @@ class _InventoryPage extends StatelessWidget {
   Widget build(BuildContext context) => Center(
         child: Text(
           identity.classified
-              ? 'ECU observations will be attached to ' + identity.classificationKey + '.'
+              ? 'ECU observations will be attached to ${identity.classificationKey}.'
               : 'ECU observations remain UNCLASSIFIED until identity is confirmed.',
         ),
       );
