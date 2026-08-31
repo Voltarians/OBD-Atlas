@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <cwchar>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -95,16 +96,69 @@ std::string DeviceLabel(const std::wstring& path) {
   return "candleLight / gs_usb (1209:2323)";
 }
 
-std::vector<std::wstring> ScanDevicePaths() {
-  std::vector<std::wstring> result;
-  HDEVINFO info = SetupDiGetClassDevsW(&GUID_DEVINTERFACE_USB_DEVICE, nullptr,
-                                       nullptr, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
-  if (info == INVALID_HANDLE_VALUE) return result;
+bool ParseGuid(const std::wstring& text, GUID* guid) {
+  if (guid == nullptr) return false;
+  unsigned long data1 = 0;
+  unsigned int data2 = 0;
+  unsigned int data3 = 0;
+  unsigned int data4[8]{};
+  const int count = swscanf_s(
+      text.c_str(), L"{%8lx-%4x-%4x-%2x%2x-%2x%2x%2x%2x%2x%2x}", &data1,
+      &data2, &data3, &data4[0], &data4[1], &data4[2], &data4[3], &data4[4],
+      &data4[5], &data4[6], &data4[7]);
+  if (count != 11) return false;
+  guid->Data1 = static_cast<unsigned long>(data1);
+  guid->Data2 = static_cast<unsigned short>(data2);
+  guid->Data3 = static_cast<unsigned short>(data3);
+  for (int i = 0; i < 8; ++i) {
+    guid->Data4[i] = static_cast<unsigned char>(data4[i]);
+  }
+  return true;
+}
 
+std::vector<std::wstring> ReadDeviceInterfaceGuids(HDEVINFO info,
+                                                    SP_DEVINFO_DATA* dev_info) {
+  std::vector<std::wstring> guids;
+  HKEY key = SetupDiOpenDevRegKey(info, dev_info, DICS_FLAG_GLOBAL, 0, DIREG_DRV,
+                                  KEY_READ);
+  if (key == INVALID_HANDLE_VALUE) return guids;
+
+  DWORD type = 0;
+  DWORD bytes = 0;
+  LONG status = RegQueryValueExW(key, L"DeviceInterfaceGUIDs", nullptr, &type,
+                                 nullptr, &bytes);
+  if (status != ERROR_SUCCESS || bytes < sizeof(wchar_t) ||
+      (type != REG_MULTI_SZ && type != REG_SZ)) {
+    RegCloseKey(key);
+    return guids;
+  }
+
+  std::vector<wchar_t> buffer(bytes / sizeof(wchar_t) + 2, L'\0');
+  status = RegQueryValueExW(key, L"DeviceInterfaceGUIDs", nullptr, &type,
+                            reinterpret_cast<LPBYTE>(buffer.data()), &bytes);
+  RegCloseKey(key);
+  if (status != ERROR_SUCCESS) return guids;
+
+  const wchar_t* cursor = buffer.data();
+  while (*cursor != L'\0') {
+    std::wstring value(cursor);
+    if (!value.empty()) guids.push_back(value);
+    cursor += value.size() + 1;
+    if (type == REG_SZ) break;
+  }
+  return guids;
+}
+
+std::wstring FindInterfacePathForGuid(const GUID& guid) {
+  HDEVINFO info = SetupDiGetClassDevsW(&guid, nullptr, nullptr,
+                                       DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+  if (info == INVALID_HANDLE_VALUE) return {};
+
+  std::wstring result;
   SP_DEVICE_INTERFACE_DATA interface_data{};
   interface_data.cbSize = sizeof(interface_data);
   for (DWORD index = 0; SetupDiEnumDeviceInterfaces(
-           info, nullptr, &GUID_DEVINTERFACE_USB_DEVICE, index, &interface_data);
+           info, nullptr, &guid, index, &interface_data);
        ++index) {
     DWORD required = 0;
     SetupDiGetDeviceInterfaceDetailW(info, &interface_data, nullptr, 0, &required,
@@ -118,7 +172,54 @@ std::vector<std::wstring> ScanDevicePaths() {
       continue;
     }
     std::wstring path(detail->DevicePath);
-    if (IsSupportedPath(path)) result.push_back(path);
+    if (IsSupportedPath(path)) {
+      result = path;
+      break;
+    }
+  }
+  SetupDiDestroyDeviceInfoList(info);
+  return result;
+}
+
+std::vector<std::wstring> ScanDevicePaths() {
+  std::vector<std::wstring> result;
+  HDEVINFO info = SetupDiGetClassDevsW(&GUID_DEVINTERFACE_USB_DEVICE, nullptr,
+                                       nullptr, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+  if (info == INVALID_HANDLE_VALUE) return result;
+
+  SP_DEVICE_INTERFACE_DATA interface_data{};
+  interface_data.cbSize = sizeof(interface_data);
+  for (DWORD index = 0; SetupDiEnumDeviceInterfaces(
+           info, nullptr, &GUID_DEVINTERFACE_USB_DEVICE, index, &interface_data);
+       ++index) {
+    DWORD required = 0;
+    SP_DEVINFO_DATA dev_info{};
+    dev_info.cbSize = sizeof(dev_info);
+    SetupDiGetDeviceInterfaceDetailW(info, &interface_data, nullptr, 0, &required,
+                                     &dev_info);
+    if (required == 0) continue;
+    std::vector<uint8_t> buffer(required);
+    auto* detail = reinterpret_cast<SP_DEVICE_INTERFACE_DETAIL_DATA_W*>(buffer.data());
+    detail->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_W);
+    if (!SetupDiGetDeviceInterfaceDetailW(info, &interface_data, detail, required,
+                                          nullptr, &dev_info)) {
+      continue;
+    }
+    std::wstring generic_path(detail->DevicePath);
+    if (!IsSupportedPath(generic_path)) continue;
+
+    bool resolved = false;
+    for (const auto& guid_text : ReadDeviceInterfaceGuids(info, &dev_info)) {
+      GUID guid{};
+      if (!ParseGuid(guid_text, &guid)) continue;
+      const auto winusb_path = FindInterfacePathForGuid(guid);
+      if (!winusb_path.empty()) {
+        result.push_back(winusb_path);
+        resolved = true;
+        break;
+      }
+    }
+    if (!resolved) result.push_back(generic_path);
   }
   SetupDiDestroyDeviceInfoList(info);
   return result;
@@ -199,7 +300,7 @@ bool OpenDevice(const std::wstring& path, int bitrate, std::string* error) {
   if (!WinUsb_Initialize(g_device, &g_usb)) {
     std::ostringstream out;
     out << "WinUsb_Initialize failed. Windows error " << GetLastError()
-        << ". The adapter must be using the WinUSB driver.";
+        << ". Atlas found the USB device but not a usable WinUSB interface.";
     *error = out.str();
     CloseDevice();
     return false;
@@ -243,7 +344,6 @@ bool OpenDevice(const std::wstring& path, int bitrate, std::string* error) {
     return false;
   }
 
-  // 48 MHz candleLight clock, 16 time quanta per bit, ~81.25% sample point.
   GsDeviceBitTiming timing{1, 11, 3, 1, brp};
   if (!ControlOut(kRequestBitTiming, &timing, sizeof(timing), error)) {
     CloseDevice();
