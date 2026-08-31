@@ -277,7 +277,9 @@ class AtlasRuntime extends ChangeNotifier {
     await stopCapture();
     if (_canalystAdapter != null) await _disconnectDualAdapter(_canalystAdapter!);
     if (_lysAdapter != null) await _disconnectDualAdapter(_lysAdapter!);
-    for (var channel = 1; channel <= 5; channel++) await disconnectChannel(channel);
+    for (var channel = 1; channel <= 5; channel++) {
+      await disconnectChannel(channel);
+    }
     _rateTimer?.cancel();
     _rateTimer = null;
     framesPerSecond = 0;
