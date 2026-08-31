@@ -15,10 +15,14 @@ class CanalystiiAdapter implements AtlasAdapter {
 
   final _frames = StreamController<CanFrame>.broadcast();
   final _states = StreamController<AtlasAdapterState>.broadcast();
+  AtlasAdapterState _state = AtlasAdapterState.disconnected;
   bool _running = false;
   Future<void>? _pollTask;
 
   static Future<List<CanalystiiDevice>> availableDevices() => AtlasCanalystii.scan();
+
+  @override
+  String get id => device.path;
 
   @override
   String get displayName => device.label;
@@ -27,18 +31,31 @@ class CanalystiiAdapter implements AtlasAdapter {
   String get transport => 'CANalyst-II WinUSB';
 
   @override
+  AtlasAdapterState get state => _state;
+
+  @override
   Stream<CanFrame> get frames => _frames.stream;
 
   @override
   Stream<AtlasAdapterState> get states => _states.stream;
 
+  void _setState(AtlasAdapterState value) {
+    _state = value;
+    _states.add(value);
+  }
+
   @override
   Future<void> connect() async {
-    _states.add(AtlasAdapterState.connecting);
-    await AtlasCanalystii.connect(device.path, bitrate);
-    _running = true;
-    _states.add(AtlasAdapterState.connected);
-    _pollTask = _poll();
+    _setState(AtlasAdapterState.connecting);
+    try {
+      await AtlasCanalystii.connect(device.path, bitrate);
+      _running = true;
+      _setState(AtlasAdapterState.connected);
+      _pollTask = _poll();
+    } catch (_) {
+      _setState(AtlasAdapterState.error);
+      rethrow;
+    }
   }
 
   Future<void> _poll() async {
@@ -54,7 +71,7 @@ class CanalystiiAdapter implements AtlasAdapter {
       }
     } catch (error, stack) {
       if (_running) {
-        _states.add(AtlasAdapterState.error);
+        _setState(AtlasAdapterState.error);
         _frames.addError(error, stack);
       }
     }
@@ -90,7 +107,10 @@ class CanalystiiAdapter implements AtlasAdapter {
     _running = false;
     await _pollTask;
     _pollTask = null;
-    await AtlasCanalystii.disconnect();
-    _states.add(AtlasAdapterState.disconnected);
+    try {
+      await AtlasCanalystii.disconnect();
+    } finally {
+      _setState(AtlasAdapterState.disconnected);
+    }
   }
 }
