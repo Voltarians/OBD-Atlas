@@ -1,6 +1,10 @@
 #ifndef FLUTTER_PLUGIN_ATLAS_LYS_USBCAN_PLUGIN_H_
 #define FLUTTER_PLUGIN_ATLAS_LYS_USBCAN_PLUGIN_H_
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #include <flutter/method_channel.h>
 #include <flutter/plugin_registrar_windows.h>
 
