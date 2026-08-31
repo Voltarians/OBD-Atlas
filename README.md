@@ -45,6 +45,19 @@ Discovery writes reproducible per-ID and per-byte metrics into `id_metrics`
 and `byte_metrics`. These are candidates, not decoded signal claims. They are
 intended for comparison against action windows and synchronized voice notes.
 
+## Transcribe synchronized voice notes
+
+Install `faster-whisper` in a virtual environment, then generate a timestamped
+TSV transcript:
+
+```bash
+python3 tools/transcribe_audio.py capture.flac --model base.en
+```
+
+The first run downloads the selected model. `base.en` is the default balance
+for CPU transcription. Output timestamps are relative to the beginning of the
+audio file and remain separate from the original evidence files.
+
 ## Session manifest
 
 Schema identifier: `voltec-atlas.capture-session.v1`
