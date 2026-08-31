@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import re
 import sqlite3
 import sys
+from collections import Counter, defaultdict
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Iterator
 
@@ -116,6 +119,36 @@ CREATE TABLE IF NOT EXISTS byte_metrics (
     FOREIGN KEY (session_id, logged_interface, arbitration_id)
         REFERENCES id_metrics(session_id, logged_interface, arbitration_id)
         ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS annotations (
+    session_id TEXT NOT NULL,
+    annotation_index INTEGER NOT NULL,
+    audio_start_seconds REAL NOT NULL,
+    audio_end_seconds REAL NOT NULL,
+    can_start_timestamp REAL NOT NULL,
+    can_end_timestamp REAL NOT NULL,
+    text TEXT NOT NULL,
+    PRIMARY KEY (session_id, annotation_index),
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS correlations (
+    session_id TEXT NOT NULL,
+    annotation_index INTEGER NOT NULL,
+    rank INTEGER NOT NULL,
+    logged_interface TEXT NOT NULL,
+    arbitration_id INTEGER NOT NULL,
+    byte_index INTEGER NOT NULL,
+    baseline_observations INTEGER NOT NULL,
+    action_observations INTEGER NOT NULL,
+    baseline_mean REAL NOT NULL,
+    action_mean REAL NOT NULL,
+    distribution_distance REAL NOT NULL,
+    score REAL NOT NULL,
+    PRIMARY KEY (session_id, annotation_index, rank),
+    FOREIGN KEY (session_id, annotation_index)
+        REFERENCES annotations(session_id, annotation_index) ON DELETE CASCADE
 );
 """
 
@@ -522,6 +555,124 @@ def discover(args: argparse.Namespace) -> int:
         connection.close()
 
 
+def distribution_distance(left: Counter, right: Counter) -> float:
+    left_total = sum(left.values())
+    right_total = sum(right.values())
+    if not left_total or not right_total:
+        return 0.0
+    values = set(left) | set(right)
+    return 0.5 * sum(
+        abs(left[value] / left_total - right[value] / right_total)
+        for value in values
+    )
+
+
+def correlate(args: argparse.Namespace) -> int:
+    if not args.database.is_file():
+        raise AtlasError(f"Database does not exist: {args.database}")
+    transcript = args.transcript.expanduser().resolve()
+    if not transcript.is_file():
+        raise AtlasError(f"Transcript does not exist: {transcript}")
+    connection = open_database(args.database.resolve())
+    try:
+        session = connection.execute(
+            "SELECT metadata_started_utc FROM sessions WHERE session_id = ?",
+            (args.session_id,),
+        ).fetchone()
+        if not session:
+            raise AtlasError(f"Session does not exist: {args.session_id}")
+        if not session[0]:
+            raise AtlasError("Session has no metadata start time for audio alignment")
+        audio_epoch = datetime.fromisoformat(session[0].replace("Z", "+00:00")).timestamp()
+
+        with transcript.open("r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle, delimiter="\t")
+            required = {"audio_start_seconds", "audio_end_seconds", "text"}
+            if not reader.fieldnames or not required.issubset(reader.fieldnames):
+                raise AtlasError("Transcript must contain audio_start_seconds, audio_end_seconds, text")
+            annotations = []
+            previous_end = -1.0
+            for index, row in enumerate(reader, start=1):
+                start = float(row["audio_start_seconds"])
+                end = float(row["audio_end_seconds"])
+                text = row["text"].strip()
+                if start < previous_end or end < start:
+                    raise AtlasError(f"Invalid or overlapping transcript timestamps at row {index + 1}")
+                previous_end = end
+                annotations.append((index, start, end, text))
+
+        results = []
+        for index, audio_start, audio_end, text in annotations:
+            can_start = audio_epoch + audio_start
+            can_end = audio_epoch + audio_end
+            baseline_start = can_start - args.baseline_seconds
+            buckets = {"baseline": defaultdict(Counter), "action": defaultdict(Counter)}
+            rows = connection.execute(
+                """
+                SELECT timestamp, logged_interface, arbitration_id, data
+                FROM frames
+                WHERE session_id = ? AND timestamp >= ? AND timestamp < ?
+                ORDER BY timestamp
+                """,
+                (args.session_id, baseline_start, can_end),
+            )
+            for timestamp, interface, arbitration_id, data in rows:
+                period = "baseline" if timestamp < can_start else "action"
+                for byte_index, value in enumerate(data):
+                    buckets[period][(interface, arbitration_id, byte_index)][value] += 1
+
+            candidates = []
+            keys = set(buckets["baseline"]) & set(buckets["action"])
+            for key in keys:
+                baseline = buckets["baseline"][key]
+                action = buckets["action"][key]
+                baseline_count = sum(baseline.values())
+                action_count = sum(action.values())
+                if baseline_count < args.minimum_observations or action_count < args.minimum_observations:
+                    continue
+                baseline_mean = sum(value * count for value, count in baseline.items()) / baseline_count
+                action_mean = sum(value * count for value, count in action.items()) / action_count
+                distance = distribution_distance(baseline, action)
+                score = 100 * distance + 20 * abs(action_mean - baseline_mean) / 255
+                candidates.append((score, key, baseline_count, action_count,
+                                   baseline_mean, action_mean, distance))
+            candidates.sort(reverse=True)
+            results.append((index, audio_start, audio_end, can_start, can_end, text,
+                            candidates[: args.limit]))
+
+        with connection:
+            connection.execute("DELETE FROM correlations WHERE session_id = ?", (args.session_id,))
+            connection.execute("DELETE FROM annotations WHERE session_id = ?", (args.session_id,))
+            for index, audio_start, audio_end, can_start, can_end, text, candidates in results:
+                connection.execute(
+                    "INSERT INTO annotations VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (args.session_id, index, audio_start, audio_end, can_start, can_end, text),
+                )
+                for rank, candidate in enumerate(candidates, start=1):
+                    score, (interface, arbitration_id, byte_index), baseline_count, action_count, baseline_mean, action_mean, distance = candidate
+                    connection.execute(
+                        "INSERT INTO correlations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (args.session_id, index, rank, interface, arbitration_id,
+                         byte_index, baseline_count, action_count, baseline_mean,
+                         action_mean, distance, score),
+                    )
+
+        print(f"Correlated {len(results)} voice annotations")
+        for index, audio_start, audio_end, _can_start, _can_end, text, candidates in results:
+            print(f"\n[{audio_start:.3f}-{audio_end:.3f}] {text}")
+            for rank, candidate in enumerate(candidates, start=1):
+                score, (interface, arbitration_id, byte_index), _bc, _ac, baseline_mean, action_mean, distance = candidate
+                width = 3 if arbitration_id <= 0x7FF else 8
+                print(
+                    f"  {rank:>2}. {interface} {arbitration_id:0{width}X} byte {byte_index}: "
+                    f"{baseline_mean:.1f} -> {action_mean:.1f}, "
+                    f"distribution {distance:.3f}, score {score:.2f}"
+                )
+        return 0
+    finally:
+        connection.close()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="OBD Atlas passive CAN capture tools")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -551,6 +702,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     discover_parser.add_argument("--limit", type=int, default=25)
     discover_parser.set_defaults(func=discover)
+
+    correlate_parser = subparsers.add_parser(
+        "correlate", help="Correlate timestamped voice annotations with CAN byte changes"
+    )
+    correlate_parser.add_argument("session_id")
+    correlate_parser.add_argument("transcript", type=Path)
+    correlate_parser.add_argument(
+        "--database", type=Path, default=Path("obd_atlas.sqlite3")
+    )
+    correlate_parser.add_argument("--baseline-seconds", type=float, default=5.0)
+    correlate_parser.add_argument("--minimum-observations", type=int, default=3)
+    correlate_parser.add_argument("--limit", type=int, default=8)
+    correlate_parser.set_defaults(func=correlate)
     return parser
 
 
