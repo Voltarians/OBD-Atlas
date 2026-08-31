@@ -1,8 +1,10 @@
-#include "atlas_canalystii_plugin.h"
+#include "include/atlas_canalystii/atlas_canalystii_plugin_c_api.h"
 
 #include <flutter/plugin_registrar_windows.h>
 
-void AtlasCanalystiiPluginRegisterWithRegistrar(
+#include "atlas_canalystii_plugin.h"
+
+void AtlasCanalystiiPluginCApiRegisterWithRegistrar(
     FlutterDesktopPluginRegistrarRef registrar) {
   AtlasCanalystiiPlugin::RegisterWithRegistrar(
       flutter::PluginRegistrarManager::GetInstance()
