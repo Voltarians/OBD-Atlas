@@ -31,6 +31,20 @@ an existing session requires the explicit `--replace` option.
 python3 atlas.py summary --database obd_atlas.sqlite3
 ```
 
+## Discover changing signals
+
+After import, rank arbitration IDs by payload transitions, changing byte
+positions, and observed value diversity:
+
+```bash
+python3 atlas.py discover volt_capture_20260830_211652 \
+  --database obd_atlas.sqlite3 --limit 25
+```
+
+Discovery writes reproducible per-ID and per-byte metrics into `id_metrics`
+and `byte_metrics`. These are candidates, not decoded signal claims. They are
+intended for comparison against action windows and synchronized voice notes.
+
 ## Session manifest
 
 Schema identifier: `voltec-atlas.capture-session.v1`
