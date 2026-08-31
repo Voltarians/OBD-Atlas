@@ -222,7 +222,7 @@ class _ConnectPageState extends State<ConnectPage> {
                   SizedBox(
                     width: 220,
                     child: DropdownButtonFormField<String>(
-                      value: _selectedPort,
+                      initialValue: _selectedPort,
                       decoration: const InputDecoration(labelText: 'SLCAN port'),
                       items: _ports.map((port) => DropdownMenuItem(value: port, child: Text(port))).toList(),
                       onChanged: connected ? null : (value) => setState(() => _selectedPort = value),
@@ -231,7 +231,7 @@ class _ConnectPageState extends State<ConnectPage> {
                   SizedBox(
                     width: 180,
                     child: DropdownButtonFormField<int>(
-                      value: _bitrate,
+                      initialValue: _bitrate,
                       decoration: const InputDecoration(labelText: 'CAN bitrate'),
                       items: const [
                         DropdownMenuItem(value: 125000, child: Text('125 kbit/s')),
