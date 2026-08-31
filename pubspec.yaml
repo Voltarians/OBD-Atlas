@@ -16,6 +16,8 @@ dependencies:
   libserialport: ^0.3.0+1
   atlas_gs_usb:
     path: packages/atlas_gs_usb
+  atlas_canalystii:
+    path: packages/atlas_canalystii
 
 dev_dependencies:
   flutter_test:
