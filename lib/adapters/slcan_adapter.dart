@@ -8,11 +8,17 @@ import '../core/can_frame.dart';
 import 'atlas_adapter.dart';
 
 class SlcanAdapter implements AtlasAdapter {
-  SlcanAdapter(this.portName, {this.bitrate = 500000, this.baudRate = 115200});
+  SlcanAdapter(
+    this.portName, {
+    this.bitrate = 500000,
+    this.baudRate = 115200,
+    this.channel = 1,
+  }) : assert(channel >= 1 && channel <= 5);
 
   final String portName;
   final int bitrate;
   final int baudRate;
+  final int channel;
 
   final _frames = StreamController<CanFrame>.broadcast();
   final _states = StreamController<AtlasAdapterState>.broadcast();
@@ -24,10 +30,10 @@ class SlcanAdapter implements AtlasAdapter {
   String _buffer = '';
 
   @override
-  String get id => 'slcan:$portName';
+  String get id => 'slcan:ch$channel:$portName';
 
   @override
-  String get displayName => 'SLCAN $portName';
+  String get displayName => 'CH$channel SLCAN $portName';
 
   @override
   String get transport => 'SLCAN serial';
@@ -122,13 +128,13 @@ class SlcanAdapter implements AtlasAdapter {
       if (end < 0) break;
       final line = _buffer.substring(0, end).trim();
       _buffer = _buffer.substring(end + 1);
-      final frame = parseLine(line);
+      final frame = parseLine(line, channel: channel);
       if (frame != null) _frames.add(frame);
     }
   }
 
-  static CanFrame? parseLine(String line, {String bus = 'can0'}) {
-    if (line.length < 5) return null;
+  static CanFrame? parseLine(String line, {int channel = 1}) {
+    if (line.length < 5 || channel < 1 || channel > 5) return null;
     final kind = line[0];
     final extended = kind == 'T' || kind == 'R';
     final remote = kind == 'r' || kind == 'R';
@@ -160,7 +166,7 @@ class SlcanAdapter implements AtlasAdapter {
       data: data,
       extended: extended,
       remote: remote,
-      bus: bus,
+      channel: channel,
     );
   }
 
