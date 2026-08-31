@@ -22,13 +22,13 @@ class LysUsbcanAdapter implements AtlasAdapter {
   static Future<bool> probe() => AtlasLysUsbcan.probe();
 
   @override
-  String get id => deviceIndex < 0 ? 'lys-usbcan-auto' : 'lys-usbcan-$deviceIndex';
+  String get id => 'lys-usbcan-winusb';
 
   @override
   String get displayName => 'LYS USBCAN-II • 0471:1200';
 
   @override
-  String get transport => 'ControlCAN VCI native • auto index';
+  String get transport => 'LYS direct WinUSB';
 
   @override
   AtlasAdapterState get state => _state;
