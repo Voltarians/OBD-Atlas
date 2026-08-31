@@ -8,19 +8,38 @@ import '../adapters/slcan_adapter.dart';
 import 'can_frame.dart';
 import 'local_store.dart';
 
-class AtlasRuntime extends ChangeNotifier {
-  AtlasRuntime._();
-  static final AtlasRuntime instance = AtlasRuntime._();
+class AtlasChannelStatus {
+  AtlasChannelStatus(this.channel);
 
-  AtlasAdapter? _adapter;
-  StreamSubscription<CanFrame>? _frameSubscription;
-  StreamSubscription<AtlasAdapterState>? _stateSubscription;
-  AtlasAdapterState adapterState = AtlasAdapterState.disconnected;
+  final int channel;
+  AtlasAdapter? adapter;
+  AtlasAdapterState state = AtlasAdapterState.disconnected;
   String? adapterName;
   String? lastError;
-
-  final List<CanFrame> recentFrames = <CanFrame>[];
+  int totalFrames = 0;
+  int framesThisSecond = 0;
+  int framesPerSecond = 0;
   final Set<int> seenIds = <int>{};
+  StreamSubscription<CanFrame>? frameSubscription;
+  StreamSubscription<AtlasAdapterState>? stateSubscription;
+
+  String get bus => 'can${channel - 1}';
+  bool get connected => state == AtlasAdapterState.connected;
+}
+
+class AtlasRuntime extends ChangeNotifier {
+  AtlasRuntime._() {
+    for (var channel = 1; channel <= 5; channel++) {
+      channels[channel] = AtlasChannelStatus(channel);
+    }
+  }
+
+  static final AtlasRuntime instance = AtlasRuntime._();
+
+  final Map<int, AtlasChannelStatus> channels = <int, AtlasChannelStatus>{};
+  final List<CanFrame> recentFrames = <CanFrame>[];
+  final Set<String> seenIds = <String>{};
+
   int totalFrames = 0;
   int framesThisSecond = 0;
   int framesPerSecond = 0;
@@ -32,54 +51,97 @@ class AtlasRuntime extends ChangeNotifier {
 
   List<String> scanSlcanPorts() => SlcanAdapter.availablePorts();
 
-  Future<void> connectSlcan(String portName, {int bitrate = 500000}) async {
-    await disconnect();
-    lastError = null;
-    final adapter = SlcanAdapter(portName, bitrate: bitrate);
-    _adapter = adapter;
-    adapterName = adapter.displayName;
-    adapterState = AtlasAdapterState.connecting;
+  int get connectedChannelCount => channels.values.where((channel) => channel.connected).length;
+  bool get anyConnected => connectedChannelCount > 0;
+
+  // Compatibility getters for the existing Build 1 UI.
+  AtlasAdapterState get adapterState {
+    if (channels.values.any((channel) => channel.state == AtlasAdapterState.error)) {
+      return AtlasAdapterState.error;
+    }
+    if (channels.values.any((channel) => channel.state == AtlasAdapterState.connecting)) {
+      return AtlasAdapterState.connecting;
+    }
+    if (anyConnected) return AtlasAdapterState.connected;
+    return AtlasAdapterState.disconnected;
+  }
+
+  String? get adapterName {
+    final active = channels.values.where((channel) => channel.adapterName != null).map((channel) => channel.adapterName!).toList();
+    return active.isEmpty ? null : active.join(', ');
+  }
+
+  String? get lastError {
+    final errors = channels.values.where((channel) => channel.lastError != null).map((channel) => 'CH${channel.channel}: ${channel.lastError}').toList();
+    return errors.isEmpty ? null : errors.join('\n');
+  }
+
+  Future<void> connectSlcan(String portName, {int bitrate = 500000, int channel = 1}) async {
+    if (channel < 1 || channel > 5) {
+      throw ArgumentError.value(channel, 'channel', 'Atlas supports channels 1 through 5.');
+    }
+
+    await disconnectChannel(channel);
+    final slot = channels[channel]!;
+    slot.lastError = null;
+
+    final adapter = SlcanAdapter(portName, bitrate: bitrate, channel: channel);
+    slot.adapter = adapter;
+    slot.adapterName = adapter.displayName;
+    slot.state = AtlasAdapterState.connecting;
     notifyListeners();
 
-    _stateSubscription = adapter.states.listen((state) {
-      adapterState = state;
+    slot.stateSubscription = adapter.states.listen((state) {
+      slot.state = state;
       notifyListeners();
     });
-    _frameSubscription = adapter.frames.listen(_onFrame);
+    slot.frameSubscription = adapter.frames.listen(_onFrame);
 
     try {
       await adapter.connect();
       _startRateTimer();
     } catch (error) {
-      lastError = error.toString();
-      adapterState = AtlasAdapterState.error;
+      slot.lastError = error.toString();
+      slot.state = AtlasAdapterState.error;
       notifyListeners();
       rethrow;
     }
   }
 
   void _onFrame(CanFrame frame) {
+    final slot = channels[frame.channel];
     totalFrames++;
     framesThisSecond++;
-    seenIds.add(frame.id);
+    seenIds.add('${frame.channel}:${frame.id}');
+
+    if (slot != null) {
+      slot.totalFrames++;
+      slot.framesThisSecond++;
+      slot.seenIds.add(frame.id);
+    }
+
     recentFrames.insert(0, frame);
-    if (recentFrames.length > 250) recentFrames.removeLast();
+    if (recentFrames.length > 500) recentFrames.removeLast();
     _captureSink?.writeln(frame.toCandump());
     notifyListeners();
   }
 
   void _startRateTimer() {
-    _rateTimer?.cancel();
+    if (_rateTimer != null) return;
     _rateTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       framesPerSecond = framesThisSecond;
       framesThisSecond = 0;
+      for (final slot in channels.values) {
+        slot.framesPerSecond = slot.framesThisSecond;
+        slot.framesThisSecond = 0;
+      }
       notifyListeners();
     });
   }
 
   Future<File> startCapture() async {
-    if (_adapter == null || adapterState != AtlasAdapterState.connected) {
-      throw StateError('Connect an adapter before starting a capture.');
+    if (!anyConnected) {
+      throw StateError('Connect at least one Atlas channel before starting a capture.');
     }
     if (isCapturing) return activeCaptureFile!;
     final file = await AtlasLocalStore.instance.createCaptureFile();
@@ -102,21 +164,43 @@ class AtlasRuntime extends ChangeNotifier {
     return file;
   }
 
+  Future<void> disconnectChannel(int channel) async {
+    final slot = channels[channel];
+    if (slot == null) return;
+
+    await slot.frameSubscription?.cancel();
+    await slot.stateSubscription?.cancel();
+    slot.frameSubscription = null;
+    slot.stateSubscription = null;
+
+    final adapter = slot.adapter;
+    slot.adapter = null;
+    if (adapter != null) await adapter.disconnect();
+
+    slot.adapterName = null;
+    slot.state = AtlasAdapterState.disconnected;
+    slot.lastError = null;
+    slot.framesPerSecond = 0;
+    slot.framesThisSecond = 0;
+
+    if (!anyConnected) {
+      _rateTimer?.cancel();
+      _rateTimer = null;
+      framesPerSecond = 0;
+      framesThisSecond = 0;
+    }
+    notifyListeners();
+  }
+
   Future<void> disconnect() async {
     await stopCapture();
+    for (var channel = 1; channel <= 5; channel++) {
+      await disconnectChannel(channel);
+    }
     _rateTimer?.cancel();
     _rateTimer = null;
     framesPerSecond = 0;
     framesThisSecond = 0;
-    await _frameSubscription?.cancel();
-    await _stateSubscription?.cancel();
-    _frameSubscription = null;
-    _stateSubscription = null;
-    final adapter = _adapter;
-    _adapter = null;
-    if (adapter != null) await adapter.disconnect();
-    adapterName = null;
-    adapterState = AtlasAdapterState.disconnected;
     notifyListeners();
   }
 }
