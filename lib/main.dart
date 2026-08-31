@@ -62,7 +62,7 @@ class _AtlasHomePageState extends State<AtlasHomePage> {
         actions: [AnimatedBuilder(
           animation: AtlasRuntime.instance,
           builder: (context, _) {
-            final connected = AtlasRuntime.instance.adapterState == AtlasAdapterState.connected;
+            final connected = AtlasRuntime.instance.anyConnected;
             return Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Chip(
@@ -142,7 +142,8 @@ class _ConnectPageState extends State<ConnectPage> {
   String? _selectedGsPath;
   List<CanalystiiDevice> _caDevices = const [];
   String? _selectedCaPath;
-  int _bitrate = 500000;
+  int _canableBitrate = 33333;
+  int _highSpeedBitrate = 500000;
   bool _scanningUsb = false;
   bool _scanningCa = false;
   bool _probingLys = false;
@@ -207,25 +208,25 @@ class _ConnectPageState extends State<ConnectPage> {
   Future<void> _connectGsUsb() async {
     final device = _gsDevices.where((d) => d.path == _selectedGsPath).firstOrNull;
     if (device == null) return;
-    try { await AtlasRuntime.instance.connectGsUsb(device, bitrate: _bitrate, channel: 1); }
+    try { await AtlasRuntime.instance.connectGsUsb(device, bitrate: _canableBitrate, channel: 1); }
     catch (error) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString()))); }
   }
 
   Future<void> _connectSlcan() async {
     if (_selectedPort == null) return;
-    try { await AtlasRuntime.instance.connectSlcan(_selectedPort!, bitrate: _bitrate, channel: 1); }
+    try { await AtlasRuntime.instance.connectSlcan(_selectedPort!, bitrate: _highSpeedBitrate, channel: 1); }
     catch (error) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString()))); }
   }
 
   Future<void> _connectCanalystii() async {
     final device = _caDevices.where((d) => d.path == _selectedCaPath).firstOrNull;
     if (device == null) return;
-    try { await AtlasRuntime.instance.connectCanalystii(device, bitrate: _bitrate, baseChannel: 2); }
+    try { await AtlasRuntime.instance.connectCanalystii(device, bitrate: _highSpeedBitrate, baseChannel: 2); }
     catch (error) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString()))); }
   }
 
   Future<void> _connectLys() async {
-    try { await AtlasRuntime.instance.connectLysUsbcan(bitrate: _bitrate, baseChannel: 4); }
+    try { await AtlasRuntime.instance.connectLysUsbcan(bitrate: _highSpeedBitrate, baseChannel: 4); }
     catch (error) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString()))); }
   }
 
@@ -244,11 +245,12 @@ class _ConnectPageState extends State<ConnectPage> {
       final caConnected = ch2.connected && ch3.connected;
       final lysBusy = ch4.state == AtlasAdapterState.connecting || ch5.state == AtlasAdapterState.connecting;
       final lysConnected = ch4.connected && ch5.connected;
+      final slcanConnected = ch1.connected && ch1.adapter?.transport == 'SLCAN serial';
       return PageShell(
         title: 'Connect',
         subtitle: 'Five-channel offline capture: CANable on CH1, CANalyst-II on CH2+CH3, LYS USBCAN-II on CH4+CH5.',
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          _StatusTile(name: 'CH1 • candleLight / gs_usb', detail: ch1.adapter?.transport == 'candleLight / gs_usb' ? '${ch1.adapterName} • ${ch1.state.name} • $_bitrate bit/s' : 'Native WinUSB transport ready', icon: Icons.usb_rounded),
+          _StatusTile(name: 'CH1 • candleLight / gs_usb', detail: ch1.adapter?.transport == 'candleLight / gs_usb' ? '${ch1.adapterName} • ${ch1.state.name} • $_canableBitrate bit/s' : 'Native WinUSB transport ready • default 33.333 kbit/s', icon: Icons.usb_rounded),
           const SizedBox(height: 8),
           Wrap(spacing: 12, runSpacing: 12, crossAxisAlignment: WrapCrossAlignment.center, children: [
             FilledButton.icon(onPressed: ch1.connected || ch1Busy || _scanningUsb ? null : _scanGsUsb, icon: _scanningUsb ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.usb), label: const Text('Scan gs_usb')),
@@ -256,7 +258,7 @@ class _ConnectPageState extends State<ConnectPage> {
             FilledButton.icon(onPressed: ch1.connected || ch1Busy || _selectedGsPath == null ? null : _connectGsUsb, icon: const Icon(Icons.link), label: const Text('Connect candleLight')),
           ]),
           const SizedBox(height: 18),
-          _StatusTile(name: 'CH2 + CH3 • CANalyst-II dual', detail: caConnected ? '${ch2.adapterName} • ${ch2.state.name} / ${ch3.adapterName} • ${ch3.state.name} • $_bitrate bit/s' : 'Native WinUSB transport • VID 04D8:PID 0053 • two CAN channels', icon: Icons.hub),
+          _StatusTile(name: 'CH2 + CH3 • CANalyst-II dual', detail: caConnected ? '${ch2.adapterName} • ${ch2.state.name} / ${ch3.adapterName} • ${ch3.state.name} • $_highSpeedBitrate bit/s' : 'Native WinUSB transport • VID 04D8:PID 0053 • two CAN channels', icon: Icons.hub),
           const SizedBox(height: 8),
           Wrap(spacing: 12, runSpacing: 12, crossAxisAlignment: WrapCrossAlignment.center, children: [
             FilledButton.icon(onPressed: caConnected || caBusy || _scanningCa ? null : _scanCanalystii, icon: _scanningCa ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.search), label: const Text('Scan CANalyst-II')),
@@ -265,7 +267,7 @@ class _ConnectPageState extends State<ConnectPage> {
             if (caConnected) FilledButton.tonalIcon(onPressed: () => runtime.disconnectChannel(2), icon: const Icon(Icons.link_off), label: const Text('Disconnect CANalyst-II')),
           ]),
           const SizedBox(height: 18),
-          _StatusTile(name: 'CH4 + CH5 • LYS USBCAN-II dual', detail: lysConnected ? '${ch4.adapterName} • ${ch4.state.name} / ${ch5.adapterName} • ${ch5.state.name} • $_bitrate bit/s' : _lysAvailable ? 'ControlCAN VCI ready • VID 0471:PID 1200' : 'Requires x64 ControlCAN.dll beside obd_atlas.exe', icon: Icons.device_hub),
+          _StatusTile(name: 'CH4 + CH5 • LYS USBCAN-II dual', detail: lysConnected ? '${ch4.adapterName} • ${ch4.state.name} / ${ch5.adapterName} • ${ch5.state.name} • $_highSpeedBitrate bit/s' : _lysAvailable ? 'ControlCAN VCI ready • VID 0471:PID 1200' : 'Requires x64 ControlCAN.dll beside obd_atlas.exe', icon: Icons.device_hub),
           const SizedBox(height: 8),
           Wrap(spacing: 12, runSpacing: 12, children: [
             FilledButton.icon(onPressed: lysConnected || lysBusy || _probingLys ? null : _probeLys, icon: _probingLys ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.search), label: const Text('Probe LYS USBCAN')),
@@ -273,7 +275,7 @@ class _ConnectPageState extends State<ConnectPage> {
             if (lysConnected) FilledButton.tonalIcon(onPressed: () => runtime.disconnectChannel(4), icon: const Icon(Icons.link_off), label: const Text('Disconnect LYS')),
           ]),
           const SizedBox(height: 18),
-          _StatusTile(name: 'CH1 • USB CAN / CANable (SLCAN)', detail: ch1.adapter?.transport == 'SLCAN' ? '${ch1.adapterName} • ${ch1.state.name} • $_bitrate bit/s' : 'Serial Lawicel transport ready', icon: Icons.cable),
+          _StatusTile(name: 'CH1 • USB CAN / CANable (SLCAN)', detail: ch1.adapter?.transport == 'SLCAN serial' ? '${ch1.adapterName} • ${ch1.state.name} • $_highSpeedBitrate bit/s' : 'Serial Lawicel transport ready', icon: Icons.cable),
           const SizedBox(height: 8),
           Wrap(spacing: 12, runSpacing: 12, crossAxisAlignment: WrapCrossAlignment.center, children: [
             FilledButton.icon(onPressed: ch1.connected || ch1Busy ? null : _scanSlcan, icon: const Icon(Icons.search), label: const Text('Scan serial ports')),
@@ -282,17 +284,31 @@ class _ConnectPageState extends State<ConnectPage> {
             if (ch1.connected) FilledButton.tonalIcon(onPressed: () => runtime.disconnectChannel(1), icon: const Icon(Icons.link_off), label: const Text('Disconnect CH1')),
           ]),
           const SizedBox(height: 18),
-          SizedBox(width: 200, child: DropdownButtonFormField<int>(
-            initialValue: _bitrate,
-            decoration: const InputDecoration(labelText: 'CAN bitrate'),
-            items: const [
-              DropdownMenuItem(value: 125000, child: Text('125 kbit/s')),
-              DropdownMenuItem(value: 250000, child: Text('250 kbit/s')),
-              DropdownMenuItem(value: 500000, child: Text('500 kbit/s')),
-              DropdownMenuItem(value: 1000000, child: Text('1 Mbit/s')),
-            ],
-            onChanged: (ch1Busy || caBusy || caConnected || lysBusy || lysConnected) ? null : (v) => setState(() => _bitrate = v ?? 500000),
-          )),
+          Wrap(spacing: 16, runSpacing: 12, children: [
+            SizedBox(width: 230, child: DropdownButtonFormField<int>(
+              initialValue: _canableBitrate,
+              decoration: const InputDecoration(labelText: 'CANable CH1 bitrate'),
+              items: const [
+                DropdownMenuItem(value: 33333, child: Text('33.333 kbit/s')),
+                DropdownMenuItem(value: 125000, child: Text('125 kbit/s')),
+                DropdownMenuItem(value: 250000, child: Text('250 kbit/s')),
+                DropdownMenuItem(value: 500000, child: Text('500 kbit/s')),
+                DropdownMenuItem(value: 1000000, child: Text('1 Mbit/s')),
+              ],
+              onChanged: (ch1.connected || ch1Busy) ? null : (v) => setState(() => _canableBitrate = v ?? 33333),
+            )),
+            SizedBox(width: 260, child: DropdownButtonFormField<int>(
+              initialValue: _highSpeedBitrate,
+              decoration: const InputDecoration(labelText: 'CH2–CH5 / SLCAN bitrate'),
+              items: const [
+                DropdownMenuItem(value: 125000, child: Text('125 kbit/s')),
+                DropdownMenuItem(value: 250000, child: Text('250 kbit/s')),
+                DropdownMenuItem(value: 500000, child: Text('500 kbit/s')),
+                DropdownMenuItem(value: 1000000, child: Text('1 Mbit/s')),
+              ],
+              onChanged: (caBusy || caConnected || lysBusy || lysConnected || slcanConnected) ? null : (v) => setState(() => _highSpeedBitrate = v ?? 500000),
+            )),
+          ]),
           const SizedBox(height: 12),
           const _StatusTile(name: 'ELM / OBDLink', detail: 'Transport pending', icon: Icons.bluetooth),
           const _StatusTile(name: 'J2534 / VCX', detail: 'Windows transport pending', icon: Icons.memory),
@@ -313,7 +329,7 @@ class CapturePage extends StatelessWidget {
     animation: AtlasRuntime.instance,
     builder: (context, _) {
       final runtime = AtlasRuntime.instance;
-      final connected = runtime.adapterState == AtlasAdapterState.connected;
+      final connected = runtime.anyConnected;
       return PageShell(
         title: 'Passive Capture',
         subtitle: 'Raw CAN traffic is preserved locally before interpretation.',
