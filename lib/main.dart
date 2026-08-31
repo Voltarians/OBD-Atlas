@@ -197,7 +197,7 @@ class _ConnectPageState extends State<ConnectPage> {
       final found = await AtlasRuntime.instance.probeLysUsbcan();
       if (!mounted) return;
       setState(() => _lysAvailable = found);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(found ? 'LYS USBCAN-II detected through ControlCAN.dll.' : 'LYS USBCAN-II did not open.')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(found ? 'LYS USBCAN-II detected through direct WinUSB.' : 'LYS USBCAN-II did not open.')));
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
     } finally {
@@ -267,7 +267,7 @@ class _ConnectPageState extends State<ConnectPage> {
             if (caConnected) FilledButton.tonalIcon(onPressed: () => runtime.disconnectChannel(2), icon: const Icon(Icons.link_off), label: const Text('Disconnect CANalyst-II')),
           ]),
           const SizedBox(height: 18),
-          _StatusTile(name: 'CH4 + CH5 • LYS USBCAN-II dual', detail: lysConnected ? '${ch4.adapterName} • ${ch4.state.name} / ${ch5.adapterName} • ${ch5.state.name} • $_highSpeedBitrate bit/s' : _lysAvailable ? 'ControlCAN VCI ready • VID 0471:PID 1200' : 'Requires x64 ControlCAN.dll beside obd_atlas.exe', icon: Icons.device_hub),
+          _StatusTile(name: 'CH4 + CH5 • LYS USBCAN-II dual', detail: lysConnected ? '${ch4.adapterName} • ${ch4.state.name} / ${ch5.adapterName} • ${ch5.state.name} • $_highSpeedBitrate bit/s' : _lysAvailable ? 'Direct WinUSB ready • VID 0471:PID 1200' : 'Native direct WinUSB transport • no ControlCAN.dll required', icon: Icons.device_hub),
           const SizedBox(height: 8),
           Wrap(spacing: 12, runSpacing: 12, children: [
             FilledButton.icon(onPressed: lysConnected || lysBusy || _probingLys ? null : _probeLys, icon: _probingLys ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.search), label: const Text('Probe LYS USBCAN')),
@@ -440,7 +440,7 @@ class SettingsPage extends StatelessWidget {
       SwitchListTile(value: true, onChanged: null, title: Text('Offline-first mode'), subtitle: Text('Permanent architectural default')),
       SwitchListTile(value: true, onChanged: null, title: Text('Preserve raw captures'), subtitle: Text('Keep source evidence before decoding')),
       ListTile(leading: Icon(Icons.cloud_off), title: Text('Cloud dependency'), trailing: Text('NONE')),
-      ListTile(leading: Icon(Icons.info_outline), title: Text('Build'), trailing: Text('6')),
+      ListTile(leading: Icon(Icons.info_outline), title: Text('Build'), trailing: Text('7')),
     ]),
   );
 }
