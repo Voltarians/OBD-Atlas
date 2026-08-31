@@ -257,7 +257,7 @@ class LysUsbcanAdapter implements AtlasAdapter {
           if (received <= 0 || received > batchSize) continue;
           gotAny = true;
           for (var i = 0; i < received; i++) {
-            final native = buffer.elementAt(i).ref;
+            final native = (buffer + i).ref;
             final dlc = native.dataLen.clamp(0, 8);
             final payload = <int>[for (var n = 0; n < dlc; n++) native.data[n]];
             _frames.add(CanFrame(
@@ -293,7 +293,9 @@ class LysUsbcanAdapter implements AtlasAdapter {
         reset(_vciUsbCan2, deviceIndex, channel);
       }
     }
-    _close?.call(_vciUsbCan2, deviceIndex);
+    if (_library != null) {
+      _close?.call(_vciUsbCan2, deviceIndex);
+    }
     _close = null;
     _reset = null;
     _library = null;
