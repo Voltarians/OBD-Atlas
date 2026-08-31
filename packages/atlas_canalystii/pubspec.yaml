@@ -15,4 +15,4 @@ flutter:
   plugin:
     platforms:
       windows:
-        pluginClass: AtlasCanalystiiPlugin
+        pluginClass: AtlasCanalystiiPluginCApi
