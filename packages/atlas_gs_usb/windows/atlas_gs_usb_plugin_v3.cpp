@@ -284,6 +284,7 @@ bool ControlOut(UCHAR request, void* data, USHORT length, std::string* error) {
 
 uint32_t BrpForBitrate(int bitrate) {
   switch (bitrate) {
+    case 33333: return 90;
     case 125000: return 24;
     case 250000: return 12;
     case 500000: return 6;
@@ -296,7 +297,7 @@ bool OpenDevice(const std::wstring& path, int bitrate, std::string* error) {
   CloseDevice();
   const uint32_t brp = BrpForBitrate(bitrate);
   if (!brp) {
-    *error = "Unsupported gs_usb bitrate. Use 125k, 250k, 500k, or 1M.";
+    *error = "Unsupported gs_usb bitrate. Use 33.333k, 125k, 250k, 500k, or 1M.";
     return false;
   }
 
@@ -349,7 +350,9 @@ bool OpenDevice(const std::wstring& path, int bitrate, std::string* error) {
   if (!ControlOut(kRequestMode, &reset, sizeof(reset), error)) {
     CloseDevice(); return false;
   }
-  GsDeviceBitTiming timing{1, 11, 3, 1, brp};
+  // 16 tq/bit with an 87.5% sample point. At the CANable's 48 MHz CAN
+  // clock, BRP 90 yields 33,333.33 bit/s for Gen-1 Volt SWCAN.
+  GsDeviceBitTiming timing{6, 7, 2, 1, brp};
   if (!ControlOut(kRequestBitTiming, &timing, sizeof(timing), error)) {
     CloseDevice(); return false;
   }
