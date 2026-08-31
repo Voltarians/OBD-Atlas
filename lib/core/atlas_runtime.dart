@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:atlas_gs_usb/atlas_gs_usb.dart';
 import 'package:flutter/foundation.dart';
 
 import '../adapters/atlas_adapter.dart';
+import '../adapters/gs_usb_adapter.dart';
 import '../adapters/slcan_adapter.dart';
 import 'can_frame.dart';
 import 'local_store.dart';
@@ -50,11 +52,11 @@ class AtlasRuntime extends ChangeNotifier {
   bool get isCapturing => _captureSink != null;
 
   List<String> scanSlcanPorts() => SlcanAdapter.availablePorts();
+  Future<List<GsUsbDevice>> scanGsUsbDevices() => GsUsbAdapter.availableDevices();
 
   int get connectedChannelCount => channels.values.where((channel) => channel.connected).length;
   bool get anyConnected => connectedChannelCount > 0;
 
-  // Compatibility getters for the existing Build 1 UI.
   AtlasAdapterState get adapterState {
     if (channels.values.any((channel) => channel.state == AtlasAdapterState.error)) {
       return AtlasAdapterState.error;
@@ -77,6 +79,16 @@ class AtlasRuntime extends ChangeNotifier {
   }
 
   Future<void> connectSlcan(String portName, {int bitrate = 500000, int channel = 1}) async {
+    final adapter = SlcanAdapter(portName, bitrate: bitrate, channel: channel);
+    await _connectAdapter(adapter, channel);
+  }
+
+  Future<void> connectGsUsb(GsUsbDevice device, {int bitrate = 500000, int channel = 1}) async {
+    final adapter = GsUsbAdapter(device, bitrate: bitrate, channel: channel);
+    await _connectAdapter(adapter, channel);
+  }
+
+  Future<void> _connectAdapter(AtlasAdapter adapter, int channel) async {
     if (channel < 1 || channel > 5) {
       throw ArgumentError.value(channel, 'channel', 'Atlas supports channels 1 through 5.');
     }
@@ -84,8 +96,6 @@ class AtlasRuntime extends ChangeNotifier {
     await disconnectChannel(channel);
     final slot = channels[channel]!;
     slot.lastError = null;
-
-    final adapter = SlcanAdapter(portName, bitrate: bitrate, channel: channel);
     slot.adapter = adapter;
     slot.adapterName = adapter.displayName;
     slot.state = AtlasAdapterState.connecting;
@@ -95,7 +105,14 @@ class AtlasRuntime extends ChangeNotifier {
       slot.state = state;
       notifyListeners();
     });
-    slot.frameSubscription = adapter.frames.listen(_onFrame);
+    slot.frameSubscription = adapter.frames.listen(
+      _onFrame,
+      onError: (Object error) {
+        slot.lastError = error.toString();
+        slot.state = AtlasAdapterState.error;
+        notifyListeners();
+      },
+    );
 
     try {
       await adapter.connect();
