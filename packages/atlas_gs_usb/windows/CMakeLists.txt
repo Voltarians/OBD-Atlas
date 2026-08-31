@@ -5,7 +5,7 @@ project(${PROJECT_NAME} LANGUAGES CXX)
 set(PLUGIN_NAME "atlas_gs_usb_plugin")
 
 add_library(${PLUGIN_NAME} SHARED
-  "atlas_gs_usb_plugin.cpp"
+  "atlas_gs_usb_plugin_v3.cpp"
   "atlas_gs_usb_plugin_c_api.cpp"
 )
 apply_standard_settings(${PLUGIN_NAME})
