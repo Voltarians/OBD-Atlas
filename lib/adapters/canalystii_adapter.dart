@@ -69,13 +69,12 @@ class CanalystiiAdapter implements AtlasAdapter {
         final off = base + 1 + i * 21;
         if (off + 21 > data.length) break;
         final canId = bd.getUint32(off, Endian.little);
-        final timestamp100us = bd.getUint32(off + 4, Endian.little);
         final remote = data[off + 10] != 0;
         final extended = data[off + 11] != 0;
         final len = data[off + 12].clamp(0, 8);
         final payload = Uint8List.fromList(data.sublist(off + 13, off + 13 + len));
         _frames.add(CanFrame(
-          timestamp: Duration(microseconds: timestamp100us * 100),
+          timestamp: DateTime.now(),
           channel: logicalChannel,
           id: canId,
           extended: extended,
