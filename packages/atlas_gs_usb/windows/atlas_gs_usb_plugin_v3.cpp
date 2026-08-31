@@ -149,7 +149,7 @@ std::vector<std::wstring> ReadInterfaceGuids(HDEVINFO info,
     AppendGuidValue(device, L"DeviceInterfaceGUIDs", &guids);
     AppendGuidValue(device, L"DeviceInterfaceGUID", &guids);
 
-    HKEY params = INVALID_HANDLE_VALUE;
+    HKEY params = nullptr;
     if (RegOpenKeyExW(device, L"Device Parameters", 0, KEY_READ, &params) == ERROR_SUCCESS) {
       AppendGuidValue(params, L"DeviceInterfaceGUIDs", &guids);
       AppendGuidValue(params, L"DeviceInterfaceGUID", &guids);
