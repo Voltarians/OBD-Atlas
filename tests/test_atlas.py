@@ -112,6 +112,26 @@ class AtlasIngestTest(unittest.TestCase):
             self.assertIn("test-session", summary.stdout)
             self.assertIn("primary_swcan", summary.stdout)
 
+            discovery = subprocess.run(
+                [sys.executable, str(ATLAS), "discover", "test-session",
+                 "--database", str(database)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(discovery.returncode, 0, discovery.stderr)
+            self.assertIn("2 arbitration IDs analyzed", discovery.stdout)
+            connection = sqlite3.connect(database)
+            try:
+                self.assertEqual(
+                    connection.execute("SELECT COUNT(*) FROM id_metrics").fetchone()[0], 2
+                )
+                self.assertEqual(
+                    connection.execute("SELECT COUNT(*) FROM byte_metrics").fetchone()[0], 4
+                )
+            finally:
+                connection.close()
+
 
 if __name__ == "__main__":
     unittest.main()
