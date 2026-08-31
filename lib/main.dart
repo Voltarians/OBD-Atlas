@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:atlas_gs_usb/atlas_gs_usb.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
@@ -168,9 +169,12 @@ class ConnectPage extends StatefulWidget {
 class _ConnectPageState extends State<ConnectPage> {
   List<String> _ports = const [];
   String? _selectedPort;
+  List<GsUsbDevice> _gsDevices = const [];
+  String? _selectedGsPath;
   int _bitrate = 500000;
+  bool _scanningUsb = false;
 
-  void _scan() {
+  void _scanSlcan() {
     final ports = AtlasRuntime.instance.scanSlcanPorts();
     setState(() {
       _ports = ports;
@@ -180,11 +184,48 @@ class _ConnectPageState extends State<ConnectPage> {
     });
   }
 
-  Future<void> _connect() async {
+  Future<void> _scanGsUsb() async {
+    setState(() => _scanningUsb = true);
+    try {
+      final devices = await AtlasRuntime.instance.scanGsUsbDevices();
+      if (!mounted) return;
+      setState(() {
+        _gsDevices = devices;
+        if (_selectedGsPath == null || !devices.any((device) => device.path == _selectedGsPath)) {
+          _selectedGsPath = devices.isEmpty ? null : devices.first.path;
+        }
+      });
+      if (devices.isEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No candleLight/gs_usb device found.')),
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => _scanningUsb = false);
+    }
+  }
+
+  Future<void> _connectSlcan() async {
     final port = _selectedPort;
     if (port == null) return;
     try {
-      await AtlasRuntime.instance.connectSlcan(port, bitrate: _bitrate);
+      await AtlasRuntime.instance.connectSlcan(port, bitrate: _bitrate, channel: 1);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  Future<void> _connectGsUsb() async {
+    final path = _selectedGsPath;
+    if (path == null) return;
+    final device = _gsDevices.where((item) => item.path == path).firstOrNull;
+    if (device == null) return;
+    try {
+      await AtlasRuntime.instance.connectGsUsb(device, bitrate: _bitrate, channel: 1);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
@@ -197,65 +238,121 @@ class _ConnectPageState extends State<ConnectPage> {
       animation: AtlasRuntime.instance,
       builder: (context, _) {
         final runtime = AtlasRuntime.instance;
-        final connected = runtime.adapterState == AtlasAdapterState.connected;
+        final channel = runtime.channels[1]!;
+        final connected = channel.state == AtlasAdapterState.connected;
+        final busy = channel.state == AtlasAdapterState.connecting;
         return PageShell(
           title: 'Connect',
-          subtitle: 'SLCAN is the first real transport. candleLight/gs_usb remains a separate native USB transport.',
+          subtitle: 'CH1 supports native candleLight/gs_usb on Windows and SLCAN serial. Both run fully offline.',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _StatusTile(
-                name: 'USB CAN / CANable (SLCAN)',
-                detail: connected ? '${runtime.adapterName} • $_bitrate bit/s' : runtime.adapterState.name,
-                icon: Icons.usb,
+                name: 'CH1 • candleLight / gs_usb',
+                detail: channel.adapter?.transport == 'candleLight / gs_usb'
+                    ? '${channel.adapterName} • ${channel.state.name} • $_bitrate bit/s'
+                    : 'Native WinUSB transport ready',
+                icon: Icons.usb_rounded,
               ),
-              const _StatusTile(name: 'candleLight / gs_usb', detail: 'Native USB transport pending', icon: Icons.usb_rounded),
-              const _StatusTile(name: 'ELM / OBDLink', detail: 'Transport pending', icon: Icons.bluetooth),
-              const _StatusTile(name: 'J2534 / VCX', detail: 'Windows transport pending', icon: Icons.memory),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               Wrap(
                 spacing: 12,
                 runSpacing: 12,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  FilledButton.icon(onPressed: _scan, icon: const Icon(Icons.search), label: const Text('Scan serial ports')),
-                  SizedBox(
-                    width: 220,
-                    child: DropdownButtonFormField<String>(
-                      initialValue: _selectedPort,
-                      decoration: const InputDecoration(labelText: 'SLCAN port'),
-                      items: _ports.map((port) => DropdownMenuItem(value: port, child: Text(port))).toList(),
-                      onChanged: connected ? null : (value) => setState(() => _selectedPort = value),
-                    ),
+                  FilledButton.icon(
+                    onPressed: connected || busy || _scanningUsb ? null : _scanGsUsb,
+                    icon: _scanningUsb
+                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.usb),
+                    label: const Text('Scan gs_usb'),
                   ),
                   SizedBox(
-                    width: 180,
-                    child: DropdownButtonFormField<int>(
-                      initialValue: _bitrate,
-                      decoration: const InputDecoration(labelText: 'CAN bitrate'),
-                      items: const [
-                        DropdownMenuItem(value: 125000, child: Text('125 kbit/s')),
-                        DropdownMenuItem(value: 250000, child: Text('250 kbit/s')),
-                        DropdownMenuItem(value: 500000, child: Text('500 kbit/s')),
-                        DropdownMenuItem(value: 1000000, child: Text('1 Mbit/s')),
-                      ],
-                      onChanged: connected ? null : (value) => setState(() => _bitrate = value ?? 500000),
+                    width: 330,
+                    child: DropdownButtonFormField<String>(
+                      key: ValueKey('gs-$_selectedGsPath'),
+                      initialValue: _selectedGsPath,
+                      decoration: const InputDecoration(labelText: 'candleLight / CANable'),
+                      items: _gsDevices
+                          .map((device) => DropdownMenuItem(value: device.path, child: Text(device.label)))
+                          .toList(),
+                      onChanged: connected || busy ? null : (value) => setState(() => _selectedGsPath = value),
                     ),
                   ),
                   if (!connected)
                     FilledButton.icon(
-                      onPressed: _selectedPort == null ? null : _connect,
+                      onPressed: busy || _selectedGsPath == null ? null : _connectGsUsb,
                       icon: const Icon(Icons.link),
-                      label: const Text('Connect SLCAN'),
-                    )
-                  else
-                    FilledButton.tonalIcon(
-                      onPressed: AtlasRuntime.instance.disconnect,
-                      icon: const Icon(Icons.link_off),
-                      label: const Text('Disconnect'),
+                      label: const Text('Connect candleLight'),
                     ),
                 ],
               ),
+              const SizedBox(height: 18),
+              _StatusTile(
+                name: 'CH1 • USB CAN / CANable (SLCAN)',
+                detail: channel.adapter?.transport == 'SLCAN'
+                    ? '${channel.adapterName} • ${channel.state.name} • $_bitrate bit/s'
+                    : 'Serial Lawicel transport ready',
+                icon: Icons.cable,
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  FilledButton.icon(
+                    onPressed: connected || busy ? null : _scanSlcan,
+                    icon: const Icon(Icons.search),
+                    label: const Text('Scan serial ports'),
+                  ),
+                  SizedBox(
+                    width: 220,
+                    child: DropdownButtonFormField<String>(
+                      key: ValueKey('slcan-$_selectedPort'),
+                      initialValue: _selectedPort,
+                      decoration: const InputDecoration(labelText: 'SLCAN port'),
+                      items: _ports.map((port) => DropdownMenuItem(value: port, child: Text(port))).toList(),
+                      onChanged: connected || busy ? null : (value) => setState(() => _selectedPort = value),
+                    ),
+                  ),
+                  if (!connected)
+                    FilledButton.icon(
+                      onPressed: busy || _selectedPort == null ? null : _connectSlcan,
+                      icon: const Icon(Icons.link),
+                      label: const Text('Connect SLCAN'),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: 180,
+                child: DropdownButtonFormField<int>(
+                  initialValue: _bitrate,
+                  decoration: const InputDecoration(labelText: 'CH1 CAN bitrate'),
+                  items: const [
+                    DropdownMenuItem(value: 125000, child: Text('125 kbit/s')),
+                    DropdownMenuItem(value: 250000, child: Text('250 kbit/s')),
+                    DropdownMenuItem(value: 500000, child: Text('500 kbit/s')),
+                    DropdownMenuItem(value: 1000000, child: Text('1 Mbit/s')),
+                  ],
+                  onChanged: connected || busy ? null : (value) => setState(() => _bitrate = value ?? 500000),
+                ),
+              ),
+              if (connected) ...[
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: FilledButton.tonalIcon(
+                    onPressed: () => runtime.disconnectChannel(1),
+                    icon: const Icon(Icons.link_off),
+                    label: const Text('Disconnect CH1'),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              const _StatusTile(name: 'ELM / OBDLink', detail: 'Transport pending', icon: Icons.bluetooth),
+              const _StatusTile(name: 'J2534 / VCX', detail: 'Windows transport pending', icon: Icons.memory),
               if (runtime.lastError != null) ...[
                 const SizedBox(height: 12),
                 Text(runtime.lastError!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
