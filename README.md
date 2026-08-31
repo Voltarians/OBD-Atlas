@@ -58,6 +58,21 @@ The first run downloads the selected model. `base.en` is the default balance
 for CPU transcription. Output timestamps are relative to the beginning of the
 audio file and remain separate from the original evidence files.
 
+## Correlate voice annotations with CAN changes
+
+After correcting only the transcript text (never its timestamp columns), run:
+
+```bash
+python3 atlas.py correlate SESSION_ID capture.transcript.tsv \
+  --database obd_atlas.sqlite3 --limit 8
+```
+
+Atlas converts audio-relative timestamps to the capture's CAN epoch, compares
+each annotation window with the preceding baseline, and stores ranked byte
+candidates in `annotations` and `correlations`. High scores are research leads;
+rolling counters and multi-action speech segments can also score highly and
+must not be treated as decoded signals without repeat captures.
+
 ## Session manifest
 
 Schema identifier: `voltec-atlas.capture-session.v1`
