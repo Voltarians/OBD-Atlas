@@ -8,7 +8,7 @@ class AtlasLysUsbcan {
 
   static Future<void> connect({
     int bitrate = 500000,
-    int deviceIndex = 0,
+    int deviceIndex = -1,
   }) =>
       _channel.invokeMethod<void>('connect', {
         'bitrate': bitrate,
