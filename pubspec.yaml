@@ -18,6 +18,8 @@ dependencies:
     path: packages/atlas_gs_usb
   atlas_canalystii:
     path: packages/atlas_canalystii
+  atlas_lys_usbcan:
+    path: packages/atlas_lys_usbcan
 
 dev_dependencies:
   flutter_test:
