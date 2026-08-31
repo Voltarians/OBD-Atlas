@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:atlas_canalystii/atlas_canalystii.dart';
 import 'package:atlas_gs_usb/atlas_gs_usb.dart';
 import 'package:flutter/foundation.dart';
 
 import '../adapters/atlas_adapter.dart';
+import '../adapters/canalystii_adapter.dart';
 import '../adapters/gs_usb_adapter.dart';
 import '../adapters/slcan_adapter.dart';
 import 'can_frame.dart';
@@ -46,6 +48,7 @@ class AtlasRuntime extends ChangeNotifier {
   int framesThisSecond = 0;
   int framesPerSecond = 0;
   Timer? _rateTimer;
+  CanalystiiAdapter? _canalystAdapter;
 
   IOSink? _captureSink;
   File? activeCaptureFile;
@@ -53,6 +56,7 @@ class AtlasRuntime extends ChangeNotifier {
 
   List<String> scanSlcanPorts() => SlcanAdapter.availablePorts();
   Future<List<GsUsbDevice>> scanGsUsbDevices() => GsUsbAdapter.availableDevices();
+  Future<List<CanalystiiDevice>> scanCanalystiiDevices() => CanalystiiAdapter.availableDevices();
 
   int get connectedChannelCount => channels.values.where((channel) => channel.connected).length;
   bool get anyConnected => connectedChannelCount > 0;
@@ -86,6 +90,56 @@ class AtlasRuntime extends ChangeNotifier {
   Future<void> connectGsUsb(GsUsbDevice device, {int bitrate = 500000, int channel = 1}) async {
     final adapter = GsUsbAdapter(device, bitrate: bitrate, channel: channel);
     await _connectAdapter(adapter, channel);
+  }
+
+  Future<void> connectCanalystii(CanalystiiDevice device, {int bitrate = 500000, int baseChannel = 2}) async {
+    if (baseChannel < 1 || baseChannel >= 5) {
+      throw ArgumentError.value(baseChannel, 'baseChannel', 'CANalyst-II needs two Atlas channel slots.');
+    }
+    await disconnectChannel(baseChannel);
+    await disconnectChannel(baseChannel + 1);
+
+    final adapter = CanalystiiAdapter(device, bitrate: bitrate, baseChannel: baseChannel);
+    _canalystAdapter = adapter;
+    final first = channels[baseChannel]!;
+    final second = channels[baseChannel + 1]!;
+    first.adapter = adapter;
+    second.adapter = adapter;
+    first.adapterName = '${adapter.displayName} • CAN1';
+    second.adapterName = '${adapter.displayName} • CAN2';
+    first.state = AtlasAdapterState.connecting;
+    second.state = AtlasAdapterState.connecting;
+    first.lastError = null;
+    second.lastError = null;
+    notifyListeners();
+
+    first.stateSubscription = adapter.states.listen((state) {
+      first.state = state;
+      second.state = state;
+      notifyListeners();
+    });
+    first.frameSubscription = adapter.frames.listen(
+      _onFrame,
+      onError: (Object error) {
+        first.lastError = error.toString();
+        second.lastError = error.toString();
+        first.state = AtlasAdapterState.error;
+        second.state = AtlasAdapterState.error;
+        notifyListeners();
+      },
+    );
+
+    try {
+      await adapter.connect();
+      _startRateTimer();
+    } catch (error) {
+      first.lastError = error.toString();
+      second.lastError = error.toString();
+      first.state = AtlasAdapterState.error;
+      second.state = AtlasAdapterState.error;
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> _connectAdapter(AtlasAdapter adapter, int channel) async {
@@ -181,24 +235,49 @@ class AtlasRuntime extends ChangeNotifier {
     return file;
   }
 
+  Future<void> _disconnectCanalystii() async {
+    final adapter = _canalystAdapter;
+    if (adapter == null) return;
+    final affected = channels.values.where((slot) => identical(slot.adapter, adapter)).toList();
+    for (final slot in affected) {
+      await slot.frameSubscription?.cancel();
+      await slot.stateSubscription?.cancel();
+      slot.frameSubscription = null;
+      slot.stateSubscription = null;
+    }
+    await adapter.disconnect();
+    for (final slot in affected) {
+      slot.adapter = null;
+      slot.adapterName = null;
+      slot.state = AtlasAdapterState.disconnected;
+      slot.lastError = null;
+      slot.framesPerSecond = 0;
+      slot.framesThisSecond = 0;
+    }
+    _canalystAdapter = null;
+  }
+
   Future<void> disconnectChannel(int channel) async {
     final slot = channels[channel];
     if (slot == null) return;
+    if (_canalystAdapter != null && identical(slot.adapter, _canalystAdapter)) {
+      await _disconnectCanalystii();
+    } else {
+      await slot.frameSubscription?.cancel();
+      await slot.stateSubscription?.cancel();
+      slot.frameSubscription = null;
+      slot.stateSubscription = null;
 
-    await slot.frameSubscription?.cancel();
-    await slot.stateSubscription?.cancel();
-    slot.frameSubscription = null;
-    slot.stateSubscription = null;
+      final adapter = slot.adapter;
+      slot.adapter = null;
+      if (adapter != null) await adapter.disconnect();
 
-    final adapter = slot.adapter;
-    slot.adapter = null;
-    if (adapter != null) await adapter.disconnect();
-
-    slot.adapterName = null;
-    slot.state = AtlasAdapterState.disconnected;
-    slot.lastError = null;
-    slot.framesPerSecond = 0;
-    slot.framesThisSecond = 0;
+      slot.adapterName = null;
+      slot.state = AtlasAdapterState.disconnected;
+      slot.lastError = null;
+      slot.framesPerSecond = 0;
+      slot.framesThisSecond = 0;
+    }
 
     if (!anyConnected) {
       _rateTimer?.cancel();
@@ -211,6 +290,7 @@ class AtlasRuntime extends ChangeNotifier {
 
   Future<void> disconnect() async {
     await stopCapture();
+    if (_canalystAdapter != null) await _disconnectCanalystii();
     for (var channel = 1; channel <= 5; channel++) {
       await disconnectChannel(channel);
     }
