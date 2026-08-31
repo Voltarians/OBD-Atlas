@@ -85,6 +85,38 @@ CREATE INDEX IF NOT EXISTS idx_frames_session_interface_time
     ON frames(session_id, logged_interface, timestamp);
 CREATE INDEX IF NOT EXISTS idx_frames_session_interface_id
     ON frames(session_id, logged_interface, arbitration_id);
+
+CREATE TABLE IF NOT EXISTS id_metrics (
+    session_id TEXT NOT NULL,
+    logged_interface TEXT NOT NULL,
+    arbitration_id INTEGER NOT NULL,
+    frame_count INTEGER NOT NULL,
+    first_timestamp REAL NOT NULL,
+    last_timestamp REAL NOT NULL,
+    mean_period_ms REAL,
+    transition_count INTEGER NOT NULL,
+    changing_byte_count INTEGER NOT NULL,
+    activity_score REAL NOT NULL,
+    PRIMARY KEY (session_id, logged_interface, arbitration_id),
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS byte_metrics (
+    session_id TEXT NOT NULL,
+    logged_interface TEXT NOT NULL,
+    arbitration_id INTEGER NOT NULL,
+    byte_index INTEGER NOT NULL,
+    observation_count INTEGER NOT NULL,
+    distinct_values INTEGER NOT NULL,
+    minimum_value INTEGER NOT NULL,
+    maximum_value INTEGER NOT NULL,
+    change_count INTEGER NOT NULL,
+    activity_score REAL NOT NULL,
+    PRIMARY KEY (session_id, logged_interface, arbitration_id, byte_index),
+    FOREIGN KEY (session_id, logged_interface, arbitration_id)
+        REFERENCES id_metrics(session_id, logged_interface, arbitration_id)
+        ON DELETE CASCADE
+);
 """
 
 
@@ -333,7 +365,9 @@ def ingest(args: argparse.Namespace) -> int:
 def summary(args: argparse.Namespace) -> int:
     if not args.database.is_file():
         raise AtlasError(f"Database does not exist: {args.database}")
-    connection = sqlite3.connect(args.database)
+    # Opening through the schema initializer upgrades older Atlas databases
+    # in place before discovery runs.
+    connection = open_database(args.database.resolve())
     connection.row_factory = sqlite3.Row
     try:
         sessions = connection.execute(
@@ -379,6 +413,115 @@ def summary(args: argparse.Namespace) -> int:
         connection.close()
 
 
+def discover(args: argparse.Namespace) -> int:
+    if not args.database.is_file():
+        raise AtlasError(f"Database does not exist: {args.database}")
+    connection = open_database(args.database.resolve())
+    try:
+        session = connection.execute(
+            "SELECT 1 FROM sessions WHERE session_id = ?", (args.session_id,)
+        ).fetchone()
+        if not session:
+            raise AtlasError(f"Session does not exist: {args.session_id}")
+
+        aggregates: dict[tuple[str, int], dict] = {}
+        cursor = connection.execute(
+            """
+            SELECT logged_interface, arbitration_id, timestamp, data
+            FROM frames WHERE session_id = ?
+            ORDER BY logged_interface, arbitration_id, timestamp, sequence
+            """,
+            (args.session_id,),
+        )
+        for interface, arbitration_id, timestamp, data in cursor:
+            key = (interface, arbitration_id)
+            metric = aggregates.get(key)
+            if metric is None:
+                metric = {
+                    "count": 0,
+                    "first": timestamp,
+                    "last": timestamp,
+                    "previous": None,
+                    "transitions": 0,
+                    "bytes": [],
+                }
+                aggregates[key] = metric
+            metric["count"] += 1
+            metric["last"] = timestamp
+            if metric["previous"] is not None and data != metric["previous"]:
+                metric["transitions"] += 1
+            while len(metric["bytes"]) < len(data):
+                metric["bytes"].append(
+                    {"count": 0, "values": set(), "min": 255, "max": 0,
+                     "previous": None, "changes": 0}
+                )
+            for index, value in enumerate(data):
+                byte = metric["bytes"][index]
+                byte["count"] += 1
+                byte["values"].add(value)
+                byte["min"] = min(byte["min"], value)
+                byte["max"] = max(byte["max"], value)
+                if byte["previous"] is not None and value != byte["previous"]:
+                    byte["changes"] += 1
+                byte["previous"] = value
+            metric["previous"] = data
+
+        with connection:
+            connection.execute("DELETE FROM byte_metrics WHERE session_id = ?", (args.session_id,))
+            connection.execute("DELETE FROM id_metrics WHERE session_id = ?", (args.session_id,))
+            for (interface, arbitration_id), metric in aggregates.items():
+                count = metric["count"]
+                duration = metric["last"] - metric["first"]
+                mean_period_ms = (duration * 1000 / (count - 1)) if count > 1 else None
+                changing_bytes = sum(len(byte["values"]) > 1 for byte in metric["bytes"])
+                transition_ratio = metric["transitions"] / max(count - 1, 1)
+                diversity = sum(min(len(byte["values"]) - 1, 32) for byte in metric["bytes"])
+                activity_score = round(100 * transition_ratio + diversity + changing_bytes * 5, 6)
+                connection.execute(
+                    """
+                    INSERT INTO id_metrics VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (args.session_id, interface, arbitration_id, count, metric["first"],
+                     metric["last"], mean_period_ms, metric["transitions"],
+                     changing_bytes, activity_score),
+                )
+                for index, byte in enumerate(metric["bytes"]):
+                    change_ratio = byte["changes"] / max(byte["count"] - 1, 1)
+                    byte_score = round(
+                        100 * change_ratio + min(len(byte["values"]) - 1, 32), 6
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO byte_metrics VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (args.session_id, interface, arbitration_id, index,
+                         byte["count"], len(byte["values"]), byte["min"],
+                         byte["max"], byte["changes"], byte_score),
+                    )
+
+        rows = connection.execute(
+            """
+            SELECT logged_interface, arbitration_id, frame_count, mean_period_ms,
+                   transition_count, changing_byte_count, activity_score
+            FROM id_metrics WHERE session_id = ?
+            ORDER BY activity_score DESC, frame_count DESC LIMIT ?
+            """,
+            (args.session_id, args.limit),
+        ).fetchall()
+        print(f"Discovery complete: {len(aggregates)} arbitration IDs analyzed")
+        print("BUS     ID        FRAMES   PERIOD_MS  TRANSITIONS  BYTES  SCORE")
+        for interface, arbitration_id, frames, period, transitions, changing, score in rows:
+            period_text = "-" if period is None else f"{period:.3f}"
+            width = 3 if arbitration_id <= 0x7FF else 8
+            print(
+                f"{interface:<7} {arbitration_id:0{width}X}  {frames:>7}  "
+                f"{period_text:>9}  {transitions:>11}  {changing:>5}  {score:>7.2f}"
+            )
+        return 0
+    finally:
+        connection.close()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="OBD Atlas passive CAN capture tools")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -398,6 +541,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--database", type=Path, default=Path("obd_atlas.sqlite3")
     )
     summary_parser.set_defaults(func=summary)
+
+    discover_parser = subparsers.add_parser(
+        "discover", help="Rank changing IDs and byte positions in an imported session"
+    )
+    discover_parser.add_argument("session_id")
+    discover_parser.add_argument(
+        "--database", type=Path, default=Path("obd_atlas.sqlite3")
+    )
+    discover_parser.add_argument("--limit", type=int, default=25)
+    discover_parser.set_defaults(func=discover)
     return parser
 
 
