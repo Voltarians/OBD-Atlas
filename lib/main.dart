@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import 'adapters/atlas_adapter.dart';
+import 'core/atlas_runtime.dart';
 import 'core/local_store.dart';
 
 void main() {
@@ -85,13 +87,19 @@ class _AtlasHomePageState extends State<AtlasHomePage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('OBD ATLAS'),
-        actions: const [
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Chip(
-              avatar: Icon(Icons.offline_bolt, size: 18),
-              label: Text('OFFLINE READY'),
-            ),
+        actions: [
+          AnimatedBuilder(
+            animation: AtlasRuntime.instance,
+            builder: (context, _) {
+              final connected = AtlasRuntime.instance.adapterState == AtlasAdapterState.connected;
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Chip(
+                  avatar: Icon(connected ? Icons.usb : Icons.offline_bolt, size: 18),
+                  label: Text(connected ? 'ADAPTER CONNECTED' : 'OFFLINE READY'),
+                ),
+              );
+            },
           )
         ],
       ),
@@ -150,24 +158,112 @@ class VehiclePage extends StatelessWidget {
   }
 }
 
-class ConnectPage extends StatelessWidget {
+class ConnectPage extends StatefulWidget {
   const ConnectPage({super.key});
 
   @override
+  State<ConnectPage> createState() => _ConnectPageState();
+}
+
+class _ConnectPageState extends State<ConnectPage> {
+  List<String> _ports = const [];
+  String? _selectedPort;
+  int _bitrate = 500000;
+
+  void _scan() {
+    final ports = AtlasRuntime.instance.scanSlcanPorts();
+    setState(() {
+      _ports = ports;
+      if (_selectedPort == null || !ports.contains(_selectedPort)) {
+        _selectedPort = ports.isEmpty ? null : ports.first;
+      }
+    });
+  }
+
+  Future<void> _connect() async {
+    final port = _selectedPort;
+    if (port == null) return;
+    try {
+      await AtlasRuntime.instance.connectSlcan(port, bitrate: _bitrate);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return PageShell(
-      title: 'Connect',
-      subtitle: 'Adapter transport is modular. The UI remains usable even when no adapter is attached.',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const _StatusTile(name: 'USB CAN / CANable', detail: 'Disconnected', icon: Icons.usb),
-          const _StatusTile(name: 'ELM / OBDLink', detail: 'Disconnected', icon: Icons.bluetooth),
-          const _StatusTile(name: 'J2534 / VCX', detail: 'Windows transport planned', icon: Icons.memory),
-          const SizedBox(height: 12),
-          FilledButton.icon(onPressed: null, icon: const Icon(Icons.search), label: const Text('Scan adapters')),
-        ],
-      ),
+    return AnimatedBuilder(
+      animation: AtlasRuntime.instance,
+      builder: (context, _) {
+        final runtime = AtlasRuntime.instance;
+        final connected = runtime.adapterState == AtlasAdapterState.connected;
+        return PageShell(
+          title: 'Connect',
+          subtitle: 'SLCAN is the first real transport. candleLight/gs_usb remains a separate native USB transport.',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _StatusTile(
+                name: 'USB CAN / CANable (SLCAN)',
+                detail: connected ? '${runtime.adapterName} • $_bitrate bit/s' : runtime.adapterState.name,
+                icon: Icons.usb,
+              ),
+              const _StatusTile(name: 'candleLight / gs_usb', detail: 'Native USB transport pending', icon: Icons.usb_rounded),
+              const _StatusTile(name: 'ELM / OBDLink', detail: 'Transport pending', icon: Icons.bluetooth),
+              const _StatusTile(name: 'J2534 / VCX', detail: 'Windows transport pending', icon: Icons.memory),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  FilledButton.icon(onPressed: _scan, icon: const Icon(Icons.search), label: const Text('Scan serial ports')),
+                  SizedBox(
+                    width: 220,
+                    child: DropdownButtonFormField<String>(
+                      value: _selectedPort,
+                      decoration: const InputDecoration(labelText: 'SLCAN port'),
+                      items: _ports.map((port) => DropdownMenuItem(value: port, child: Text(port))).toList(),
+                      onChanged: connected ? null : (value) => setState(() => _selectedPort = value),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 180,
+                    child: DropdownButtonFormField<int>(
+                      value: _bitrate,
+                      decoration: const InputDecoration(labelText: 'CAN bitrate'),
+                      items: const [
+                        DropdownMenuItem(value: 125000, child: Text('125 kbit/s')),
+                        DropdownMenuItem(value: 250000, child: Text('250 kbit/s')),
+                        DropdownMenuItem(value: 500000, child: Text('500 kbit/s')),
+                        DropdownMenuItem(value: 1000000, child: Text('1 Mbit/s')),
+                      ],
+                      onChanged: connected ? null : (value) => setState(() => _bitrate = value ?? 500000),
+                    ),
+                  ),
+                  if (!connected)
+                    FilledButton.icon(
+                      onPressed: _selectedPort == null ? null : _connect,
+                      icon: const Icon(Icons.link),
+                      label: const Text('Connect SLCAN'),
+                    )
+                  else
+                    FilledButton.tonalIcon(
+                      onPressed: AtlasRuntime.instance.disconnect,
+                      icon: const Icon(Icons.link_off),
+                      label: const Text('Disconnect'),
+                    ),
+                ],
+              ),
+              if (runtime.lastError != null) ...[
+                const SizedBox(height: 12),
+                Text(runtime.lastError!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              ],
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -177,25 +273,56 @@ class CapturePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return PageShell(
-      title: 'Passive Capture',
-      subtitle: 'Passive-first collection. Raw traffic should be preserved before interpretation.',
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            children: [
-              const Icon(Icons.fiber_manual_record, size: 56),
-              const SizedBox(height: 12),
-              const Text('No active capture'),
-              const SizedBox(height: 12),
-              FilledButton.icon(onPressed: null, icon: const Icon(Icons.play_arrow), label: const Text('Start capture')),
-              const SizedBox(height: 8),
-              const Text('Capture transport wiring lands in the next implementation step.'),
-            ],
+    return AnimatedBuilder(
+      animation: AtlasRuntime.instance,
+      builder: (context, _) {
+        final runtime = AtlasRuntime.instance;
+        final connected = runtime.adapterState == AtlasAdapterState.connected;
+        return PageShell(
+          title: 'Passive Capture',
+          subtitle: 'Raw CAN traffic is preserved locally before interpretation.',
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  Icon(runtime.isCapturing ? Icons.stop_circle : Icons.fiber_manual_record, size: 56),
+                  const SizedBox(height: 12),
+                  Text(runtime.isCapturing ? 'Capture active' : connected ? 'Adapter ready' : 'No adapter connected'),
+                  const SizedBox(height: 6),
+                  Text('${runtime.totalFrames} total frames • ${runtime.framesPerSecond} frames/s'),
+                  const SizedBox(height: 12),
+                  if (!runtime.isCapturing)
+                    FilledButton.icon(
+                      onPressed: connected
+                          ? () async {
+                              try {
+                                await runtime.startCapture();
+                              } catch (error) {
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+                              }
+                            }
+                          : null,
+                      icon: const Icon(Icons.play_arrow),
+                      label: const Text('Start capture'),
+                    )
+                  else
+                    FilledButton.icon(
+                      onPressed: runtime.stopCapture,
+                      icon: const Icon(Icons.stop),
+                      label: const Text('Stop capture'),
+                    ),
+                  if (runtime.activeCaptureFile != null) ...[
+                    const SizedBox(height: 8),
+                    SelectableText(runtime.activeCaptureFile!.path),
+                  ],
+                ],
+              ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -205,19 +332,49 @@ class LiveDataPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return PageShell(
-      title: 'Live Data',
-      subtitle: 'A generic signal dashboard that can later bind to decoded CAN, UDS DIDs, or OBD PIDs.',
-      child: Wrap(
-        spacing: 12,
-        runSpacing: 12,
-        children: const [
-          _MetricCard(label: 'Frames/s', value: '0', icon: Icons.speed),
-          _MetricCard(label: 'Bus load', value: '0%', icon: Icons.timeline),
-          _MetricCard(label: 'CAN IDs', value: '0', icon: Icons.tag),
-          _MetricCard(label: 'Errors', value: '0', icon: Icons.warning_amber),
-        ],
-      ),
+    return AnimatedBuilder(
+      animation: AtlasRuntime.instance,
+      builder: (context, _) {
+        final runtime = AtlasRuntime.instance;
+        final frames = runtime.recentFrames.take(50).toList();
+        return PageShell(
+          title: 'Live Data',
+          subtitle: 'Raw frame visibility first; decoding layers can bind to the same canonical stream later.',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  _MetricCard(label: 'Frames/s', value: '${runtime.framesPerSecond}', icon: Icons.speed),
+                  _MetricCard(label: 'Total frames', value: '${runtime.totalFrames}', icon: Icons.timeline),
+                  _MetricCard(label: 'CAN IDs', value: '${runtime.seenIds.length}', icon: Icons.tag),
+                  _MetricCard(label: 'Buffered', value: '${runtime.recentFrames.length}', icon: Icons.memory),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Card(
+                child: Column(
+                  children: [
+                    const ListTile(title: Text('Recent raw CAN frames')),
+                    if (frames.isEmpty)
+                      const ListTile(title: Text('No frames received yet'))
+                    else
+                      ...frames.map((frame) => ListTile(
+                            dense: true,
+                            leading: Text(frame.bus),
+                            title: Text(frame.idHex),
+                            subtitle: Text(frame.dataHex.isEmpty ? '(remote frame)' : frame.dataHex),
+                            trailing: Text('DLC ${frame.dlc}'),
+                          )),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
