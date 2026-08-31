@@ -64,6 +64,14 @@ class AtlasLocalStore {
     return entries;
   }
 
+  Future<File> createCaptureFile() async {
+    final dir = await logsDirectory();
+    final now = DateTime.now();
+    String two(int value) => value.toString().padLeft(2, '0');
+    final stamp = '${now.year}${two(now.month)}${two(now.day)}_${two(now.hour)}${two(now.minute)}${two(now.second)}';
+    return File('${dir.path}${Platform.pathSeparator}atlas_capture_$stamp.log');
+  }
+
   Future<File> importLog(File source) async {
     final dir = await logsDirectory();
     final baseName = source.uri.pathSegments.last;
