@@ -7,7 +7,7 @@ import '../core/can_frame.dart';
 import 'atlas_adapter.dart';
 
 class LysUsbcanAdapter implements AtlasAdapter {
-  LysUsbcanAdapter({required this.bitrate, this.baseChannel = 4, this.deviceIndex = 0});
+  LysUsbcanAdapter({required this.bitrate, this.baseChannel = 4, this.deviceIndex = -1});
 
   final int bitrate;
   final int baseChannel;
@@ -22,13 +22,13 @@ class LysUsbcanAdapter implements AtlasAdapter {
   static Future<bool> probe() => AtlasLysUsbcan.probe();
 
   @override
-  String get id => 'lys-usbcan-$deviceIndex';
+  String get id => deviceIndex < 0 ? 'lys-usbcan-auto' : 'lys-usbcan-$deviceIndex';
 
   @override
   String get displayName => 'LYS USBCAN-II • 0471:1200';
 
   @override
-  String get transport => 'ControlCAN VCI native';
+  String get transport => 'ControlCAN VCI native • auto index';
 
   @override
   AtlasAdapterState get state => _state;
