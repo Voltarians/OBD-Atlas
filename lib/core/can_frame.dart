@@ -5,17 +5,25 @@ class CanFrame {
     required this.data,
     this.extended = false,
     this.remote = false,
-    this.bus = 'can0',
-  });
+    this.channel = 1,
+    String? bus,
+  }) : bus = bus ?? 'can${channel - 1}';
 
   final DateTime timestamp;
   final int id;
   final List<int> data;
   final bool extended;
   final bool remote;
+
+  /// Atlas vehicle-bus channel, 1 through 5.
+  final int channel;
+
+  /// Stable textual bus tag written to capture files (can0 through can4 by default).
   final String bus;
 
   int get dlc => data.length;
+
+  String get channelLabel => 'CH$channel';
 
   String get idHex => id.toRadixString(16).toUpperCase().padLeft(extended ? 8 : 3, '0');
 
