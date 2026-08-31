@@ -1,0 +1,29 @@
+name: Frontend Check
+
+on:
+  push:
+    branches:
+      - main
+      - 'build/**'
+  pull_request:
+
+jobs:
+  flutter-check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate platform projects
+        shell: pwsh
+        run: flutter create --platforms=android,windows --project-name obd_atlas .
+      - name: Resolve packages
+        run: flutter pub get
+      - name: Analyze
+        run: flutter analyze
+      - name: Build Windows
+        run: flutter build windows --debug
+      - name: Build Android APK
+        run: flutter build apk --debug
