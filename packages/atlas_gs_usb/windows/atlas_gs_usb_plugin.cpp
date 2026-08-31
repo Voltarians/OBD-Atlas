@@ -273,6 +273,9 @@ bool ControlOut(UCHAR request, void* data, USHORT length, std::string* error) {
 
 uint32_t BrpForBitrate(int bitrate) {
   switch (bitrate) {
+    case 33333:
+      // 48 MHz gs_usb clock / (90 BRP * 16 time quanta) = 33.333 kbit/s.
+      return 90;
     case 125000:
       return 24;
     case 250000:
@@ -290,7 +293,7 @@ bool OpenDevice(const std::wstring& path, int bitrate, std::string* error) {
   CloseDevice();
   const uint32_t brp = BrpForBitrate(bitrate);
   if (brp == 0) {
-    *error = "Unsupported gs_usb bitrate. Use 125k, 250k, 500k, or 1M.";
+    *error = "Unsupported gs_usb bitrate. Use 33.333k, 125k, 250k, 500k, or 1M.";
     return false;
   }
 
