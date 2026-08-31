@@ -1,0 +1,22 @@
+name: obd_atlas
+version: 0.1.0+1
+publish_to: none
+
+description: Offline-first OBD Atlas desktop and Android research frontend.
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  path_provider: ^2.1.5
+  file_picker: ^8.1.7
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
