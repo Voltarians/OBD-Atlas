@@ -85,7 +85,7 @@ class AtlasRuntime extends ChangeNotifier {
     await _connectAdapter(SlcanAdapter(portName, bitrate: bitrate, channel: channel), channel);
   }
 
-  Future<void> connectGsUsb(GsUsbDevice device, {int bitrate = 500000, int channel = 1}) async {
+  Future<void> connectGsUsb(GsUsbDevice device, {int bitrate = 33333, int channel = 1}) async {
     await _connectAdapter(GsUsbAdapter(device, bitrate: bitrate, channel: channel), channel);
   }
 
