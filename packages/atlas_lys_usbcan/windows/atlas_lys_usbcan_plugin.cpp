@@ -56,6 +56,7 @@ ResetCanFn g_resetCan = nullptr;
 ReceiveFn g_receive = nullptr;
 bool g_open = false;
 DWORD g_deviceIndex = 0;
+int g_selectedDeviceIndex = -1;
 std::wstring g_loadedPath;
 
 std::string WindowsError(DWORD code) {
@@ -184,6 +185,7 @@ void UnloadDll() {
   g_startCan = nullptr;
   g_resetCan = nullptr;
   g_receive = nullptr;
+  g_selectedDeviceIndex = -1;
   g_loadedPath.clear();
 }
 
@@ -208,37 +210,69 @@ bool RawTiming(int bitrate, uint8_t* timing0, uint8_t* timing1) {
 
 bool ProbeDevice(std::string* error) {
   if (!EnsureLoaded(error)) return false;
-  if (g_open) return true;
+  if (g_open) {
+    g_selectedDeviceIndex = static_cast<int>(g_deviceIndex);
+    return true;
+  }
 
-  const DWORD opened = g_openDevice(kVciUsbCan2, 0, 0);
-  if (opened != kStatusOk) {
-    std::ostringstream out;
-    out << "VCI_OpenDevice(4,0,0) returned " << opened
-        << " from the native Windows plugin.";
-    *error = out.str();
-    return false;
+  // ControlCAN numbers every device of VCI_USBCAN2 type with a DevIndex.
+  // CANalyst-II also presents itself through that compatible API, so index 0
+  // is not necessarily the LYS adapter when both are attached. Prefer the
+  // nonzero slots first and keep index 0 as the single-adapter fallback.
+  const DWORD candidates[] = {1, 2, 3, 4, 5, 6, 7, 0};
+  std::ostringstream attempts;
+  bool firstAttempt = true;
+
+  for (const DWORD index : candidates) {
+    const DWORD opened = g_openDevice(kVciUsbCan2, index, 0);
+    if (!firstAttempt) attempts << ", ";
+    attempts << index << "=" << opened;
+    firstAttempt = false;
+    if (opened != kStatusOk) continue;
+
+    const DWORD closed = g_closeDevice(kVciUsbCan2, index);
+    if (closed != kStatusOk) {
+      std::ostringstream out;
+      out << "VCI_CloseDevice(4," << index << ") returned " << closed
+          << " after a successful auto-index probe.";
+      *error = out.str();
+      return false;
+    }
+
+    g_selectedDeviceIndex = static_cast<int>(index);
+    return true;
   }
-  const DWORD closed = g_closeDevice(kVciUsbCan2, 0);
-  if (closed != kStatusOk) {
-    std::ostringstream out;
-    out << "VCI_CloseDevice(4,0) returned " << closed
-        << " after a successful probe.";
-    *error = out.str();
-    return false;
-  }
-  return true;
+
+  std::ostringstream out;
+  out << "No available ControlCAN USBCAN-II index opened. Tried DevIndex "
+      << attempts.str()
+      << ". With CANalyst-II already connected, the free index should identify the LYS adapter.";
+  *error = out.str();
+  return false;
 }
 
-bool OpenVci(int bitrate, DWORD deviceIndex, std::string* error) {
+bool OpenVci(int bitrate, int requestedDeviceIndex, std::string* error) {
   if (!EnsureLoaded(error)) return false;
   CloseVci();
 
+  int selectedIndex = requestedDeviceIndex;
+  if (selectedIndex < 0) {
+    if (g_selectedDeviceIndex < 0 && !ProbeDevice(error)) return false;
+    selectedIndex = g_selectedDeviceIndex;
+  }
+  if (selectedIndex < 0) {
+    *error = "No LYS ControlCAN device index has been selected.";
+    return false;
+  }
+
+  const DWORD deviceIndex = static_cast<DWORD>(selectedIndex);
   const DWORD opened = g_openDevice(kVciUsbCan2, deviceIndex, 0);
   if (opened != kStatusOk) {
     std::ostringstream out;
     out << "VCI_OpenDevice(4," << deviceIndex << ",0) returned " << opened
-        << " from the native Windows plugin.";
+        << " from the native Windows plugin after auto-index selection.";
     *error = out.str();
+    if (requestedDeviceIndex < 0) g_selectedDeviceIndex = -1;
     return false;
   }
 
@@ -264,8 +298,8 @@ bool OpenVci(int bitrate, DWORD deviceIndex, std::string* error) {
         g_initCan(kVciUsbCan2, deviceIndex, channel, &config);
     if (initialized != kStatusOk) {
       std::ostringstream out;
-      out << "VCI_InitCAN channel " << channel << " returned " << initialized
-          << ".";
+      out << "VCI_InitCAN channel " << channel << " on DevIndex "
+          << deviceIndex << " returned " << initialized << ".";
       *error = out.str();
       g_closeDevice(kVciUsbCan2, deviceIndex);
       return false;
@@ -273,8 +307,8 @@ bool OpenVci(int bitrate, DWORD deviceIndex, std::string* error) {
     const DWORD started = g_startCan(kVciUsbCan2, deviceIndex, channel);
     if (started != kStatusOk) {
       std::ostringstream out;
-      out << "VCI_StartCAN channel " << channel << " returned " << started
-          << ".";
+      out << "VCI_StartCAN channel " << channel << " on DevIndex "
+          << deviceIndex << " returned " << started << ".";
       *error = out.str();
       g_closeDevice(kVciUsbCan2, deviceIndex);
       return false;
@@ -282,6 +316,7 @@ bool OpenVci(int bitrate, DWORD deviceIndex, std::string* error) {
   }
 
   g_deviceIndex = deviceIndex;
+  g_selectedDeviceIndex = selectedIndex;
   g_open = true;
   return true;
 }
@@ -364,7 +399,7 @@ void AtlasLysUsbcanPlugin::HandleMethodCall(
     const auto bitrateValue = args->find(flutter::EncodableValue("bitrate"));
     const auto indexValue = args->find(flutter::EncodableValue("deviceIndex"));
     int bitrate = 500000;
-    int deviceIndex = 0;
+    int deviceIndex = -1;
     if (bitrateValue == args->end() ||
         !ReadInt(bitrateValue->second, &bitrate)) {
       result->Error("bad_args", "Invalid bitrate.");
@@ -375,13 +410,13 @@ void AtlasLysUsbcanPlugin::HandleMethodCall(
       result->Error("bad_args", "Invalid device index.");
       return;
     }
-    if (deviceIndex < 0) {
-      result->Error("bad_args", "Device index must be zero or greater.");
+    if (deviceIndex < -1) {
+      result->Error("bad_args", "Device index must be -1 for auto or zero or greater.");
       return;
     }
 
     std::string error;
-    if (!OpenVci(bitrate, static_cast<DWORD>(deviceIndex), &error)) {
+    if (!OpenVci(bitrate, deviceIndex, &error)) {
       result->Error("lys_connect", error);
       return;
     }
