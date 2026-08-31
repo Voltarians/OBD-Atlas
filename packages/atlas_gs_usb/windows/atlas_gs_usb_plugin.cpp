@@ -5,6 +5,7 @@
 #include <windows.h>
 #include <setupapi.h>
 #include <usb.h>
+#include <initguid.h>
 #include <usbiodef.h>
 #include <winusb.h>
 
