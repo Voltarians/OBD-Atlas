@@ -84,14 +84,22 @@ std::wstring Lower(std::wstring value) {
 
 bool IsSupportedPath(const std::wstring& path) {
   const auto lower = Lower(path);
-  return (lower.find(L"vid_1d50&pid_606f") != std::wstring::npos) ||
-         (lower.find(L"vid_1209&pid_2323") != std::wstring::npos);
+  const bool canable =
+      lower.find(L"vid_1d50&pid_606f") != std::wstring::npos;
+  if (canable) {
+    // CANable candleLight firmware is a composite USB device. MI_00 is the
+    // gs_usb CAN function; MI_01 is the firmware-upgrade function, and the
+    // parent composite device is owned by usbccgp. Only MI_00 is valid for
+    // WinUsb_Initialize and gs_usb control/bulk transfers.
+    return lower.find(L"mi_00") != std::wstring::npos;
+  }
+  return lower.find(L"vid_1209&pid_2323") != std::wstring::npos;
 }
 
 std::string DeviceLabel(const std::wstring& path) {
   const auto lower = Lower(path);
   if (lower.find(L"vid_1d50&pid_606f") != std::wstring::npos) {
-    return "CANable / gs_usb (1D50:606F)";
+    return "CANable gs_usb (1D50:606F MI_00)";
   }
   return "candleLight / gs_usb (1209:2323)";
 }
@@ -300,7 +308,7 @@ bool OpenDevice(const std::wstring& path, int bitrate, std::string* error) {
   if (!WinUsb_Initialize(g_device, &g_usb)) {
     std::ostringstream out;
     out << "WinUsb_Initialize failed. Windows error " << GetLastError()
-        << ". Atlas found the USB device but not a usable WinUSB interface.";
+        << ". Atlas opened the gs_usb MI_00 interface but WinUSB initialization failed.";
     *error = out.str();
     CloseDevice();
     return false;
