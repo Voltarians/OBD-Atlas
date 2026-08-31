@@ -19,6 +19,7 @@ class AtlasIngestTest(unittest.TestCase):
             log = directory / "sample.log"
             audio = directory / "sample.flac"
             metadata = directory / "sample.meta.txt"
+            transcript = directory / "sample.transcript.tsv"
             database = directory / "atlas.sqlite3"
 
             log.write_text(
@@ -28,6 +29,11 @@ class AtlasIngestTest(unittest.TestCase):
             )
             audio.write_bytes(b"test-audio")
             metadata.write_text("test metadata\n", encoding="utf-8")
+            transcript.write_text(
+                "audio_start_seconds\taudio_end_seconds\ttext\n"
+                "0.000\t0.000\ttest action\n",
+                encoding="utf-8",
+            )
 
             def entry(path: Path, role: str, format_name: str) -> dict:
                 return {
@@ -48,6 +54,7 @@ class AtlasIngestTest(unittest.TestCase):
                     "generation": 1,
                 },
                 "time": {
+                    "metadata_started_utc": "1970-01-01T00:16:40+00:00",
                     "can_duration_seconds": 0.000001,
                     "audio_duration_seconds": 1.0,
                 },
@@ -99,6 +106,23 @@ class AtlasIngestTest(unittest.TestCase):
                     "SELECT SUM(is_extended = 0), SUM(is_extended = 1) FROM frames"
                 ).fetchone()
                 self.assertEqual((standard, extended), (1, 1))
+            finally:
+                connection.close()
+
+            correlation = subprocess.run(
+                [sys.executable, str(ATLAS), "correlate", "test-session",
+                 str(transcript), "--database", str(database),
+                 "--minimum-observations", "1"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(correlation.returncode, 0, correlation.stderr)
+            connection = sqlite3.connect(database)
+            try:
+                self.assertEqual(
+                    connection.execute("SELECT COUNT(*) FROM annotations").fetchone()[0], 1
+                )
             finally:
                 connection.close()
 
