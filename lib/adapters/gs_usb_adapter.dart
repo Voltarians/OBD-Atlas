@@ -7,7 +7,7 @@ import '../core/can_frame.dart';
 import 'atlas_adapter.dart';
 
 class GsUsbAdapter implements AtlasAdapter {
-  GsUsbAdapter(this.device, {this.bitrate = 500000, this.channel = 1});
+  GsUsbAdapter(this.device, {this.bitrate = 33333, this.channel = 1});
 
   final GsUsbDevice device;
   final int bitrate;
