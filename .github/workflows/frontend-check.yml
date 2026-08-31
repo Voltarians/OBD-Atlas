@@ -23,13 +23,13 @@ jobs:
         run: flutter pub get
       - name: Analyze
         run: flutter analyze
-      - name: Build Windows
-        run: flutter build windows --debug
-      - name: Upload Windows debug build
+      - name: Build Windows release
+        run: flutter build windows --release
+      - name: Upload Windows release build
         uses: actions/upload-artifact@v4
         with:
-          name: OBD-Atlas-Windows-debug
-          path: build/windows/x64/runner/Debug/
+          name: OBD-Atlas-Windows-release
+          path: build/windows/x64/runner/Release/
           if-no-files-found: error
       - name: Build Android APK
         run: flutter build apk --debug
