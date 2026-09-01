@@ -81,6 +81,13 @@ The manifest binds physical adapters and DLC pins to logged SocketCAN
 interfaces. Original interface names remain authoritative so one capture can
 contain several vehicle networks without merging their arbitration-ID spaces.
 
+## Field evidence
+
+See [docs/FIELD_EVIDENCE.md](docs/FIELD_EVIDENCE.md) for verified capture
+observations, adapter status, schema requirements, and the next validation
+gates. Captured, bench-verified, field-reported, and unverified claims are kept
+separate.
+
 ## Tests
 
 ```bash
