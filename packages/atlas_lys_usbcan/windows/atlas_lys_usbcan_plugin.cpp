@@ -178,10 +178,14 @@ bool ResponseOk(const std::vector<uint8_t>& response, const char* operation,
 
 bool OpenUsb(const std::wstring& path, std::string* error) {
   CloseUsbOnly();
+  // Atlas uses synchronous WinUsb_ReadPipe/WinUsb_WritePipe calls (OVERLAPPED
+  // is null), so the underlying device handle must also be opened for
+  // synchronous I/O. Opening it with FILE_FLAG_OVERLAPPED while issuing
+  // synchronous pipe calls can leave the interrupt-IN reply path timing out.
   g_device = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE,
                          FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
                          OPEN_EXISTING,
-                         FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, nullptr);
+                         FILE_ATTRIBUTE_NORMAL, nullptr);
   if (g_device == INVALID_HANDLE_VALUE) {
     std::ostringstream out;
     out << "Could not open LYS 0471:1200 WinUSB interface, Windows error "
