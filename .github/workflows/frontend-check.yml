@@ -18,7 +18,9 @@ jobs:
           cache: true
       - name: Generate platform projects
         shell: pwsh
-        run: flutter create --platforms=android,windows --project-name obd_atlas .
+        run: |
+          flutter create --platforms=android,windows --project-name obd_atlas .
+          Add-Content -Path android/gradle.properties -Value "kotlin.incremental=false"
       - name: Resolve packages
         run: flutter pub get
       - name: Analyze
