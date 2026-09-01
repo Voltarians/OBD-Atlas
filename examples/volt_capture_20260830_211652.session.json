@@ -1,0 +1,143 @@
+{
+  "schema": "voltec-atlas.capture-session.v1",
+  "session_id": "volt_capture_20260830_211652",
+  "capture_type": "passive_multi_bus_can_with_voice",
+  "vehicle": {
+    "platform": "GM Voltec",
+    "model": "Chevrolet Volt",
+    "generation": 1
+  },
+  "time": {
+    "metadata_started_utc": "2026-08-31T02:16:52+00:00",
+    "first_can_frame_utc": "2026-08-31T02:16:58.073621+00:00",
+    "last_can_frame_utc": "2026-08-31T02:21:35.462002+00:00",
+    "can_duration_seconds": 277.388381,
+    "audio_duration_seconds": 281.049813,
+    "audio_alignment": "Audio was started by the same capture script before candump. Metadata start is authoritative; exact microphone onset latency was not independently measured."
+  },
+  "host": "Exec-OTG",
+  "capture_status": {
+    "complete_shutdown": false,
+    "termination_reason": "SocketCAN interface can0 went down after the RH02 USB connection dropped",
+    "preserved_before_failure": true,
+    "total_frames": 551152
+  },
+  "buses": [
+    {
+      "logged_interface": "can0",
+      "atlas_bus": "primary_swcan",
+      "adapter": "RH02 CANable with candleLight gs_usb firmware",
+      "adapter_channel": 0,
+      "bitrate": 33333,
+      "mode": "listen_only",
+      "dlc_pins": {
+        "signal": 1,
+        "receiver_reference_ground": 4
+      },
+      "wire_colors": {
+        "signal_pin_1": "brown",
+        "ground_pin_4": "orange"
+      },
+      "frames": 34858,
+      "unique_arbitration_ids": 161,
+      "captured": true
+    },
+    {
+      "logged_interface": "vcan0",
+      "atlas_bus": "auxiliary_high_voltage_energy_management",
+      "adapter": "LYS USBCAN",
+      "adapter_channel": 0,
+      "bitrate": 500000,
+      "mode": "passive_bridge",
+      "dlc_pins": {
+        "can_high": 3,
+        "can_low": 11
+      },
+      "wire_colors": {
+        "can_high_pin_3": "purple",
+        "can_low_pin_11": "yellow"
+      },
+      "frames": 209941,
+      "unique_arbitration_ids": 26,
+      "captured": true
+    },
+    {
+      "logged_interface": "vcan1",
+      "atlas_bus": "auxiliary_powertrain_expansion",
+      "adapter": "LYS USBCAN",
+      "adapter_channel": 1,
+      "bitrate": 500000,
+      "mode": "passive_bridge",
+      "dlc_pins": {
+        "can_high": 12,
+        "can_low": 13
+      },
+      "wire_colors": {
+        "can_high_pin_12": "pink",
+        "can_low_pin_13": "gray"
+      },
+      "frames": 306353,
+      "unique_arbitration_ids": 27,
+      "captured": true
+    },
+    {
+      "logged_interface": "vcan2",
+      "atlas_bus": "primary_dlc_pins_2_10",
+      "adapter": "CANalyst-II",
+      "adapter_channel": 0,
+      "bitrate": 500000,
+      "mode": "passive_bridge",
+      "dlc_pins": {
+        "can_high": 2,
+        "can_low": 10
+      },
+      "frames": 0,
+      "unique_arbitration_ids": 0,
+      "captured": false
+    },
+    {
+      "logged_interface": "vcan3",
+      "atlas_bus": "primary_dlc_pins_6_14",
+      "adapter": "CANalyst-II",
+      "adapter_channel": 1,
+      "bitrate": 500000,
+      "mode": "passive_bridge",
+      "dlc_pins": {
+        "can_high": 6,
+        "can_low": 14
+      },
+      "frames": 0,
+      "unique_arbitration_ids": 0,
+      "captured": false
+    }
+  ],
+  "files": [
+    {
+      "name": "volt_capture_20260830_211652.log",
+      "role": "candump_log",
+      "format": "candump_-L",
+      "size_bytes": 24430962,
+      "sha256": "c93031fe9c1716831e8190a1c1c4d1aa5fc8fdcf919a760d37e20cdaf16ec072"
+    },
+    {
+      "name": "volt_capture_20260830_211652.flac",
+      "role": "synchronized_voice_annotation",
+      "format": "flac",
+      "size_bytes": 11068678,
+      "sha256": "830bab1c59e20b60bcc964c6a2d46a34353841cab681b8c775578ef5f7d2fa83"
+    },
+    {
+      "name": "volt_capture_20260830_211652.meta.txt",
+      "role": "capture_metadata",
+      "format": "text",
+      "size_bytes": 121,
+      "sha256": "744b572eaa8452ec651ba708f750bb5c2beec013fdcfbd0f1e07a5e86cbf1c7b"
+    }
+  ],
+  "ingestion": {
+    "retain_original_interface_names": true,
+    "exclude_zero_frame_buses_from_signal_statistics": true,
+    "retain_zero_frame_buses_as_capture_diagnostics": true,
+    "associate_audio_by_session_id": true
+  }
+}
