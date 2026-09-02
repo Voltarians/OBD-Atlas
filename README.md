@@ -27,6 +27,14 @@ not promote changing-byte candidates into named DBC signals automatically.
 See [docs/DBC_SUPPORT.md](docs/DBC_SUPPORT.md) for supported constructs,
 provenance rules, CAN FD handling and limitations.
 
+### Included evidence source
+
+The repository includes the MIT-licensed
+[`Volt_BMS.dbc`](dbc/third_party/volt_bms/Volt_BMS.dbc) for the Gen-1
+Volt/Ampera battery's internal 125-kbit/s BMS network. It imports as 39
+messages and 112 signals. This database is not a complete vehicle-network DBC;
+see its [source and scope record](dbc/third_party/volt_bms/SOURCE.md).
+
 ## Import a capture
 
 Keep the `.session.json`, candump `.log`, voice `.flac`, and metadata `.txt`
