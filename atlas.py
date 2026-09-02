@@ -11,9 +11,20 @@ import re
 import sqlite3
 import sys
 from collections import Counter, defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Iterator
+
+from dbc import (
+    DbcDatabase,
+    DbcError,
+    DbcMessage,
+    DbcSignal,
+    DbcValue,
+    assert_round_trip,
+    parse_dbc,
+    write_dbc,
+)
 
 
 CANDUMP_RE = re.compile(
@@ -149,6 +160,81 @@ CREATE TABLE IF NOT EXISTS correlations (
     PRIMARY KEY (session_id, annotation_index, rank),
     FOREIGN KEY (session_id, annotation_index)
         REFERENCES annotations(session_id, annotation_index) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS dbc_sources (
+    source_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    source_filename TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    version TEXT NOT NULL,
+    imported_utc TEXT NOT NULL,
+    message_count INTEGER NOT NULL,
+    signal_count INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dbc_nodes (
+    source_id INTEGER NOT NULL,
+    ordinal INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    PRIMARY KEY (source_id, ordinal),
+    UNIQUE (source_id, name),
+    FOREIGN KEY (source_id) REFERENCES dbc_sources(source_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS dbc_messages (
+    message_pk INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id INTEGER NOT NULL,
+    ordinal INTEGER NOT NULL,
+    arbitration_id INTEGER NOT NULL,
+    is_extended INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    dlc INTEGER NOT NULL,
+    transmitter TEXT NOT NULL,
+    comment TEXT,
+    UNIQUE (source_id, ordinal),
+    UNIQUE (source_id, arbitration_id, is_extended),
+    FOREIGN KEY (source_id) REFERENCES dbc_sources(source_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS dbc_signals (
+    signal_pk INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_pk INTEGER NOT NULL,
+    ordinal INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    start_bit INTEGER NOT NULL,
+    bit_length INTEGER NOT NULL,
+    byte_order INTEGER NOT NULL,
+    is_signed INTEGER NOT NULL,
+    factor REAL NOT NULL,
+    offset REAL NOT NULL,
+    minimum REAL NOT NULL,
+    maximum REAL NOT NULL,
+    unit TEXT NOT NULL,
+    receivers_json TEXT NOT NULL,
+    multiplex TEXT,
+    comment TEXT,
+    UNIQUE (message_pk, ordinal),
+    UNIQUE (message_pk, name),
+    FOREIGN KEY (message_pk) REFERENCES dbc_messages(message_pk) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS dbc_values (
+    signal_pk INTEGER NOT NULL,
+    ordinal INTEGER NOT NULL,
+    value INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    PRIMARY KEY (signal_pk, ordinal),
+    UNIQUE (signal_pk, value),
+    FOREIGN KEY (signal_pk) REFERENCES dbc_signals(signal_pk) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS dbc_passthrough (
+    source_id INTEGER NOT NULL,
+    ordinal INTEGER NOT NULL,
+    statement TEXT NOT NULL,
+    PRIMARY KEY (source_id, ordinal),
+    FOREIGN KEY (source_id) REFERENCES dbc_sources(source_id) ON DELETE CASCADE
 );
 """
 
@@ -673,6 +759,219 @@ def correlate(args: argparse.Namespace) -> int:
         connection.close()
 
 
+def dbc_import(args: argparse.Namespace) -> int:
+    source_path = args.dbc.expanduser().resolve()
+    if not source_path.is_file():
+        raise AtlasError(f"DBC file does not exist: {source_path}")
+    try:
+        database = parse_dbc(source_path)
+    except DbcError as exc:
+        raise AtlasError(f"Invalid DBC: {exc}") from exc
+    source_name = args.name or source_path.stem
+    if not source_name.strip():
+        raise AtlasError("DBC source name cannot be empty")
+    message_count = len(database.messages)
+    signal_count = sum(len(message.signals) for message in database.messages)
+    digest = sha256_file(source_path)
+
+    connection = open_database(args.database.resolve())
+    try:
+        existing = connection.execute(
+            "SELECT source_id FROM dbc_sources WHERE name = ?", (source_name,)
+        ).fetchone()
+        if existing and not args.replace:
+            raise AtlasError(
+                f"DBC source {source_name!r} already exists; use --replace to replace it"
+            )
+        with connection:
+            if existing:
+                connection.execute("DELETE FROM dbc_sources WHERE source_id = ?", (existing[0],))
+            cursor = connection.execute(
+                """
+                INSERT INTO dbc_sources (
+                    name, source_filename, sha256, version, imported_utc,
+                    message_count, signal_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    source_name, source_path.name, digest, database.version,
+                    datetime.now(timezone.utc).isoformat(), message_count, signal_count,
+                ),
+            )
+            source_id = cursor.lastrowid
+            for ordinal, node in enumerate(database.nodes):
+                connection.execute(
+                    "INSERT INTO dbc_nodes VALUES (?, ?, ?)", (source_id, ordinal, node)
+                )
+            for message_ordinal, message in enumerate(database.messages):
+                cursor = connection.execute(
+                    """
+                    INSERT INTO dbc_messages (
+                        source_id, ordinal, arbitration_id, is_extended, name,
+                        dlc, transmitter, comment
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        source_id, message_ordinal, message.arbitration_id,
+                        int(message.is_extended), message.name, message.dlc,
+                        message.transmitter, message.comment,
+                    ),
+                )
+                message_pk = cursor.lastrowid
+                for signal_ordinal, signal in enumerate(message.signals):
+                    cursor = connection.execute(
+                        """
+                        INSERT INTO dbc_signals (
+                            message_pk, ordinal, name, start_bit, bit_length,
+                            byte_order, is_signed, factor, offset, minimum,
+                            maximum, unit, receivers_json, multiplex, comment
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            message_pk, signal_ordinal, signal.name,
+                            signal.start_bit, signal.length, signal.byte_order,
+                            int(signal.is_signed), signal.factor, signal.offset,
+                            signal.minimum, signal.maximum, signal.unit,
+                            json.dumps(signal.receivers, separators=(",", ":")),
+                            signal.multiplex, signal.comment,
+                        ),
+                    )
+                    signal_pk = cursor.lastrowid
+                    for value_ordinal, value in enumerate(signal.values):
+                        connection.execute(
+                            "INSERT INTO dbc_values VALUES (?, ?, ?, ?)",
+                            (signal_pk, value_ordinal, value.value, value.text),
+                        )
+            for ordinal, statement in enumerate(database.passthrough):
+                connection.execute(
+                    "INSERT INTO dbc_passthrough VALUES (?, ?, ?)",
+                    (source_id, ordinal, statement),
+                )
+        print(f"Imported DBC source: {source_name}")
+        print(f"SHA-256: {digest}")
+        print(f"Messages: {message_count}  Signals: {signal_count}")
+        return 0
+    finally:
+        connection.close()
+
+
+def load_dbc_source(connection: sqlite3.Connection, source_name: str) -> DbcDatabase:
+    source = connection.execute(
+        "SELECT source_id, version FROM dbc_sources WHERE name = ?", (source_name,)
+    ).fetchone()
+    if not source:
+        raise AtlasError(f"DBC source does not exist: {source_name}")
+    source_id, version = source
+    database = DbcDatabase(version=version)
+    database.nodes = [
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM dbc_nodes WHERE source_id = ? ORDER BY ordinal", (source_id,)
+        )
+    ]
+    message_rows = connection.execute(
+        """
+        SELECT message_pk, arbitration_id, is_extended, name, dlc, transmitter, comment
+        FROM dbc_messages WHERE source_id = ? ORDER BY ordinal
+        """,
+        (source_id,),
+    ).fetchall()
+    for message_pk, arbitration_id, is_extended, name, dlc, transmitter, comment in message_rows:
+        message = DbcMessage(
+            arbitration_id=arbitration_id, is_extended=bool(is_extended), name=name,
+            dlc=dlc, transmitter=transmitter, comment=comment,
+        )
+        signal_rows = connection.execute(
+            """
+            SELECT signal_pk, name, start_bit, bit_length, byte_order, is_signed,
+                   factor, offset, minimum, maximum, unit, receivers_json,
+                   multiplex, comment
+            FROM dbc_signals WHERE message_pk = ? ORDER BY ordinal
+            """,
+            (message_pk,),
+        ).fetchall()
+        for row in signal_rows:
+            signal_pk = row[0]
+            values = [
+                DbcValue(value=value, text=text)
+                for value, text in connection.execute(
+                    "SELECT value, text FROM dbc_values WHERE signal_pk = ? ORDER BY ordinal",
+                    (signal_pk,),
+                )
+            ]
+            message.signals.append(
+                DbcSignal(
+                    name=row[1], start_bit=row[2], length=row[3], byte_order=row[4],
+                    is_signed=bool(row[5]), factor=row[6], offset=row[7],
+                    minimum=row[8], maximum=row[9], unit=row[10],
+                    receivers=json.loads(row[11]), multiplex=row[12],
+                    comment=row[13], values=values,
+                )
+            )
+        database.messages.append(message)
+    database.passthrough = [
+        row[0]
+        for row in connection.execute(
+            "SELECT statement FROM dbc_passthrough WHERE source_id = ? ORDER BY ordinal",
+            (source_id,),
+        )
+    ]
+    return database
+
+
+def dbc_export(args: argparse.Namespace) -> int:
+    if not args.database.is_file():
+        raise AtlasError(f"Database does not exist: {args.database}")
+    connection = open_database(args.database.resolve())
+    try:
+        database = load_dbc_source(connection, args.source)
+    finally:
+        connection.close()
+    try:
+        rendered = write_dbc(database)
+        assert_round_trip(database, rendered)
+    except DbcError as exc:
+        raise AtlasError(f"DBC export validation failed: {exc}") from exc
+    output = args.output.expanduser().resolve()
+    if output.exists() and not args.force:
+        raise AtlasError(f"Output already exists: {output}; use --force to replace it")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(rendered, encoding="utf-8", newline="\n")
+    # Reparse from disk as the final release gate, not only the in-memory string.
+    try:
+        assert_round_trip(database, output.read_text(encoding="utf-8"))
+    except DbcError as exc:
+        output.unlink(missing_ok=True)
+        raise AtlasError(f"Written DBC failed validation and was removed: {exc}") from exc
+    print(f"Exported DBC source: {args.source}")
+    print(f"Output: {output}")
+    print(f"SHA-256: {sha256_file(output)}")
+    return 0
+
+
+def dbc_list(args: argparse.Namespace) -> int:
+    if not args.database.is_file():
+        raise AtlasError(f"Database does not exist: {args.database}")
+    connection = open_database(args.database.resolve())
+    try:
+        rows = connection.execute(
+            """
+            SELECT name, source_filename, sha256, version, imported_utc,
+                   message_count, signal_count
+            FROM dbc_sources ORDER BY name
+            """
+        ).fetchall()
+    finally:
+        connection.close()
+    if not rows:
+        print("Atlas database contains no DBC sources.")
+        return 0
+    print("NAME  FILE  MESSAGES  SIGNALS  SHA256")
+    for name, filename, digest, _version, _imported, messages, signals in rows:
+        print(f"{name}  {filename}  {messages}  {signals}  {digest}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="OBD Atlas passive CAN capture tools")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -715,6 +1014,36 @@ def build_parser() -> argparse.ArgumentParser:
     correlate_parser.add_argument("--minimum-observations", type=int, default=3)
     correlate_parser.add_argument("--limit", type=int, default=8)
     correlate_parser.set_defaults(func=correlate)
+
+    dbc_import_parser = subparsers.add_parser(
+        "dbc-import", help="Parse and import a DBC definition database"
+    )
+    dbc_import_parser.add_argument("dbc", type=Path)
+    dbc_import_parser.add_argument(
+        "--database", type=Path, default=Path("obd_atlas.sqlite3")
+    )
+    dbc_import_parser.add_argument("--name", help="Stable Atlas source name")
+    dbc_import_parser.add_argument("--replace", action="store_true")
+    dbc_import_parser.set_defaults(func=dbc_import)
+
+    dbc_export_parser = subparsers.add_parser(
+        "dbc-export", help="Export and semantically validate an imported DBC source"
+    )
+    dbc_export_parser.add_argument("source", help="DBC source name from dbc-list")
+    dbc_export_parser.add_argument("output", type=Path)
+    dbc_export_parser.add_argument(
+        "--database", type=Path, default=Path("obd_atlas.sqlite3")
+    )
+    dbc_export_parser.add_argument("--force", action="store_true")
+    dbc_export_parser.set_defaults(func=dbc_export)
+
+    dbc_list_parser = subparsers.add_parser(
+        "dbc-list", help="List DBC sources stored in Atlas"
+    )
+    dbc_list_parser.add_argument(
+        "--database", type=Path, default=Path("obd_atlas.sqlite3")
+    )
+    dbc_list_parser.set_defaults(func=dbc_list)
     return parser
 
 

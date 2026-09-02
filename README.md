@@ -11,6 +11,22 @@ and synchronized voice-file metadata.
 
 It uses only Python's standard library.
 
+## Import and export DBC definitions
+
+Atlas can parse DBC files into normalized SQLite tables, list stored definition
+sources, and export deterministic DBC files with semantic round-trip validation:
+
+```bash
+python3 atlas.py dbc-import vehicle.dbc --database obd_atlas.sqlite3 --name research-source
+python3 atlas.py dbc-list --database obd_atlas.sqlite3
+python3 atlas.py dbc-export research-source exported.dbc --database obd_atlas.sqlite3
+```
+
+Imported definitions retain their source filename and SHA-256 hash. Atlas does
+not promote changing-byte candidates into named DBC signals automatically.
+See [docs/DBC_SUPPORT.md](docs/DBC_SUPPORT.md) for supported constructs,
+provenance rules, CAN FD handling and limitations.
+
 ## Import a capture
 
 Keep the `.session.json`, candump `.log`, voice `.flac`, and metadata `.txt`
