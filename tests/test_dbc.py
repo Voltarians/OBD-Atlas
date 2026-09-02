@@ -1,3 +1,4 @@
+import hashlib
 import sqlite3
 import subprocess
 import sys
@@ -10,6 +11,7 @@ from dbc import DbcError, assert_round_trip, parse_dbc_text, semantic_model, wri
 
 ROOT = Path(__file__).resolve().parents[1]
 ATLAS = ROOT / "atlas.py"
+BUNDLED_VOLT_BMS = ROOT / "dbc" / "third_party" / "volt_bms" / "Volt_BMS.dbc"
 
 
 def sample_dbc() -> str:
@@ -41,6 +43,18 @@ BA_ "VFrameFormat" BO_ {extended} 3;
 
 
 class DbcParserTests(unittest.TestCase):
+    def test_bundled_volt_bms_source_is_stable_and_importable(self):
+        payload = BUNDLED_VOLT_BMS.read_bytes()
+        self.assertEqual(
+            hashlib.sha256(payload).hexdigest(),
+            "b5f3e6016e4c4ce18381f2ef466b07831aa81503acb67a195bc75ecbb06cb872",
+        )
+        database = parse_dbc_text(payload.decode("utf-8-sig"))
+        self.assertEqual(len(database.nodes), 4)
+        self.assertEqual(len(database.messages), 39)
+        self.assertEqual(sum(len(message.signals) for message in database.messages), 112)
+        assert_round_trip(database, write_dbc(database))
+
     def test_core_parse_and_semantic_round_trip(self):
         database = parse_dbc_text(sample_dbc())
         self.assertEqual(database.nodes, ["BCM", "HPCM2", "IPC", "Vector__XXX"])
@@ -123,4 +137,3 @@ class DbcCliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
