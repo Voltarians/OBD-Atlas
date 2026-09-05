@@ -9,6 +9,7 @@ import '../adapters/atlas_adapter.dart';
 import '../adapters/canalystii_adapter.dart';
 import '../adapters/gs_usb_adapter.dart';
 import '../adapters/linux_uc2_adapter.dart';
+import '../adapters/linux_uc2_pair_adapter.dart';
 import '../adapters/lys_usbcan_adapter.dart';
 import '../adapters/slcan_adapter.dart';
 import '../adapters/socketcan_adapter.dart';
@@ -53,6 +54,7 @@ class AtlasRuntime extends ChangeNotifier {
   Timer? _rateTimer;
   CanalystiiAdapter? _canalystAdapter;
   LysUsbcanAdapter? _lysAdapter;
+  LinuxUc2PairAdapter? _linuxUc2PairAdapter;
 
   IOSink? _captureSink;
   File? activeCaptureFile;
@@ -128,6 +130,22 @@ class AtlasRuntime extends ChangeNotifier {
     );
   }
 
+  Future<void> connectLinuxUc2Pair({
+    int bitrate = 500000,
+    int baseChannel = 1,
+    int firstDeviceIndex = 0,
+    int secondDeviceIndex = 1,
+  }) async {
+    final adapter = LinuxUc2PairAdapter(
+      bitrate: bitrate,
+      baseChannel: baseChannel,
+      firstDeviceIndex: firstDeviceIndex,
+      secondDeviceIndex: secondDeviceIndex,
+    );
+    _linuxUc2PairAdapter = adapter;
+    await _connectDualAdapter(adapter, baseChannel);
+  }
+
   Future<void> connectGsUsb(
     GsUsbDevice device, {
     int bitrate = 33333,
@@ -179,8 +197,8 @@ class AtlasRuntime extends ChangeNotifier {
     final second = channels[baseChannel + 1]!;
     first.adapter = adapter;
     second.adapter = adapter;
-    first.adapterName = '${adapter.displayName} • CAN1';
-    second.adapterName = '${adapter.displayName} • CAN2';
+    first.adapterName = '${adapter.displayName} • Device 0 / CAN0';
+    second.adapterName = '${adapter.displayName} • Device 1 / CAN0';
     first.state = AtlasAdapterState.connecting;
     second.state = AtlasAdapterState.connecting;
     first.lastError = null;
@@ -331,6 +349,7 @@ class AtlasRuntime extends ChangeNotifier {
     }
     if (identical(adapter, _canalystAdapter)) _canalystAdapter = null;
     if (identical(adapter, _lysAdapter)) _lysAdapter = null;
+    if (identical(adapter, _linuxUc2PairAdapter)) _linuxUc2PairAdapter = null;
   }
 
   Future<void> disconnectChannel(int channel) async {
@@ -341,6 +360,8 @@ class AtlasRuntime extends ChangeNotifier {
       await _disconnectDualAdapter(_canalystAdapter!);
     } else if (_lysAdapter != null && identical(slot.adapter, _lysAdapter)) {
       await _disconnectDualAdapter(_lysAdapter!);
+    } else if (_linuxUc2PairAdapter != null && identical(slot.adapter, _linuxUc2PairAdapter)) {
+      await _disconnectDualAdapter(_linuxUc2PairAdapter!);
     } else {
       await slot.frameSubscription?.cancel();
       await slot.stateSubscription?.cancel();
@@ -372,6 +393,9 @@ class AtlasRuntime extends ChangeNotifier {
     }
     if (_lysAdapter != null) {
       await _disconnectDualAdapter(_lysAdapter!);
+    }
+    if (_linuxUc2PairAdapter != null) {
+      await _disconnectDualAdapter(_linuxUc2PairAdapter!);
     }
     for (var channel = 1; channel <= 5; channel++) {
       await disconnectChannel(channel);
