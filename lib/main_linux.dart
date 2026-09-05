@@ -149,7 +149,7 @@ class LinuxConnectPage extends StatefulWidget {
 class _LinuxConnectPageState extends State<LinuxConnectPage> {
   List<String> _interfaces = const <String>[];
   String? _selectedInterface;
-  int _socketCanAtlasChannel = 1;
+  int _socketCanAtlasChannel = 5;
   bool _scanningSocketCan = false;
   bool _connectingSocketCan = false;
 
@@ -258,7 +258,7 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
         firstDeviceIndex: _uc2Devices[0],
         secondDeviceIndex: _uc2Devices[1],
       );
-      _showMessage('Dual UC2 session connected • Device 0 → CH1 • Device 1 → CH2.');
+      _showMessage('Dual UC2 session connected • four physical CAN channels → Atlas CH1–CH4.');
     } catch (error) {
       _showError(error);
     } finally {
@@ -285,7 +285,7 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
         final uc2Busy = _connectingUc2 || _connectingUc2Pair;
         return LinuxPageShell(
           title: 'Linux CAN Connections',
-          subtitle: 'PCG-1 supports standard SocketCAN plus native ARM64 UC2 / LYS USBCAN adapters.',
+          subtitle: 'PCG-1 five-channel foundation: four native UC2 CAN channels plus SocketCAN SWCAN.',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -299,7 +299,7 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                         contentPadding: EdgeInsets.zero,
                         leading: Icon(Icons.usb),
                         title: Text('UC2 / LYS USBCAN • 0471:1200'),
-                        subtitle: Text('Native Linux ARM64 ControlCAN transport • CAN0 receive/capture foundation'),
+                        subtitle: Text('Two USBCAN2 adapters • CAN0 + CAN1 on each • Atlas CH1–CH4'),
                       ),
                       Wrap(
                         spacing: 12,
@@ -318,7 +318,7 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                             icon: _connectingUc2Pair
                                 ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                                 : const Icon(Icons.hub),
-                            label: const Text('Connect BOTH → CH1 + CH2'),
+                            label: const Text('Connect 4 UC2 CAN → CH1–CH4'),
                           ),
                           SizedBox(
                             width: 190,
@@ -355,15 +355,15 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                           FilledButton.tonalIcon(
                             onPressed: uc2Busy || _selectedUc2 == null ? null : _connectUc2,
                             icon: const Icon(Icons.link),
-                            label: const Text('Connect one UC2'),
+                            label: const Text('Connect one UC2 CAN0'),
                           ),
                         ],
                       ),
                       const SizedBox(height: 8),
                       Text(
                         _uc2Devices.length >= 2
-                            ? 'Recommended: Connect BOTH opens/configures both adapters before receive polling starts.'
-                            : 'Scan for both UC2 adapters to enable coordinated dual-device mode.',
+                            ? 'Recommended: connect all four UC2 CAN controllers as one coordinated session; CH5 remains free for SWCAN.'
+                            : 'Scan for both UC2 adapters to enable the four-channel coordinated session.',
                       ),
                       const SizedBox(height: 8),
                       SelectableText(
@@ -385,8 +385,8 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                       const ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: Icon(Icons.settings_ethernet),
-                        title: Text('SocketCAN'),
-                        subtitle: Text('Kernel CAN interfaces such as can0, can1 and slcan-backed devices'),
+                        title: Text('SocketCAN / SWCAN'),
+                        subtitle: Text('CANable can0 • 33.333 kbit/s listen-only • recommended Atlas CH5'),
                       ),
                       Wrap(
                         spacing: 12,
@@ -613,7 +613,7 @@ class LinuxSystemPage extends StatelessWidget {
           const ListTile(
             leading: Icon(Icons.settings_ethernet),
             title: Text('CAN transports'),
-            trailing: Text('SocketCAN + native UC2'),
+            trailing: Text('4× UC2 CAN + SWCAN'),
           ),
           ListTile(
             leading: const Icon(Icons.usb),
@@ -634,7 +634,7 @@ class LinuxSystemPage extends StatelessWidget {
           const ListTile(
             leading: Icon(Icons.info_outline),
             title: Text('Linux foundation'),
-            trailing: Text('PCG-1 Build 3 • dual UC2 session'),
+            trailing: Text('PCG-1 Build 4 • five channels'),
           ),
         ],
       ),
