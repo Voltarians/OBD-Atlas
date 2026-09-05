@@ -143,7 +143,7 @@ class AtlasRuntime extends ChangeNotifier {
       secondDeviceIndex: secondDeviceIndex,
     );
     _linuxUc2PairAdapter = adapter;
-    await _connectDualAdapter(adapter, baseChannel);
+    await _connectFourChannelAdapter(adapter, baseChannel);
   }
 
   Future<void> connectGsUsb(
@@ -183,6 +183,71 @@ class AtlasRuntime extends ChangeNotifier {
     await _connectDualAdapter(adapter, baseChannel);
   }
 
+  Future<void> _connectFourChannelAdapter(AtlasAdapter adapter, int baseChannel) async {
+    if (baseChannel < 1 || baseChannel + 3 > 5) {
+      throw ArgumentError.value(
+        baseChannel,
+        'baseChannel',
+        'Four-channel UC2 session needs four consecutive Atlas channel slots.',
+      );
+    }
+
+    for (var channel = baseChannel; channel <= baseChannel + 3; channel++) {
+      await disconnectChannel(channel);
+    }
+
+    final slots = <AtlasChannelStatus>[
+      channels[baseChannel]!,
+      channels[baseChannel + 1]!,
+      channels[baseChannel + 2]!,
+      channels[baseChannel + 3]!,
+    ];
+    final names = <String>[
+      '${adapter.displayName} • Device 0 / CAN0',
+      '${adapter.displayName} • Device 0 / CAN1',
+      '${adapter.displayName} • Device 1 / CAN0',
+      '${adapter.displayName} • Device 1 / CAN1',
+    ];
+
+    for (var index = 0; index < slots.length; index++) {
+      final slot = slots[index];
+      slot.adapter = adapter;
+      slot.adapterName = names[index];
+      slot.state = AtlasAdapterState.connecting;
+      slot.lastError = null;
+    }
+    notifyListeners();
+
+    slots.first.stateSubscription = adapter.states.listen((state) {
+      for (final slot in slots) {
+        slot.state = state;
+      }
+      notifyListeners();
+    });
+    slots.first.frameSubscription = adapter.frames.listen(
+      _onFrame,
+      onError: (Object error) {
+        for (final slot in slots) {
+          slot.lastError = error.toString();
+          slot.state = AtlasAdapterState.error;
+        }
+        notifyListeners();
+      },
+    );
+
+    try {
+      await adapter.connect();
+      _startRateTimer();
+    } catch (error) {
+      for (final slot in slots) {
+        slot.lastError = error.toString();
+        slot.state = AtlasAdapterState.error;
+      }
+      notifyListeners();
+      rethrow;
+    }
+  }
+
   Future<void> _connectDualAdapter(AtlasAdapter adapter, int baseChannel) async {
     if (baseChannel < 1 || baseChannel >= 5) {
       throw ArgumentError.value(
@@ -197,8 +262,8 @@ class AtlasRuntime extends ChangeNotifier {
     final second = channels[baseChannel + 1]!;
     first.adapter = adapter;
     second.adapter = adapter;
-    first.adapterName = '${adapter.displayName} • Device 0 / CAN0';
-    second.adapterName = '${adapter.displayName} • Device 1 / CAN0';
+    first.adapterName = '${adapter.displayName} • CAN1';
+    second.adapterName = '${adapter.displayName} • CAN2';
     first.state = AtlasAdapterState.connecting;
     second.state = AtlasAdapterState.connecting;
     first.lastError = null;
@@ -328,7 +393,7 @@ class AtlasRuntime extends ChangeNotifier {
     return file;
   }
 
-  Future<void> _disconnectDualAdapter(AtlasAdapter adapter) async {
+  Future<void> _disconnectSharedAdapter(AtlasAdapter adapter) async {
     final affected = channels.values
         .where((slot) => identical(slot.adapter, adapter))
         .toList();
@@ -357,11 +422,11 @@ class AtlasRuntime extends ChangeNotifier {
     if (slot == null) return;
 
     if (_canalystAdapter != null && identical(slot.adapter, _canalystAdapter)) {
-      await _disconnectDualAdapter(_canalystAdapter!);
+      await _disconnectSharedAdapter(_canalystAdapter!);
     } else if (_lysAdapter != null && identical(slot.adapter, _lysAdapter)) {
-      await _disconnectDualAdapter(_lysAdapter!);
+      await _disconnectSharedAdapter(_lysAdapter!);
     } else if (_linuxUc2PairAdapter != null && identical(slot.adapter, _linuxUc2PairAdapter)) {
-      await _disconnectDualAdapter(_linuxUc2PairAdapter!);
+      await _disconnectSharedAdapter(_linuxUc2PairAdapter!);
     } else {
       await slot.frameSubscription?.cancel();
       await slot.stateSubscription?.cancel();
@@ -389,13 +454,13 @@ class AtlasRuntime extends ChangeNotifier {
   Future<void> disconnect() async {
     await stopCapture();
     if (_canalystAdapter != null) {
-      await _disconnectDualAdapter(_canalystAdapter!);
+      await _disconnectSharedAdapter(_canalystAdapter!);
     }
     if (_lysAdapter != null) {
-      await _disconnectDualAdapter(_lysAdapter!);
+      await _disconnectSharedAdapter(_lysAdapter!);
     }
     if (_linuxUc2PairAdapter != null) {
-      await _disconnectDualAdapter(_linuxUc2PairAdapter!);
+      await _disconnectSharedAdapter(_linuxUc2PairAdapter!);
     }
     for (var channel = 1; channel <= 5; channel++) {
       await disconnectChannel(channel);
