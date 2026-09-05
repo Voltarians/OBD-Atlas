@@ -73,10 +73,10 @@ class _LinuxHomePageState extends State<LinuxHomePage> {
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Chip(
-                  avatar: Icon(runtime.anyConnected ? Icons.link : Icons.link_off, size: 18),
+                  avatar: Icon(runtime.anyConnected ? Icons.link : Icons.usb, size: 18),
                   label: Text(runtime.anyConnected
                       ? '${runtime.connectedChannelCount} CHANNELS CONNECTED'
-                      : 'SOCKETCAN READY'),
+                      : 'PCG-1 CAN READY'),
                 ),
               );
             },
@@ -149,12 +149,19 @@ class LinuxConnectPage extends StatefulWidget {
 class _LinuxConnectPageState extends State<LinuxConnectPage> {
   List<String> _interfaces = const <String>[];
   String? _selectedInterface;
-  int _selectedChannel = 1;
-  bool _scanning = false;
-  bool _connecting = false;
+  int _socketCanAtlasChannel = 1;
+  bool _scanningSocketCan = false;
+  bool _connectingSocketCan = false;
 
-  Future<void> _scan() async {
-    setState(() => _scanning = true);
+  List<int> _uc2Devices = const <int>[];
+  int? _selectedUc2;
+  int _uc2AtlasChannel = 1;
+  int _uc2Bitrate = 500000;
+  bool _scanningUc2 = false;
+  bool _connectingUc2 = false;
+
+  Future<void> _scanSocketCan() async {
+    setState(() => _scanningSocketCan = true);
     try {
       final interfaces = await AtlasRuntime.instance.scanSocketCanInterfaces();
       if (!mounted) return;
@@ -166,33 +173,85 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
       });
       if (interfaces.isEmpty && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No active SocketCAN interfaces found. Attach/configure a CAN adapter, then scan again.'),
-          ),
+          const SnackBar(content: Text('No active SocketCAN interfaces found.')),
         );
       }
     } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
-      }
+      _showError(error);
     } finally {
-      if (mounted) setState(() => _scanning = false);
+      if (mounted) setState(() => _scanningSocketCan = false);
     }
   }
 
-  Future<void> _connect() async {
+  Future<void> _connectSocketCan() async {
     final interface = _selectedInterface;
     if (interface == null) return;
-    setState(() => _connecting = true);
+    setState(() => _connectingSocketCan = true);
     try {
-      await AtlasRuntime.instance.connectSocketCan(interface, channel: _selectedChannel);
+      await AtlasRuntime.instance.connectSocketCan(
+        interface,
+        channel: _socketCanAtlasChannel,
+      );
     } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
-      }
+      _showError(error);
     } finally {
-      if (mounted) setState(() => _connecting = false);
+      if (mounted) setState(() => _connectingSocketCan = false);
     }
+  }
+
+  Future<void> _scanUc2() async {
+    setState(() => _scanningUc2 = true);
+    try {
+      final devices = await AtlasRuntime.instance.scanLinuxUc2Devices();
+      if (!mounted) return;
+      setState(() {
+        _uc2Devices = devices;
+        if (_selectedUc2 == null || !devices.contains(_selectedUc2)) {
+          _selectedUc2 = devices.isEmpty ? null : devices.first;
+        }
+      });
+      final lib = AtlasRuntime.instance.linuxUc2LibraryPath;
+      if (devices.isEmpty) {
+        _showMessage('No 0471:1200 UC2 / LYS USBCAN adapters found.');
+      } else if (lib == null) {
+        _showMessage('UC2 detected, but ARM64 libusbcan.so was not found.');
+      } else {
+        _showMessage('${devices.length} UC2 adapter(s) detected • native ARM64 library ready.');
+      }
+    } catch (error) {
+      _showError(error);
+    } finally {
+      if (mounted) setState(() => _scanningUc2 = false);
+    }
+  }
+
+  Future<void> _connectUc2() async {
+    final device = _selectedUc2;
+    if (device == null) return;
+    setState(() => _connectingUc2 = true);
+    try {
+      await AtlasRuntime.instance.connectLinuxUc2(
+        device,
+        bitrate: _uc2Bitrate,
+        channel: _uc2AtlasChannel,
+        physicalCanChannel: 0,
+      );
+      _showMessage('UC2 device $device CAN0 connected to Atlas CH$_uc2AtlasChannel.');
+    } catch (error) {
+      _showError(error);
+    } finally {
+      if (mounted) setState(() => _connectingUc2 = false);
+    }
+  }
+
+  void _showError(Object error) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -203,60 +262,133 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
         final runtime = AtlasRuntime.instance;
         return LinuxPageShell(
           title: 'Linux CAN Connections',
-          subtitle: 'PCG-1 uses the Linux SocketCAN layer so Atlas is not tied to one USB-adapter vendor.',
+          subtitle: 'PCG-1 supports standard SocketCAN plus native ARM64 UC2 / LYS USBCAN adapters.',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
-                  child: Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    crossAxisAlignment: WrapCrossAlignment.center,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      FilledButton.icon(
-                        onPressed: _scanning ? null : _scan,
-                        icon: _scanning
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Icon(Icons.search),
-                        label: const Text('Scan SocketCAN'),
+                      const ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.usb),
+                        title: Text('UC2 / LYS USBCAN • 0471:1200'),
+                        subtitle: Text('Native Linux ARM64 ControlCAN transport • CAN0 receive/capture foundation'),
                       ),
-                      SizedBox(
-                        width: 240,
-                        child: DropdownButtonFormField<String>(
-                          key: ValueKey(_selectedInterface),
-                          initialValue: _selectedInterface,
-                          decoration: const InputDecoration(labelText: 'Linux CAN interface'),
-                          items: _interfaces
-                              .map((name) => DropdownMenuItem(value: name, child: Text(name)))
-                              .toList(),
-                          onChanged: _connecting ? null : (value) => setState(() => _selectedInterface = value),
-                        ),
-                      ),
-                      SizedBox(
-                        width: 160,
-                        child: DropdownButtonFormField<int>(
-                          initialValue: _selectedChannel,
-                          decoration: const InputDecoration(labelText: 'Atlas channel'),
-                          items: List<DropdownMenuItem<int>>.generate(
-                            5,
-                            (index) => DropdownMenuItem(
-                              value: index + 1,
-                              child: Text('CH${index + 1}'),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          FilledButton.icon(
+                            onPressed: _scanningUc2 ? null : _scanUc2,
+                            icon: _scanningUc2
+                                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                                : const Icon(Icons.search),
+                            label: const Text('Scan UC2'),
+                          ),
+                          SizedBox(
+                            width: 190,
+                            child: DropdownButtonFormField<int>(
+                              key: ValueKey('uc2-$_selectedUc2'),
+                              initialValue: _selectedUc2,
+                              decoration: const InputDecoration(labelText: 'UC2 device'),
+                              items: _uc2Devices
+                                  .map((index) => DropdownMenuItem(value: index, child: Text('Device $index')))
+                                  .toList(),
+                              onChanged: _connectingUc2 ? null : (value) => setState(() => _selectedUc2 = value),
                             ),
                           ),
-                          onChanged: _connecting ? null : (value) => setState(() => _selectedChannel = value ?? 1),
-                        ),
+                          SizedBox(
+                            width: 180,
+                            child: DropdownButtonFormField<int>(
+                              initialValue: _uc2Bitrate,
+                              decoration: const InputDecoration(labelText: 'CAN bitrate'),
+                              items: const [
+                                DropdownMenuItem(value: 125000, child: Text('125 kbit/s')),
+                                DropdownMenuItem(value: 250000, child: Text('250 kbit/s')),
+                                DropdownMenuItem(value: 500000, child: Text('500 kbit/s')),
+                                DropdownMenuItem(value: 800000, child: Text('800 kbit/s')),
+                                DropdownMenuItem(value: 1000000, child: Text('1 Mbit/s')),
+                              ],
+                              onChanged: _connectingUc2 ? null : (value) => setState(() => _uc2Bitrate = value ?? 500000),
+                            ),
+                          ),
+                          _channelPicker(
+                            value: _uc2AtlasChannel,
+                            enabled: !_connectingUc2,
+                            onChanged: (value) => setState(() => _uc2AtlasChannel = value),
+                          ),
+                          FilledButton.icon(
+                            onPressed: _connectingUc2 || _selectedUc2 == null ? null : _connectUc2,
+                            icon: const Icon(Icons.link),
+                            label: const Text('Connect UC2 CAN0'),
+                          ),
+                        ],
                       ),
-                      FilledButton.icon(
-                        onPressed: _connecting || _selectedInterface == null ? null : _connect,
-                        icon: const Icon(Icons.link),
-                        label: const Text('Connect'),
+                      const SizedBox(height: 8),
+                      SelectableText(
+                        runtime.linuxUc2LibraryPath == null
+                            ? 'ARM64 library: NOT FOUND'
+                            : 'ARM64 library: ${runtime.linuxUc2LibraryPath}',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.settings_ethernet),
+                        title: Text('SocketCAN'),
+                        subtitle: Text('Kernel CAN interfaces such as can0, can1 and slcan-backed devices'),
+                      ),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          FilledButton.icon(
+                            onPressed: _scanningSocketCan ? null : _scanSocketCan,
+                            icon: _scanningSocketCan
+                                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                                : const Icon(Icons.search),
+                            label: const Text('Scan SocketCAN'),
+                          ),
+                          SizedBox(
+                            width: 230,
+                            child: DropdownButtonFormField<String>(
+                              key: ValueKey('socket-$_selectedInterface'),
+                              initialValue: _selectedInterface,
+                              decoration: const InputDecoration(labelText: 'Linux CAN interface'),
+                              items: _interfaces
+                                  .map((name) => DropdownMenuItem(value: name, child: Text(name)))
+                                  .toList(),
+                              onChanged: _connectingSocketCan
+                                  ? null
+                                  : (value) => setState(() => _selectedInterface = value),
+                            ),
+                          ),
+                          _channelPicker(
+                            value: _socketCanAtlasChannel,
+                            enabled: !_connectingSocketCan,
+                            onChanged: (value) => setState(() => _socketCanAtlasChannel = value),
+                          ),
+                          FilledButton.icon(
+                            onPressed: _connectingSocketCan || _selectedInterface == null ? null : _connectSocketCan,
+                            icon: const Icon(Icons.link),
+                            label: const Text('Connect SocketCAN'),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -272,7 +404,7 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                     title: Text('CH${slot.channel} • ${slot.adapterName ?? slot.bus}'),
                     subtitle: Text(
                       connected
-                          ? '${slot.adapter?.transport ?? 'SocketCAN'} • ${slot.framesPerSecond} frames/s • ${slot.totalFrames} frames'
+                          ? '${slot.adapter?.transport ?? 'CAN'} • ${slot.framesPerSecond} frames/s • ${slot.totalFrames} frames'
                           : slot.lastError ?? slot.state.name,
                     ),
                     trailing: slot.adapter == null
@@ -295,6 +427,28 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
       },
     );
   }
+
+  Widget _channelPicker({
+    required int value,
+    required bool enabled,
+    required ValueChanged<int> onChanged,
+  }) {
+    return SizedBox(
+      width: 145,
+      child: DropdownButtonFormField<int>(
+        initialValue: value,
+        decoration: const InputDecoration(labelText: 'Atlas channel'),
+        items: List<DropdownMenuItem<int>>.generate(
+          5,
+          (index) => DropdownMenuItem(
+            value: index + 1,
+            child: Text('CH${index + 1}'),
+          ),
+        ),
+        onChanged: enabled ? (selected) => onChanged(selected ?? value) : null,
+      ),
+    );
+  }
 }
 
 class LinuxCapturePage extends StatelessWidget {
@@ -308,7 +462,7 @@ class LinuxCapturePage extends StatelessWidget {
         final runtime = AtlasRuntime.instance;
         return LinuxPageShell(
           title: 'Passive Capture',
-          subtitle: 'All connected SocketCAN channels feed the same Atlas candump-compatible capture stream.',
+          subtitle: 'All connected Linux CAN transports feed the same Atlas candump-compatible evidence stream.',
           child: Card(
             child: Padding(
               padding: const EdgeInsets.all(20),
@@ -320,7 +474,7 @@ class LinuxCapturePage extends StatelessWidget {
                       ? 'Capture active'
                       : runtime.anyConnected
                           ? '${runtime.connectedChannelCount} channels ready'
-                          : 'Connect at least one SocketCAN interface'),
+                          : 'Connect at least one CAN interface'),
                   const SizedBox(height: 6),
                   Text('${runtime.totalFrames} total frames • ${runtime.framesPerSecond} frames/s'),
                   const SizedBox(height: 12),
@@ -362,7 +516,7 @@ class LinuxLivePage extends StatelessWidget {
         final frames = runtime.recentFrames.take(100).toList();
         return LinuxPageShell(
           title: 'Live CAN',
-          subtitle: 'Raw Linux CAN traffic before decoding or interpretation.',
+          subtitle: 'Raw CAN traffic before decoding or interpretation.',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -409,35 +563,42 @@ class LinuxSystemPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const LinuxPageShell(
+    final lib = AtlasRuntime.instance.linuxUc2LibraryPath;
+    return LinuxPageShell(
       title: 'PCG-1 Linux Host',
       subtitle: 'Raspberry Pi / Linux is a first-class OBD Atlas deployment target.',
       child: Column(
         children: [
-          ListTile(
+          const ListTile(
             leading: Icon(Icons.memory),
             title: Text('Architecture'),
             trailing: Text('Linux ARM64'),
           ),
-          ListTile(
+          const ListTile(
             leading: Icon(Icons.settings_ethernet),
-            title: Text('Primary vehicle transport'),
-            trailing: Text('SocketCAN'),
+            title: Text('CAN transports'),
+            trailing: Text('SocketCAN + native UC2'),
           ),
           ListTile(
+            leading: const Icon(Icons.usb),
+            title: const Text('UC2 ARM64 library'),
+            subtitle: SelectableText(lib ?? 'Not found'),
+            trailing: Icon(lib == null ? Icons.error_outline : Icons.check_circle),
+          ),
+          const ListTile(
             leading: Icon(Icons.storage),
             title: Text('Capture format'),
             trailing: Text('candump compatible'),
           ),
-          ListTile(
+          const ListTile(
             leading: Icon(Icons.cloud_off),
             title: Text('Internet required at vehicle'),
             trailing: Text('NO'),
           ),
-          ListTile(
+          const ListTile(
             leading: Icon(Icons.info_outline),
             title: Text('Linux foundation'),
-            trailing: Text('PCG-1 Build 1'),
+            trailing: Text('PCG-1 Build 2'),
           ),
         ],
       ),
