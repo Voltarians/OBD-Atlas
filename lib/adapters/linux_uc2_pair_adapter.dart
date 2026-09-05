@@ -89,13 +89,17 @@ typedef _ReceiveDart = int Function(
   int,
 );
 
+/// Coordinated Linux session for two USBCAN2 adapters.
+///
+/// Each physical USBCAN2 exposes CAN0 and CAN1, giving PCG-1 four classic
+/// CAN channels from two USB adapters. The vendor library behaves best when
+/// the whole set is opened/configured before receive polling begins.
 class LinuxUc2PairAdapter implements AtlasAdapter {
   LinuxUc2PairAdapter({
     required this.bitrate,
     this.baseChannel = 1,
     this.firstDeviceIndex = 0,
     this.secondDeviceIndex = 1,
-    this.physicalCanChannel = 0,
   });
 
   static const int deviceType = 4;
@@ -105,7 +109,6 @@ class LinuxUc2PairAdapter implements AtlasAdapter {
   final int baseChannel;
   final int firstDeviceIndex;
   final int secondDeviceIndex;
-  final int physicalCanChannel;
 
   final _frames = StreamController<CanFrame>.broadcast();
   final _states = StreamController<AtlasAdapterState>.broadcast();
@@ -127,10 +130,10 @@ class LinuxUc2PairAdapter implements AtlasAdapter {
   String get id => 'linux-uc2-pair-$firstDeviceIndex-$secondDeviceIndex';
 
   @override
-  String get displayName => 'Dual UC2 / LYS USBCAN';
+  String get displayName => 'Dual UC2 / LYS USBCAN • 4 CAN';
 
   @override
-  String get transport => 'Native Linux ARM64 libusbcan • coordinated dual-device session';
+  String get transport => 'Native Linux ARM64 libusbcan • coordinated 4-channel session';
 
   @override
   AtlasAdapterState get state => _state;
@@ -188,43 +191,55 @@ class LinuxUc2PairAdapter implements AtlasAdapter {
       _library = library;
       _bind(library);
 
+      final devices = <int>[firstDeviceIndex, secondDeviceIndex];
       final timing = _timingForBitrate();
-      for (final device in <int>[firstDeviceIndex, secondDeviceIndex]) {
+
+      // Open both USB devices first, matching the PCG-1 bench sequence.
+      for (final device in devices) {
         final openResult = _openDevice(deviceType, device, 0);
         if (openResult != 1) {
           throw StateError('VCI_OpenDevice failed for UC2 device $device.');
         }
         _openedDevices.add(device);
+      }
 
-        final config = calloc<_VciInitConfig>();
-        try {
-          config.ref
-            ..accCode = 0
-            ..accMask = 0xffffffff
-            ..reserved = 0
-            ..filter = 1
-            ..timing0 = timing.timing0
-            ..timing1 = timing.timing1
-            ..mode = 0;
-          final initResult = _initCan(deviceType, device, physicalCanChannel, config);
-          if (initResult != 1) {
-            throw StateError('VCI_InitCAN failed for UC2 device $device CAN$physicalCanChannel.');
+      // Initialize CAN0 and CAN1 on both USBCAN2 devices before starting any
+      // receive polling.
+      for (final device in devices) {
+        for (final physicalChannel in const <int>[0, 1]) {
+          final config = calloc<_VciInitConfig>();
+          try {
+            config.ref
+              ..accCode = 0
+              ..accMask = 0xffffffff
+              ..reserved = 0
+              ..filter = 1
+              ..timing0 = timing.timing0
+              ..timing1 = timing.timing1
+              ..mode = 0;
+            final initResult = _initCan(deviceType, device, physicalChannel, config);
+            if (initResult != 1) {
+              throw StateError('VCI_InitCAN failed for UC2 device $device CAN$physicalChannel.');
+            }
+          } finally {
+            calloc.free(config);
           }
-        } finally {
-          calloc.free(config);
-        }
-
-        final startResult = _startCan(deviceType, device, physicalCanChannel);
-        if (startResult != 1) {
-          throw StateError('VCI_StartCAN failed for UC2 device $device CAN$physicalCanChannel.');
         }
       }
 
-      // Do not begin receive polling until BOTH adapters have opened, initialized,
-      // and started. This mirrors the bench sequence that succeeded on PCG-1.
+      for (final device in devices) {
+        for (final physicalChannel in const <int>[0, 1]) {
+          final startResult = _startCan(deviceType, device, physicalChannel);
+          if (startResult != 1) {
+            throw StateError('VCI_StartCAN failed for UC2 device $device CAN$physicalChannel.');
+          }
+        }
+      }
+
+      // Begin polling only after all four controllers are running.
       _running = true;
       _setState(AtlasAdapterState.connected);
-      _pollTask = _pollBoth();
+      _pollTask = _pollAllFour();
     } catch (_) {
       _setState(AtlasAdapterState.error);
       await _closeOpened();
@@ -232,14 +247,18 @@ class LinuxUc2PairAdapter implements AtlasAdapter {
     }
   }
 
-  Future<void> _pollBoth() async {
-    final firstBuffer = calloc<_VciCanObj>(_maxReceiveBatch);
-    final secondBuffer = calloc<_VciCanObj>(_maxReceiveBatch);
+  Future<void> _pollAllFour() async {
+    final firstCan0 = calloc<_VciCanObj>(_maxReceiveBatch);
+    final firstCan1 = calloc<_VciCanObj>(_maxReceiveBatch);
+    final secondCan0 = calloc<_VciCanObj>(_maxReceiveBatch);
+    final secondCan1 = calloc<_VciCanObj>(_maxReceiveBatch);
     try {
       while (_running) {
         var gotAny = false;
-        gotAny |= _pollOne(firstDeviceIndex, baseChannel, firstBuffer);
-        gotAny |= _pollOne(secondDeviceIndex, baseChannel + 1, secondBuffer);
+        gotAny |= _pollOne(firstDeviceIndex, 0, baseChannel, firstCan0);
+        gotAny |= _pollOne(firstDeviceIndex, 1, baseChannel + 1, firstCan1);
+        gotAny |= _pollOne(secondDeviceIndex, 0, baseChannel + 2, secondCan0);
+        gotAny |= _pollOne(secondDeviceIndex, 1, baseChannel + 3, secondCan1);
         await Future<void>.delayed(
           gotAny ? Duration.zero : const Duration(milliseconds: 2),
         );
@@ -250,19 +269,26 @@ class LinuxUc2PairAdapter implements AtlasAdapter {
         _frames.addError(error, stack);
       }
     } finally {
-      calloc.free(firstBuffer);
-      calloc.free(secondBuffer);
+      calloc.free(firstCan0);
+      calloc.free(firstCan1);
+      calloc.free(secondCan0);
+      calloc.free(secondCan1);
     }
   }
 
-  bool _pollOne(int device, int logicalChannel, Pointer<_VciCanObj> buffer) {
-    final pending = _getReceiveNum(deviceType, device, physicalCanChannel);
+  bool _pollOne(
+    int device,
+    int physicalChannel,
+    int logicalChannel,
+    Pointer<_VciCanObj> buffer,
+  ) {
+    final pending = _getReceiveNum(deviceType, device, physicalChannel);
     if (pending <= 0) return false;
     final requested = pending.clamp(1, _maxReceiveBatch);
     final received = _receive(
       deviceType,
       device,
-      physicalCanChannel,
+      physicalChannel,
       buffer,
       requested,
       0,
@@ -289,9 +315,11 @@ class LinuxUc2PairAdapter implements AtlasAdapter {
 
   Future<void> _closeOpened() async {
     for (final device in _openedDevices.reversed) {
-      try {
-        _resetCan(deviceType, device, physicalCanChannel);
-      } catch (_) {}
+      for (final physicalChannel in const <int>[1, 0]) {
+        try {
+          _resetCan(deviceType, device, physicalChannel);
+        } catch (_) {}
+      }
       try {
         _closeDevice(deviceType, device);
       } catch (_) {}
