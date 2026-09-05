@@ -159,6 +159,7 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
   int _uc2Bitrate = 500000;
   bool _scanningUc2 = false;
   bool _connectingUc2 = false;
+  bool _connectingUc2Pair = false;
 
   Future<void> _scanSocketCan() async {
     setState(() => _scanningSocketCan = true);
@@ -244,6 +245,27 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
     }
   }
 
+  Future<void> _connectUc2Pair() async {
+    if (_uc2Devices.length < 2) {
+      _showMessage('Scan UC2 first. Two adapters are required.');
+      return;
+    }
+    setState(() => _connectingUc2Pair = true);
+    try {
+      await AtlasRuntime.instance.connectLinuxUc2Pair(
+        bitrate: _uc2Bitrate,
+        baseChannel: 1,
+        firstDeviceIndex: _uc2Devices[0],
+        secondDeviceIndex: _uc2Devices[1],
+      );
+      _showMessage('Dual UC2 session connected • Device 0 → CH1 • Device 1 → CH2.');
+    } catch (error) {
+      _showError(error);
+    } finally {
+      if (mounted) setState(() => _connectingUc2Pair = false);
+    }
+  }
+
   void _showError(Object error) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
@@ -260,6 +282,7 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
       animation: AtlasRuntime.instance,
       builder: (context, _) {
         final runtime = AtlasRuntime.instance;
+        final uc2Busy = _connectingUc2 || _connectingUc2Pair;
         return LinuxPageShell(
           title: 'Linux CAN Connections',
           subtitle: 'PCG-1 supports standard SocketCAN plus native ARM64 UC2 / LYS USBCAN adapters.',
@@ -290,6 +313,13 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                                 : const Icon(Icons.search),
                             label: const Text('Scan UC2'),
                           ),
+                          FilledButton.icon(
+                            onPressed: uc2Busy || _uc2Devices.length < 2 ? null : _connectUc2Pair,
+                            icon: _connectingUc2Pair
+                                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                                : const Icon(Icons.hub),
+                            label: const Text('Connect BOTH → CH1 + CH2'),
+                          ),
                           SizedBox(
                             width: 190,
                             child: DropdownButtonFormField<int>(
@@ -299,7 +329,7 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                               items: _uc2Devices
                                   .map((index) => DropdownMenuItem(value: index, child: Text('Device $index')))
                                   .toList(),
-                              onChanged: _connectingUc2 ? null : (value) => setState(() => _selectedUc2 = value),
+                              onChanged: uc2Busy ? null : (value) => setState(() => _selectedUc2 = value),
                             ),
                           ),
                           SizedBox(
@@ -314,20 +344,26 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                                 DropdownMenuItem(value: 800000, child: Text('800 kbit/s')),
                                 DropdownMenuItem(value: 1000000, child: Text('1 Mbit/s')),
                               ],
-                              onChanged: _connectingUc2 ? null : (value) => setState(() => _uc2Bitrate = value ?? 500000),
+                              onChanged: uc2Busy ? null : (value) => setState(() => _uc2Bitrate = value ?? 500000),
                             ),
                           ),
                           _channelPicker(
                             value: _uc2AtlasChannel,
-                            enabled: !_connectingUc2,
+                            enabled: !uc2Busy,
                             onChanged: (value) => setState(() => _uc2AtlasChannel = value),
                           ),
-                          FilledButton.icon(
-                            onPressed: _connectingUc2 || _selectedUc2 == null ? null : _connectUc2,
+                          FilledButton.tonalIcon(
+                            onPressed: uc2Busy || _selectedUc2 == null ? null : _connectUc2,
                             icon: const Icon(Icons.link),
-                            label: const Text('Connect UC2 CAN0'),
+                            label: const Text('Connect one UC2'),
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _uc2Devices.length >= 2
+                            ? 'Recommended: Connect BOTH opens/configures both adapters before receive polling starts.'
+                            : 'Scan for both UC2 adapters to enable coordinated dual-device mode.',
                       ),
                       const SizedBox(height: 8),
                       SelectableText(
@@ -598,7 +634,7 @@ class LinuxSystemPage extends StatelessWidget {
           const ListTile(
             leading: Icon(Icons.info_outline),
             title: Text('Linux foundation'),
-            trailing: Text('PCG-1 Build 2'),
+            trailing: Text('PCG-1 Build 3 • dual UC2 session'),
           ),
         ],
       ),
