@@ -10,6 +10,7 @@ import '../adapters/canalystii_adapter.dart';
 import '../adapters/gs_usb_adapter.dart';
 import '../adapters/lys_usbcan_adapter.dart';
 import '../adapters/slcan_adapter.dart';
+import '../adapters/socketcan_adapter.dart';
 import 'can_frame.dart';
 import 'local_store.dart';
 
@@ -57,6 +58,7 @@ class AtlasRuntime extends ChangeNotifier {
   bool get isCapturing => _captureSink != null;
 
   List<String> scanSlcanPorts() => SlcanAdapter.availablePorts();
+  Future<List<String>> scanSocketCanInterfaces() => SocketCanAdapter.availableInterfaces();
   Future<List<GsUsbDevice>> scanGsUsbDevices() => GsUsbAdapter.availableDevices();
   Future<List<CanalystiiDevice>> scanCanalystiiDevices() => CanalystiiAdapter.availableDevices();
   Future<bool> probeLysUsbcan() => LysUsbcanAdapter.probe();
@@ -83,6 +85,10 @@ class AtlasRuntime extends ChangeNotifier {
 
   Future<void> connectSlcan(String portName, {int bitrate = 500000, int channel = 1}) async {
     await _connectAdapter(SlcanAdapter(portName, bitrate: bitrate, channel: channel), channel);
+  }
+
+  Future<void> connectSocketCan(String interfaceName, {int channel = 1}) async {
+    await _connectAdapter(SocketCanAdapter(interfaceName, channel: channel), channel);
   }
 
   Future<void> connectGsUsb(GsUsbDevice device, {int bitrate = 33333, int channel = 1}) async {
