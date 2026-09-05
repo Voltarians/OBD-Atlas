@@ -291,7 +291,7 @@ class LinuxUc2Adapter implements AtlasAdapter {
           continue;
         }
 
-        final requested = pending.clamp(1, _maxReceiveBatch);
+        final requested = pending.clamp(1, _maxReceiveBatch).toInt();
         final received = _receive(
           deviceType,
           deviceIndex,
@@ -307,8 +307,8 @@ class LinuxUc2Adapter implements AtlasAdapter {
         }
 
         for (var index = 0; index < received; index++) {
-          final raw = buffer[index];
-          final dlc = raw.dataLen.clamp(0, 8);
+          final raw = buffer.elementAt(index).ref;
+          final dlc = raw.dataLen.clamp(0, 8).toInt();
           final payload = <int>[
             for (var i = 0; i < dlc; i++) raw.data[i],
           ];
