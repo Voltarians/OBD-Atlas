@@ -7,6 +7,7 @@ import 'package:ffi/ffi.dart';
 import '../core/can_frame.dart';
 import 'atlas_adapter.dart';
 import 'linux_uc2_adapter.dart';
+import 'uc2_receive.dart';
 
 final class _VciInitConfig extends Struct {
   @Uint32()
@@ -103,7 +104,6 @@ class LinuxUc2PairAdapter implements AtlasAdapter {
   });
 
   static const int deviceType = 4;
-  static const int _maxReceiveBatch = 256;
 
   final int bitrate;
   final int baseChannel;
@@ -204,7 +204,7 @@ class LinuxUc2PairAdapter implements AtlasAdapter {
       }
 
       // Initialize CAN0 and CAN1 on both USBCAN2 devices before starting any
-      // receive polling.
+      // receive polling. Use the passive mode validated by the native test.
       for (final device in devices) {
         for (final physicalChannel in const <int>[0, 1]) {
           final config = calloc<_VciInitConfig>();
@@ -216,7 +216,7 @@ class LinuxUc2PairAdapter implements AtlasAdapter {
               ..filter = 1
               ..timing0 = timing.timing0
               ..timing1 = timing.timing1
-              ..mode = 0;
+              ..mode = 1;
             final initResult = _initCan(deviceType, device, physicalChannel, config);
             if (initResult != 1) {
               throw StateError('VCI_InitCAN failed for UC2 device $device CAN$physicalChannel.');
@@ -248,10 +248,10 @@ class LinuxUc2PairAdapter implements AtlasAdapter {
   }
 
   Future<void> _pollAllFour() async {
-    final firstCan0 = calloc<_VciCanObj>(_maxReceiveBatch);
-    final firstCan1 = calloc<_VciCanObj>(_maxReceiveBatch);
-    final secondCan0 = calloc<_VciCanObj>(_maxReceiveBatch);
-    final secondCan1 = calloc<_VciCanObj>(_maxReceiveBatch);
+    final firstCan0 = calloc<_VciCanObj>();
+    final firstCan1 = calloc<_VciCanObj>();
+    final secondCan0 = calloc<_VciCanObj>();
+    final secondCan1 = calloc<_VciCanObj>();
     try {
       while (_running) {
         var gotAny = false;
@@ -282,35 +282,39 @@ class LinuxUc2PairAdapter implements AtlasAdapter {
     int logicalChannel,
     Pointer<_VciCanObj> buffer,
   ) {
-    final pending = _getReceiveNum(deviceType, device, physicalChannel);
-    if (pending <= 0) return false;
-    final requested = pending.clamp(1, _maxReceiveBatch);
-    final received = _receive(
-      deviceType,
-      device,
-      physicalChannel,
-      buffer,
-      requested,
-      0,
+    final source = 'UC2 device $device CAN$physicalChannel';
+    final count = drainUc2Receive(
+      source: source,
+      pending: () => _getReceiveNum(deviceType, device, physicalChannel),
+      receive: (requested, waitMs) => _receive(
+        deviceType,
+        device,
+        physicalChannel,
+        buffer,
+        requested,
+        waitMs,
+      ),
+      onFrame: () {
+        final raw = buffer.ref;
+        if (raw.dataLen > 8) {
+          throw StateError('$source: invalid CAN data length ${raw.dataLen}.');
+        }
+        final payload = <int>[
+          for (var i = 0; i < raw.dataLen; i++) raw.data[i],
+        ];
+        _frames.add(
+          CanFrame(
+            timestamp: DateTime.now(),
+            channel: logicalChannel,
+            id: raw.id,
+            extended: raw.externFlag != 0,
+            remote: raw.remoteFlag != 0,
+            data: payload,
+          ),
+        );
+      },
     );
-    if (received <= 0) return false;
-
-    for (var index = 0; index < received; index++) {
-      final raw = buffer[index];
-      final dlc = raw.dataLen.clamp(0, 8);
-      final payload = <int>[for (var i = 0; i < dlc; i++) raw.data[i]];
-      _frames.add(
-        CanFrame(
-          timestamp: DateTime.now(),
-          channel: logicalChannel,
-          id: raw.id,
-          extended: raw.externFlag != 0,
-          remote: raw.remoteFlag != 0,
-          data: payload,
-        ),
-      );
-    }
-    return true;
+    return count > 0;
   }
 
   Future<void> _closeOpened() async {
