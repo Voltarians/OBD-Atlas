@@ -226,7 +226,7 @@ class LinuxUc2Adapter implements AtlasAdapter {
 
       final library = DynamicLibrary.open(libraryPath);
       _library = library;
-      _bindLibrary(library);
+      _bindLibrary(_library!);
 
       final openResult = _openDevice(deviceType, deviceIndex, 0);
       if (openResult != 1) {
