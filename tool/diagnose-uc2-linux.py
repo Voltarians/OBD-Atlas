@@ -89,6 +89,27 @@ class VciErrInfo(C.Structure):
     ]
 
 
+# Native layout from library/linux/header/usbcan/controlcan.h. The status
+# structure is 12 bytes, not 16: eight bytes followed by one DWORD.
+def check_layouts():
+    expected = (
+        (VciInitConfig, 16, {'AccCode': 0, 'Mode': 15}),
+        (VciCanObj, 24, {'ID': 0, 'DataLen': 12, 'Data': 13, 'Reserved': 21}),
+        (VciCanStatus, 12, {'regRECounter': 6, 'regTECounter': 7, 'Reserved': 8}),
+        (VciErrInfo, 8, {'ErrCode': 0, 'Passive_ErrData': 4, 'ArLost_ErrData': 7}),
+    )
+    for structure, size, offsets in expected:
+        actual = C.sizeof(structure)
+        print(f'{structure.__name__}: {actual} bytes (expected {size})', flush=True)
+        if actual != size:
+            raise RuntimeError(f'{structure.__name__}: unexpected size {actual}; refusing native calls.')
+        for field, offset in offsets.items():
+            actual_offset = getattr(structure, field).offset
+            if actual_offset != offset:
+                raise RuntimeError(f'{structure.__name__}.{field}: offset {actual_offset}, expected {offset}; refusing native calls.')
+    print('ControlCAN layouts OK.', flush=True)
+
+
 def find_library(explicit):
     home = Path.home()
     candidates = [
@@ -114,9 +135,9 @@ def bind(library, name, arguments, result=C.c_uint32):
 def run(args):
     if sys.platform != 'linux':
         raise RuntimeError('This diagnostic requires Linux.')
-    if (C.sizeof(VciInitConfig), C.sizeof(VciCanObj),
-            C.sizeof(VciCanStatus), C.sizeof(VciErrInfo)) != (16, 24, 16, 8):
-        raise RuntimeError('Unexpected ControlCAN structure layout; refusing native calls.')
+    check_layouts()
+    if args.check_layouts:
+        return 0
 
     path = find_library(args.library)
     print(f'Library: {path}', flush=True)
@@ -195,8 +216,6 @@ def run(args):
                 print('VCI_GetReceiveNum returned 0xFFFFFFFF (native error)', flush=True)
                 break
             max_pending = max(max_pending, pending)
-            # A positive timeout and selectable batch size let us distinguish
-            # an empty queue from a zero-timeout or batch-handling problem.
             requested = min(max(pending, 1), args.batch_size)
             received = receive(DEVICE_TYPE, device, channel, buffer, requested, args.wait_ms)
             receive_results[received] += 1
@@ -254,6 +273,7 @@ def main():
     parser.add_argument('--wait-ms', type=int, default=100, help='Native receive timeout in milliseconds (default: 100)')
     parser.add_argument('--batch-size', type=int, default=1, help='Frames requested per receive call (default: 1; maximum: 256)')
     parser.add_argument('--library', help='Explicit path to ARM64 libusbcan.so')
+    parser.add_argument('--check-layouts', action='store_true', help='Validate native structures without loading the library or opening hardware')
     args = parser.parse_args()
     if args.device < 0 or args.seconds <= 0 or args.samples < 0 or args.wait_ms < 0 or not 1 <= args.batch_size <= BATCH_SIZE:
         parser.error('Device must be nonnegative, seconds positive, samples and timeout nonnegative, and batch size 1 through 256.')
