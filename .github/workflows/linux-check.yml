@@ -29,6 +29,9 @@ jobs:
       - name: Resolve packages
         run: flutter pub get
 
+      - name: UC2 receive regression tests
+        run: flutter test test/adapters/uc2_receive_test.dart
+
       - name: Analyze
         run: flutter analyze
 
