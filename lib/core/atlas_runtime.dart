@@ -14,6 +14,7 @@ import '../adapters/lys_usbcan_adapter.dart';
 import '../adapters/slcan_adapter.dart';
 import '../adapters/socketcan_adapter.dart';
 import 'can_frame.dart';
+import 'capture_session.dart';
 import 'local_store.dart';
 
 class AtlasChannelStatus {
@@ -40,6 +41,7 @@ class AtlasRuntime extends ChangeNotifier {
     for (var channel = 1; channel <= 5; channel++) {
       channels[channel] = AtlasChannelStatus(channel);
     }
+    capture.addListener(notifyListeners);
   }
 
   static final AtlasRuntime instance = AtlasRuntime._();
@@ -47,18 +49,22 @@ class AtlasRuntime extends ChangeNotifier {
   final Map<int, AtlasChannelStatus> channels = <int, AtlasChannelStatus>{};
   final List<CanFrame> recentFrames = <CanFrame>[];
   final Set<String> seenIds = <String>{};
+  final CaptureSession capture = CaptureSession(
+    createFile: AtlasLocalStore.instance.createCaptureFile,
+  );
 
   int totalFrames = 0;
   int framesThisSecond = 0;
   int framesPerSecond = 0;
   Timer? _rateTimer;
+  Timer? _uiTimer;
+  Future<void>? _disconnectTask;
   CanalystiiAdapter? _canalystAdapter;
   LysUsbcanAdapter? _lysAdapter;
   LinuxUc2PairAdapter? _linuxUc2PairAdapter;
 
-  IOSink? _captureSink;
-  File? activeCaptureFile;
-  bool get isCapturing => _captureSink != null;
+  File? get activeCaptureFile => capture.activeFile;
+  bool get isCapturing => capture.isRecording;
 
   List<String> scanSlcanPorts() => SlcanAdapter.availablePorts();
   Future<List<String>> scanSocketCanInterfaces() => SocketCanAdapter.availableInterfaces();
@@ -351,12 +357,16 @@ class AtlasRuntime extends ChangeNotifier {
     }
     recentFrames.insert(0, frame);
     if (recentFrames.length > 500) recentFrames.removeLast();
-    _captureSink?.writeln(frame.toCandump());
-    notifyListeners();
+    capture.writeLine(frame.toCandump());
+    // Do not rebuild the whole desktop UI once for every CAN frame.
+    // The rate/UI timers publish the latest counters and recent-frame list.
   }
 
   void _startRateTimer() {
     if (_rateTimer != null) return;
+    _uiTimer ??= Timer.periodic(const Duration(milliseconds: 250), (_) {
+      notifyListeners();
+    });
     _rateTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       framesPerSecond = framesThisSecond;
       framesThisSecond = 0;
@@ -368,30 +378,14 @@ class AtlasRuntime extends ChangeNotifier {
     });
   }
 
-  Future<File> startCapture() async {
+  Future<File> startCapture() {
     if (!anyConnected) {
       throw StateError('Connect at least one Atlas channel before starting a capture.');
     }
-    if (isCapturing) return activeCaptureFile!;
-    final file = await AtlasLocalStore.instance.createCaptureFile();
-    activeCaptureFile = file;
-    _captureSink = file.openWrite(mode: FileMode.writeOnlyAppend);
-    notifyListeners();
-    return file;
+    return capture.start();
   }
 
-  Future<File?> stopCapture() async {
-    final sink = _captureSink;
-    final file = activeCaptureFile;
-    _captureSink = null;
-    activeCaptureFile = null;
-    if (sink != null) {
-      await sink.flush();
-      await sink.close();
-    }
-    notifyListeners();
-    return file;
-  }
+  Future<File?> stopCapture() => capture.stop();
 
   Future<void> _disconnectSharedAdapter(AtlasAdapter adapter) async {
     final affected = channels.values
@@ -445,30 +439,51 @@ class AtlasRuntime extends ChangeNotifier {
     if (!anyConnected) {
       _rateTimer?.cancel();
       _rateTimer = null;
+      _uiTimer?.cancel();
+      _uiTimer = null;
       framesPerSecond = 0;
       framesThisSecond = 0;
     }
     notifyListeners();
   }
 
-  Future<void> disconnect() async {
-    await stopCapture();
-    if (_canalystAdapter != null) {
-      await _disconnectSharedAdapter(_canalystAdapter!);
+  Future<void> disconnect() => _disconnectTask ??= _disconnectAll().whenComplete(() {
+        _disconnectTask = null;
+      });
+
+  Future<void> _disconnectAll() async {
+    Object? captureFailure;
+    StackTrace? captureStack;
+    try {
+      await stopCapture();
+    } catch (error, stack) {
+      captureFailure = error;
+      captureStack = stack;
     }
-    if (_lysAdapter != null) {
-      await _disconnectSharedAdapter(_lysAdapter!);
+    try {
+      if (_canalystAdapter != null) {
+        await _disconnectSharedAdapter(_canalystAdapter!);
+      }
+      if (_lysAdapter != null) {
+        await _disconnectSharedAdapter(_lysAdapter!);
+      }
+      if (_linuxUc2PairAdapter != null) {
+        await _disconnectSharedAdapter(_linuxUc2PairAdapter!);
+      }
+      for (var channel = 1; channel <= 5; channel++) {
+        await disconnectChannel(channel);
+      }
+    } finally {
+      _rateTimer?.cancel();
+      _rateTimer = null;
+      _uiTimer?.cancel();
+      _uiTimer = null;
+      framesPerSecond = 0;
+      framesThisSecond = 0;
+      notifyListeners();
     }
-    if (_linuxUc2PairAdapter != null) {
-      await _disconnectSharedAdapter(_linuxUc2PairAdapter!);
+    if (captureFailure != null) {
+      Error.throwWithStackTrace(captureFailure, captureStack!);
     }
-    for (var channel = 1; channel <= 5; channel++) {
-      await disconnectChannel(channel);
-    }
-    _rateTimer?.cancel();
-    _rateTimer = null;
-    framesPerSecond = 0;
-    framesThisSecond = 0;
-    notifyListeners();
   }
 }
