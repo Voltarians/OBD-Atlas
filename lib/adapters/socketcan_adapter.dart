@@ -162,7 +162,10 @@ class SocketCanAdapter implements AtlasAdapter {
       extended: idHex.length > 3,
       remote: remote,
       channel: channel,
-      bus: bus,
+      // Atlas capture labels identify logical channels, not Linux interface
+      // names. In particular, a physical can0 assigned to CH5 must be can4
+      // in the shared capture, otherwise it collides with UC2 CH1.
+      bus: 'can${channel - 1}',
     ));
   }
 
