@@ -45,7 +45,7 @@ void main() {
     expect(session.isRecording, isFalse);
     session.writeLine('after');
     expect(output.lines, ['before']);
-    expect(session.start(), throwsStateError);
+    expect(() => session.start(), throwsStateError);
     expect(identical(stopping, session.stop()), isTrue);
     output.closeGate.complete();
     expect(await stopping, file);
