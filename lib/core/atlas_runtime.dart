@@ -16,6 +16,7 @@ import '../adapters/socketcan_adapter.dart';
 import 'can_frame.dart';
 import 'capture_session.dart';
 import 'local_store.dart';
+import 'signal_discovery.dart';
 
 class AtlasChannelStatus {
   AtlasChannelStatus(this.channel);
@@ -52,6 +53,7 @@ class AtlasRuntime extends ChangeNotifier {
   final CaptureSession capture = CaptureSession(
     createFile: AtlasLocalStore.instance.createCaptureFile,
   );
+  final SignalDiscoverySession discovery = SignalDiscoverySession();
 
   int totalFrames = 0;
   int framesThisSecond = 0;
@@ -359,6 +361,7 @@ class AtlasRuntime extends ChangeNotifier {
     recentFrames.insert(0, frame);
     if (recentFrames.length > 500) recentFrames.removeLast();
     capture.writeLine(frame.toCandump());
+    if (capture.isRecording) discovery.observe(frame);
     // Do not rebuild the whole desktop UI once for every CAN frame.
     // The rate/UI timers publish the latest counters and recent-frame list.
   }
@@ -379,14 +382,36 @@ class AtlasRuntime extends ChangeNotifier {
     });
   }
 
-  Future<File> startCapture() {
+  Future<File> startCapture({String eventLabel = 'Event'}) async {
     if (!anyConnected) {
       throw StateError('Connect at least one Atlas channel before starting a capture.');
     }
-    return capture.start();
+    discovery.start(label: eventLabel);
+    notifyListeners();
+    try {
+      return await capture.start();
+    } catch (_) {
+      discovery.finish();
+      notifyListeners();
+      rethrow;
+    }
   }
 
-  Future<File?> stopCapture() => capture.stop();
+  void markDiscoveryEventStart() {
+    discovery.markEventStart();
+    notifyListeners();
+  }
+
+  void markDiscoveryEventEnd() {
+    discovery.markEventEnd();
+    notifyListeners();
+  }
+
+  Future<File?> stopCapture() {
+    if (discovery.isRunning) discovery.finish();
+    notifyListeners();
+    return capture.stop();
+  }
 
   Future<void> _disconnectSharedAdapter(AtlasAdapter adapter) async {
     final affected = channels.values
