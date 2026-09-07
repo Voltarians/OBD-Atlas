@@ -128,7 +128,6 @@ class SocketCanAdapter implements AtlasAdapter {
     if (match == null) return;
 
     final timestampSeconds = double.tryParse(match.group(1)!);
-    final bus = match.group(2)!;
     final idHex = match.group(3)!;
     var payload = match.group(4)!;
 
