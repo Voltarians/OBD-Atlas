@@ -63,15 +63,14 @@ class AtlasRuntime extends ChangeNotifier {
   LysUsbcanAdapter? _lysAdapter;
   LinuxUc2PairAdapter? _linuxUc2PairAdapter;
 
-  File? get activeCaptureFile => capture.activeFile;
-  bool get isCapturing => capture.isRecording;
+  File? get activeCaptureFile => capture.activeFile ?? capture.lastCompletedFile;
+  bool get isCapturing => capture.hasOpenCapture;
 
   List<String> scanSlcanPorts() => SlcanAdapter.availablePorts();
   Future<List<String>> scanSocketCanInterfaces() => SocketCanAdapter.availableInterfaces();
   Future<List<int>> scanLinuxUc2Devices() => LinuxUc2Adapter.availableDeviceIndices();
   String? get linuxUc2LibraryPath => LinuxUc2Adapter.findLibraryPath();
   Future<List<GsUsbDevice>> scanGsUsbDevices() => GsUsbAdapter.availableDevices();
-  Future<List<CanalystiiDevice>> scanCanalystiiDevices() => CanalystiiAdapter.availableDevices();
   Future<bool> probeLysUsbcan() => LysUsbcanAdapter.probe();
 
   int get connectedChannelCount => channels.values.where((channel) => channel.connected).length;
