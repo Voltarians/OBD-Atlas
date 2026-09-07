@@ -71,6 +71,8 @@ class AtlasRuntime extends ChangeNotifier {
   Future<List<int>> scanLinuxUc2Devices() => LinuxUc2Adapter.availableDeviceIndices();
   String? get linuxUc2LibraryPath => LinuxUc2Adapter.findLibraryPath();
   Future<List<GsUsbDevice>> scanGsUsbDevices() => GsUsbAdapter.availableDevices();
+  Future<List<CanalystiiDevice>> scanCanalystiiDevices() =>
+      CanalystiiAdapter.availableDevices();
   Future<bool> probeLysUsbcan() => LysUsbcanAdapter.probe();
 
   int get connectedChannelCount => channels.values.where((channel) => channel.connected).length;
