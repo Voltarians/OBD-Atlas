@@ -6,6 +6,7 @@ import 'package:ffi/ffi.dart';
 
 import '../core/can_frame.dart';
 import 'atlas_adapter.dart';
+import 'uc2_receive.dart';
 
 final class _VciInitConfig extends Struct {
   @Uint32()
@@ -97,7 +98,6 @@ class LinuxUc2Adapter implements AtlasAdapter {
   });
 
   static const int deviceType = 4; // ZLG/LYS USBCAN2
-  static const int _maxReceiveBatch = 256;
 
   final int deviceIndex;
   final int bitrate;
@@ -246,7 +246,7 @@ class LinuxUc2Adapter implements AtlasAdapter {
           ..filter = 1
           ..timing0 = timing.timing0
           ..timing1 = timing.timing1
-          ..mode = 0;
+          ..mode = 1;
 
         final initResult = _initCan(
           deviceType,
@@ -282,49 +282,44 @@ class LinuxUc2Adapter implements AtlasAdapter {
   }
 
   Future<void> _pollReceive() async {
-    final buffer = calloc<_VciCanObj>(_maxReceiveBatch);
+    final buffer = calloc<_VciCanObj>();
+    final source = 'UC2 device $deviceIndex CAN$physicalCanChannel';
     try {
       while (_running) {
-        final pending = _getReceiveNum(deviceType, deviceIndex, physicalCanChannel);
-        if (pending <= 0) {
-          await Future<void>.delayed(const Duration(milliseconds: 2));
-          continue;
-        }
-
-        final requested = pending.clamp(1, _maxReceiveBatch).toInt();
-        final received = _receive(
-          deviceType,
-          deviceIndex,
-          physicalCanChannel,
-          buffer,
-          requested,
-          0,
+        final count = drainUc2Receive(
+          source: source,
+          pending: () => _getReceiveNum(deviceType, deviceIndex, physicalCanChannel),
+          receive: (requested, waitMs) => _receive(
+            deviceType,
+            deviceIndex,
+            physicalCanChannel,
+            buffer,
+            requested,
+            waitMs,
+          ),
+          onFrame: () {
+            final raw = buffer.ref;
+            if (raw.dataLen > 8) {
+              throw StateError('$source: invalid CAN data length ${raw.dataLen}.');
+            }
+            final payload = <int>[
+              for (var i = 0; i < raw.dataLen; i++) raw.data[i],
+            ];
+            _frames.add(
+              CanFrame(
+                timestamp: DateTime.now(),
+                id: raw.id,
+                data: payload,
+                extended: raw.externFlag != 0,
+                remote: raw.remoteFlag != 0,
+                channel: channel,
+              ),
+            );
+          },
         );
-
-        if (received <= 0) {
-          await Future<void>.delayed(const Duration(milliseconds: 1));
-          continue;
-        }
-
-        for (var index = 0; index < received; index++) {
-          final raw = buffer.elementAt(index).ref;
-          final dlc = raw.dataLen.clamp(0, 8).toInt();
-          final payload = <int>[
-            for (var i = 0; i < dlc; i++) raw.data[i],
-          ];
-          _frames.add(
-            CanFrame(
-              timestamp: DateTime.now(),
-              id: raw.id,
-              data: payload,
-              extended: raw.externFlag != 0,
-              remote: raw.remoteFlag != 0,
-              channel: channel,
-            ),
-          );
-        }
-
-        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(
+          count > 0 ? Duration.zero : const Duration(milliseconds: 2),
+        );
       }
     } catch (error, stack) {
       if (_running) {
