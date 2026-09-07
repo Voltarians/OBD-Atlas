@@ -189,7 +189,7 @@ class LinuxUc2PairAdapter implements AtlasAdapter {
       }
       final library = DynamicLibrary.open(libraryPath);
       _library = library;
-      _bind(library);
+      _bind(_library!);
 
       final devices = <int>[firstDeviceIndex, secondDeviceIndex];
       final timing = _timingForBitrate();
