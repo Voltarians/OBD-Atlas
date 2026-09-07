@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'adapters/atlas_adapter.dart';
 import 'core/atlas_runtime.dart';
+import 'core/capture_session.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -496,6 +497,10 @@ class LinuxCapturePage extends StatelessWidget {
       animation: AtlasRuntime.instance,
       builder: (context, _) {
         final runtime = AtlasRuntime.instance;
+        final phase = runtime.capture.phase;
+        final isStarting = phase == CapturePhase.starting;
+        final isRecording = phase == CapturePhase.recording;
+        final isStopping = phase == CapturePhase.stopping;
         return LinuxPageShell(
           title: 'Passive Capture',
           subtitle: 'All connected Linux CAN transports feed the same Atlas candump-compatible evidence stream.',
@@ -504,31 +509,48 @@ class LinuxCapturePage extends StatelessWidget {
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
-                  Icon(runtime.isCapturing ? Icons.stop_circle : Icons.fiber_manual_record, size: 56),
+                  Icon(isRecording || isStopping ? Icons.stop_circle : Icons.fiber_manual_record, size: 56),
                   const SizedBox(height: 12),
-                  Text(runtime.isCapturing
-                      ? 'Capture active'
-                      : runtime.anyConnected
-                          ? '${runtime.connectedChannelCount} channels ready'
-                          : 'Connect at least one CAN interface'),
+                  Text(isStarting
+                      ? 'Starting capture…'
+                      : isRecording
+                          ? 'Capture active'
+                          : isStopping
+                              ? 'Stopping and saving…'
+                              : runtime.anyConnected
+                                  ? '${runtime.connectedChannelCount} channels ready'
+                                  : 'Connect at least one CAN interface'),
                   const SizedBox(height: 6),
                   Text('${runtime.totalFrames} total frames • ${runtime.framesPerSecond} frames/s'),
                   const SizedBox(height: 12),
-                  if (!runtime.isCapturing)
+                  if (phase == CapturePhase.idle)
                     FilledButton.icon(
                       onPressed: runtime.anyConnected ? runtime.startCapture : null,
                       icon: const Icon(Icons.play_arrow),
                       label: const Text('Start capture'),
                     )
-                  else
+                  else if (isRecording)
                     FilledButton.icon(
                       onPressed: runtime.stopCapture,
                       icon: const Icon(Icons.stop),
                       label: const Text('Stop capture'),
+                    )
+                  else
+                    FilledButton.icon(
+                      onPressed: null,
+                      icon: const SizedBox.square(
+                        dimension: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      label: Text(isStopping ? 'Saving capture…' : 'Opening capture…'),
                     ),
                   if (runtime.activeCaptureFile != null) ...[
                     const SizedBox(height: 10),
                     SelectableText(runtime.activeCaptureFile!.path),
+                  ],
+                  if (phase == CapturePhase.idle && runtime.capture.lastCompletedFile != null) ...[
+                    const SizedBox(height: 10),
+                    Text('Saved ${runtime.capture.lastCompletedFrames} frames'),
                   ],
                 ],
               ),

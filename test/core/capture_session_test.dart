@@ -9,11 +9,17 @@ class _MemoryOutput implements CaptureOutput {
   final Completer<void> closeGate = Completer<void>();
   bool finished = false;
   int finishCalls = 0;
+  int flushCalls = 0;
 
   @override
   void writeLine(String line) {
     if (finished) throw StateError('Write after close');
     lines.add(line);
+  }
+
+  @override
+  Future<void> flush() async {
+    flushCalls++;
   }
 
   @override
@@ -52,6 +58,17 @@ void main() {
     expect(session.phase, CapturePhase.idle);
     expect(session.lastCompletedFile, file);
     expect(session.lastCompletedFrames, 1);
+    expect(output.finishCalls, 1);
+  });
+
+  test('recording flushes periodically before final close', () async {
+    await session.start();
+    session.writeLine('frame');
+    await Future<void>.delayed(const Duration(milliseconds: 1100));
+    expect(output.flushCalls, greaterThanOrEqualTo(1));
+    final stopping = session.stop();
+    output.closeGate.complete();
+    await stopping;
     expect(output.finishCalls, 1);
   });
 

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 /// A sink that can be replaced by a controlled writer in lifecycle tests.
 abstract interface class CaptureOutput {
   void writeLine(String line);
+  Future<void> flush();
   Future<void> finish();
 }
 
@@ -22,6 +23,9 @@ class _FileCaptureOutput implements CaptureOutput {
 
   @override
   void writeLine(String line) => _sink.writeln(line);
+
+  @override
+  Future<void> flush() => _sink.flush();
 
   @override
   Future<void> finish() async {
@@ -69,6 +73,8 @@ class CaptureSession extends ChangeNotifier {
   CaptureOutput? _output;
   Future<File>? _starting;
   Future<File?>? _stopping;
+  Future<void> _flushTask = Future<void>.value();
+  Timer? _flushTimer;
   bool _stopRequested = false;
   File? activeFile;
   File? lastCompletedFile;
@@ -105,6 +111,12 @@ class CaptureSession extends ChangeNotifier {
         activeFile = file;
         _output = output;
         _setPhase(_stopRequested ? CapturePhase.stopping : CapturePhase.recording);
+        if (!_stopRequested) {
+          _flushTimer = Timer.periodic(
+            const Duration(seconds: 1),
+            (_) => _scheduleFlush(output),
+          );
+        }
         completer.complete(file);
       } catch (error, stack) {
         lastError = error;
@@ -127,6 +139,14 @@ class CaptureSession extends ChangeNotifier {
     }
   }
 
+  void _scheduleFlush(CaptureOutput output) {
+    _flushTask = _flushTask.then<void>((_) async {
+      if (identical(_output, output) && isRecording) await output.flush();
+    }).catchError((Object error, StackTrace stack) {
+      _onOutputError(error, stack);
+    });
+  }
+
   void _onOutputError(Object error, StackTrace stack) {
     lastError ??= error;
     notifyListeners();
@@ -139,6 +159,8 @@ class CaptureSession extends ChangeNotifier {
     if (_stopping != null) return _stopping!;
     if (_phase == CapturePhase.idle) return Future<File?>.value(null);
     _stopRequested = true;
+    _flushTimer?.cancel();
+    _flushTimer = null;
     _setPhase(CapturePhase.stopping);
     final completer = Completer<File?>();
     _stopping = completer.future;
@@ -155,6 +177,7 @@ class CaptureSession extends ChangeNotifier {
         final file = activeFile;
         // No subsequent frame may write to this output, even while close waits.
         _output = null;
+        await _flushTask;
         if (output != null) await output.finish();
         if (file != null) {
           lastCompletedFile = file;
@@ -169,6 +192,9 @@ class CaptureSession extends ChangeNotifier {
         _output = null;
         _starting = null;
         _stopping = null;
+        _flushTask = Future<void>.value();
+        _flushTimer?.cancel();
+        _flushTimer = null;
         _stopRequested = false;
         _setPhase(CapturePhase.idle);
       }
