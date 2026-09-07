@@ -24,6 +24,21 @@ TIMING = {
 }
 U32_ERROR = 0xFFFFFFFF
 BATCH_SIZE = 256
+ERROR_BITS = {
+    0x0001: 'controller FIFO overflow',
+    0x0002: 'controller error alarm',
+    0x0004: 'controller error passive',
+    0x0008: 'arbitration lost',
+    0x0010: 'CAN bus error',
+    0x0100: 'device already opened',
+    0x0200: 'device open error',
+    0x0400: 'device not open',
+    0x0800: 'host buffer overflow',
+    0x1000: 'device does not exist',
+    0x2000: 'kernel library load failure',
+    0x4000: 'command failed',
+    0x8000: 'buffer creation failure',
+}
 
 
 class VciInitConfig(C.Structure):
@@ -52,6 +67,28 @@ class VciCanObj(C.Structure):
     ]
 
 
+class VciCanStatus(C.Structure):
+    _fields_ = [
+        ('ErrInterrupt', C.c_uint8),
+        ('regMode', C.c_uint8),
+        ('regStatus', C.c_uint8),
+        ('regALCapture', C.c_uint8),
+        ('regECCapture', C.c_uint8),
+        ('regEWLimit', C.c_uint8),
+        ('regRECounter', C.c_uint8),
+        ('regTECounter', C.c_uint8),
+        ('Reserved', C.c_uint32),
+    ]
+
+
+class VciErrInfo(C.Structure):
+    _fields_ = [
+        ('ErrCode', C.c_uint32),
+        ('Passive_ErrData', C.c_uint8 * 3),
+        ('ArLost_ErrData', C.c_uint8),
+    ]
+
+
 def find_library(explicit):
     home = Path.home()
     candidates = [
@@ -77,7 +114,8 @@ def bind(library, name, arguments, result=C.c_uint32):
 def run(args):
     if sys.platform != 'linux':
         raise RuntimeError('This diagnostic requires Linux.')
-    if C.sizeof(VciInitConfig) != 16 or C.sizeof(VciCanObj) != 24:
+    if (C.sizeof(VciInitConfig), C.sizeof(VciCanObj),
+            C.sizeof(VciCanStatus), C.sizeof(VciErrInfo)) != (16, 24, 16, 8):
         raise RuntimeError('Unexpected ControlCAN structure layout; refusing native calls.')
 
     path = find_library(args.library)
@@ -91,6 +129,8 @@ def run(args):
     reset_can = bind(library, 'VCI_ResetCAN', [u32, u32, u32])
     receive_num = bind(library, 'VCI_GetReceiveNum', [u32, u32, u32])
     receive = bind(library, 'VCI_Receive', [u32, u32, u32, C.POINTER(VciCanObj), u32, C.c_int32])
+    read_status = bind(library, 'VCI_ReadCANStatus', [u32, u32, u32, C.POINTER(VciCanStatus)])
+    read_error = bind(library, 'VCI_ReadErrInfo', [u32, u32, u32, C.POINTER(VciErrInfo)])
 
     device, channel = args.device, args.channel
     opened = False
@@ -101,9 +141,30 @@ def run(args):
     max_pending = 0
     polls = 0
     errors = 0
+    receive_results = Counter()
     timing0, timing1 = TIMING[args.bitrate]
     print(f'Device {device} CAN{channel}; {args.bitrate} bit/s; passive/listen-only; {args.seconds:g} seconds', flush=True)
     print(f'Timing0=0x{timing0:02X}, Timing1=0x{timing1:02X}, Mode=1; no transmit calls', flush=True)
+    print(f'Receive: batch={args.batch_size}, WaitTime={args.wait_ms} ms', flush=True)
+
+    def report_native_status():
+        status = VciCanStatus()
+        result = read_status(DEVICE_TYPE, device, channel, C.byref(status))
+        if result == 1:
+            print('VCI_ReadCANStatus: 1; ' +
+                  f'mode=0x{status.regMode:02X}, status=0x{status.regStatus:02X}, '
+                  f'REC={status.regRECounter}, TEC={status.regTECounter}, '
+                  f'ECC=0x{status.regECCapture:02X}, interrupt=0x{status.ErrInterrupt:02X}', flush=True)
+        else:
+            print(f'VCI_ReadCANStatus: {result}', flush=True)
+        info = VciErrInfo()
+        result = read_error(DEVICE_TYPE, device, channel, C.byref(info))
+        if result == 1:
+            names = [name for bit, name in ERROR_BITS.items() if info.ErrCode & bit]
+            print(f'VCI_ReadErrInfo: 1; code=0x{info.ErrCode:08X}; '
+                  f'details={", ".join(names) if names else "none reported"}', flush=True)
+        else:
+            print(f'VCI_ReadErrInfo: {result}', flush=True)
 
     try:
         result = open_device(DEVICE_TYPE, device, 0)
@@ -121,8 +182,9 @@ def run(args):
         if result != 1:
             raise RuntimeError('CAN start failed. Check the controller and native library.')
         started = True
+        report_native_status()
 
-        buffer = (VciCanObj * BATCH_SIZE)()
+        buffer = (VciCanObj * args.batch_size)()
         deadline = time.monotonic() + args.seconds
         next_report = time.monotonic() + 2
         while time.monotonic() < deadline:
@@ -133,10 +195,11 @@ def run(args):
                 print('VCI_GetReceiveNum returned 0xFFFFFFFF (native error)', flush=True)
                 break
             max_pending = max(max_pending, pending)
-            # Poll receive even when the queue reports empty; this helps
-            # distinguish a permanently empty queue from an API failure.
-            requested = min(max(pending, 1), BATCH_SIZE)
-            received = receive(DEVICE_TYPE, device, channel, buffer, requested, 0)
+            # A positive timeout and selectable batch size let us distinguish
+            # an empty queue from a zero-timeout or batch-handling problem.
+            requested = min(max(pending, 1), args.batch_size)
+            received = receive(DEVICE_TYPE, device, channel, buffer, requested, args.wait_ms)
+            receive_results[received] += 1
             if received == U32_ERROR:
                 errors += 1
                 print('VCI_Receive returned 0xFFFFFFFF (native error)', flush=True)
@@ -156,15 +219,17 @@ def run(args):
                     print(f'RX {frame.ID:0{width}X}#{payload} ext={frame.ExternFlag} rtr={frame.RemoteFlag}', flush=True)
             now = time.monotonic()
             if now >= next_report:
-                print(f'Progress: {total} frames, {len(counts)} IDs, max pending {max_pending}, polls {polls}', flush=True)
+                print(f'Progress: {total} frames, {len(counts)} IDs, max pending {max_pending}, polls {polls}; receive returns {dict(receive_results)}', flush=True)
                 next_report = now + 2
-            if received == 0:
+            if received == 0 and args.wait_ms == 0:
                 time.sleep(0.005)
         print(f'RESULT: {total} frames; {len(counts)} unique IDs; max pending {max_pending}; native errors {errors}', flush=True)
+        print(f'Receive return counts: {dict(receive_results)}', flush=True)
+        report_native_status()
         if counts:
             print('Top IDs: ' + ', '.join(f'{can_id:08X}={count}' for can_id, count in counts.most_common(10)), flush=True)
         else:
-            print('No frames received. This does not establish whether the cause is wiring, bus activity, bitrate, controller, or library.', flush=True)
+            print('No frames retrieved. A growing pending count with zero receive returns requires investigation of the native library or receive-call behavior.', flush=True)
         return 2 if errors else 0
     finally:
         if opened:
@@ -186,10 +251,12 @@ def main():
     parser.add_argument('--bitrate', type=int, choices=sorted(TIMING), default=500000)
     parser.add_argument('--seconds', type=float, default=10)
     parser.add_argument('--samples', type=int, default=12)
+    parser.add_argument('--wait-ms', type=int, default=100, help='Native receive timeout in milliseconds (default: 100)')
+    parser.add_argument('--batch-size', type=int, default=1, help='Frames requested per receive call (default: 1; maximum: 256)')
     parser.add_argument('--library', help='Explicit path to ARM64 libusbcan.so')
     args = parser.parse_args()
-    if args.device < 0 or args.seconds <= 0 or args.samples < 0:
-        parser.error('Device must be nonnegative, seconds positive, and samples nonnegative.')
+    if args.device < 0 or args.seconds <= 0 or args.samples < 0 or args.wait_ms < 0 or not 1 <= args.batch_size <= BATCH_SIZE:
+        parser.error('Device must be nonnegative, seconds positive, samples and timeout nonnegative, and batch size 1 through 256.')
     try:
         return run(args)
     except KeyboardInterrupt:
