@@ -11,43 +11,33 @@ abstract interface class CaptureOutput {
 }
 
 class _FileCaptureOutput implements CaptureOutput {
-  _FileCaptureOutput(File file, void Function(Object, StackTrace) onError)
-      : _sink = file.openWrite(mode: FileMode.writeOnlyAppend) {
-    // Observe asynchronous filesystem failures even before Stop is pressed.
-    _sink.done.then<void>((_) {}, onError: (Object error, StackTrace stack) {
-      onError(error, stack);
-    });
+  _FileCaptureOutput(this._file, void Function(Object, StackTrace) _);
+
+  final File _file;
+  StringBuffer _buffer = StringBuffer();
+  Future<void> _writes = Future<void>.value();
+
+  @override
+  void writeLine(String line) => _buffer.writeln(line);
+
+  @override
+  Future<void> flush() {
+    final batch = _buffer.toString();
+    _buffer = StringBuffer();
+    if (batch.isNotEmpty) {
+      _writes = _writes.then<void>((_) async {
+        await _file.writeAsString(
+          batch,
+          mode: FileMode.writeOnlyAppend,
+          flush: true,
+        );
+      });
+    }
+    return _writes;
   }
 
-  final IOSink _sink;
-
   @override
-  void writeLine(String line) => _sink.writeln(line);
-
-  @override
-  Future<void> flush() => _sink.flush();
-
-  @override
-  Future<void> finish() async {
-    Object? failure;
-    StackTrace? failureStack;
-    try {
-      await _sink.flush();
-    } catch (error, stack) {
-      failure = error;
-      failureStack = stack;
-    }
-    // Always attempt close, even if flushing failed.
-    try {
-      await _sink.close();
-    } catch (error, stack) {
-      failure ??= error;
-      failureStack ??= stack;
-    }
-    if (failure != null) {
-      Error.throwWithStackTrace(failure, failureStack!);
-    }
-  }
+  Future<void> finish() => flush();
 }
 
 enum CapturePhase { idle, starting, recording, stopping }
