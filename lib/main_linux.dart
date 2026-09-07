@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'adapters/atlas_adapter.dart';
 import 'core/atlas_runtime.dart';
 import 'core/capture_session.dart';
+import 'core/signal_discovery.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -488,8 +489,21 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
   }
 }
 
-class LinuxCapturePage extends StatelessWidget {
+class LinuxCapturePage extends StatefulWidget {
   const LinuxCapturePage({super.key});
+
+  @override
+  State<LinuxCapturePage> createState() => _LinuxCapturePageState();
+}
+
+class _LinuxCapturePageState extends State<LinuxCapturePage> {
+  final _eventLabel = TextEditingController(text: 'Brake');
+
+  @override
+  void dispose() {
+    _eventLabel.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -524,16 +538,49 @@ class LinuxCapturePage extends StatelessWidget {
                   Text('${runtime.totalFrames} total frames • ${runtime.framesPerSecond} frames/s'),
                   const SizedBox(height: 12),
                   if (phase == CapturePhase.idle)
+                    SizedBox(
+                      width: 320,
+                      child: TextField(
+                        controller: _eventLabel,
+                        decoration: const InputDecoration(
+                          labelText: 'Discovery event',
+                          hintText: 'Brake, accelerator, switch…',
+                        ),
+                      ),
+                    ),
+                  if (phase == CapturePhase.idle) const SizedBox(height: 12),
+                  if (phase == CapturePhase.idle)
                     FilledButton.icon(
-                      onPressed: runtime.anyConnected ? runtime.startCapture : null,
+                      onPressed: runtime.anyConnected
+                          ? () => runtime.startCapture(eventLabel: _eventLabel.text)
+                          : null,
                       icon: const Icon(Icons.play_arrow),
-                      label: const Text('Start capture'),
+                      label: const Text('Start baseline capture'),
                     )
                   else if (isRecording)
-                    FilledButton.icon(
-                      onPressed: runtime.stopCapture,
-                      icon: const Icon(Icons.stop),
-                      label: const Text('Stop capture'),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      alignment: WrapAlignment.center,
+                      children: [
+                        if (runtime.discovery.phase == DiscoveryPhase.baseline)
+                          FilledButton.icon(
+                            onPressed: runtime.markDiscoveryEventStart,
+                            icon: const Icon(Icons.flag),
+                            label: Text('Mark ${runtime.discovery.eventLabel} start'),
+                          ),
+                        if (runtime.discovery.phase == DiscoveryPhase.event)
+                          FilledButton.icon(
+                            onPressed: runtime.markDiscoveryEventEnd,
+                            icon: const Icon(Icons.flag_outlined),
+                            label: Text('Mark ${runtime.discovery.eventLabel} end'),
+                          ),
+                        FilledButton.tonalIcon(
+                          onPressed: runtime.stopCapture,
+                          icon: const Icon(Icons.stop),
+                          label: const Text('Stop capture'),
+                        ),
+                      ],
                     )
                   else
                     FilledButton.icon(
@@ -551,6 +598,36 @@ class LinuxCapturePage extends StatelessWidget {
                   if (phase == CapturePhase.idle && runtime.capture.lastCompletedFile != null) ...[
                     const SizedBox(height: 10),
                     Text('Saved ${runtime.capture.lastCompletedFrames} frames'),
+                  ],
+                  if (phase == CapturePhase.idle &&
+                      runtime.discovery.phase == DiscoveryPhase.complete) ...[
+                    const SizedBox(height: 20),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${runtime.discovery.eventLabel} signal candidates',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 8),
+                    if (runtime.discovery.candidates.isEmpty)
+                      const Text(
+                        'No restored event-correlated bit changes found. '
+                        'Mark a baseline, event start, event end, and after window.',
+                      )
+                    else
+                      ...runtime.discovery.candidates.take(20).map(
+                            (candidate) => ListTile(
+                              dense: true,
+                              leading: CircleAvatar(
+                                child: Text('${candidate.channel}'),
+                              ),
+                              title: Text(
+                                'CH${candidate.channel} • ID ${candidate.idHex} • byte ${candidate.byteIndex} bit ${candidate.bitIndex}',
+                              ),
+                              subtitle: Text('Bit set: ${candidate.transition}'),
+                              trailing: Text(candidate.score.toStringAsFixed(2)),
+                            ),
+                          ),
                   ],
                 ],
               ),
