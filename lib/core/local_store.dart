@@ -134,7 +134,7 @@ class AtlasLocalStore {
       },
       'buses': <Map<String, dynamic>>[],
       'files': [
-        {'name': '${id}.log', 'role': 'candump_log', 'format': 'candump_-L'}
+        {'name': '$id.log', 'role': 'candump_log', 'format': 'candump_-L'}
       ],
       'ingestion': {
         'retain_original_interface_names': true,
