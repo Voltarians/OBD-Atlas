@@ -126,17 +126,17 @@ class AtlasLocalStore {
       'session_id': id,
       'capture_type': 'passive_multi_bus_can',
       'vehicle': vehicle.toJson(),
-      'time': {'metadata_started_utc': started},
-      'capture_status': {
+      'time': <String, dynamic>{'metadata_started_utc': started},
+      'capture_status': <String, dynamic>{
         'complete_shutdown': false,
         'termination_reason': 'recording',
         'total_frames': 0,
       },
       'buses': <Map<String, dynamic>>[],
-      'files': [
+      'files': <Map<String, dynamic>>[
         {'name': '$id.log', 'role': 'candump_log', 'format': 'candump_-L'}
       ],
-      'ingestion': {
+      'ingestion': <String, dynamic>{
         'retain_original_interface_names': true,
         'public_upload_authorized': false,
         'identity_review_required': true,
@@ -177,7 +177,7 @@ class AtlasLocalStore {
       final id = int.parse(match.group(3)!, radix: 16);
       firstTimestamp = firstTimestamp == null || timestamp < firstTimestamp ? timestamp : firstTimestamp;
       lastTimestamp = lastTimestamp == null || timestamp > lastTimestamp ? timestamp : lastTimestamp;
-      final entry = buses.putIfAbsent(bus, () => {
+      final entry = buses.putIfAbsent(bus, () => <String, dynamic>{
         'logged_interface': bus,
         'atlas_bus': 'unassigned',
         'mode': 'passive_capture',
