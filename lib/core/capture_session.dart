@@ -193,7 +193,7 @@ class CaptureSession extends ChangeNotifier {
           }
         }
         if (failure != null) {
-          Error.throwWithStackTrace(failure!, failureStack ?? StackTrace.current);
+          Error.throwWithStackTrace(failure, failureStack ?? StackTrace.current);
         }
         completer.complete(file);
       } catch (error, stack) {
