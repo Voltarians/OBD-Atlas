@@ -3,7 +3,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
-/// A sink that can be replaced by a controlled writer in lifecycle tests.
+import 'local_store.dart';
+
 abstract interface class CaptureOutput {
   void writeLine(String line);
   Future<void> flush();
@@ -12,7 +13,6 @@ abstract interface class CaptureOutput {
 
 class _FileCaptureOutput implements CaptureOutput {
   _FileCaptureOutput(this._file, void Function(Object, StackTrace) _);
-
   final File _file;
   StringBuffer _buffer = StringBuffer();
   Future<void> _writes = Future<void>.value();
@@ -26,11 +26,7 @@ class _FileCaptureOutput implements CaptureOutput {
     _buffer = StringBuffer();
     if (batch.isNotEmpty) {
       _writes = _writes.then<void>((_) async {
-        await _file.writeAsString(
-          batch,
-          mode: FileMode.writeOnlyAppend,
-          flush: true,
-        );
+        await _file.writeAsString(batch, mode: FileMode.writeOnlyAppend, flush: true);
       });
     }
     return _writes;
@@ -47,18 +43,23 @@ typedef CaptureOutputFactory = CaptureOutput Function(
   void Function(Object, StackTrace) onError,
 );
 
+typedef CaptureCompleted = Future<void> Function(File file, int frames, Object? error);
+
 /// Owns one capture file. Start/stop requests are serialized, including a
-/// Stop arriving while the asynchronous file creation is still in progress.
-/// The frame callback never waits for disk I/O or rebuilds the UI.
+/// Stop arriving while asynchronous file creation is still in progress.
+/// A completed session is finalized only after all buffered writes finish.
 class CaptureSession extends ChangeNotifier {
   CaptureSession({
     required Future<File> Function() createFile,
     CaptureOutputFactory? openOutput,
+    CaptureCompleted? onCompleted,
   })  : _createFile = createFile,
-        _openOutput = openOutput ?? _FileCaptureOutput.new;
+        _openOutput = openOutput ?? _FileCaptureOutput.new,
+        _onCompleted = onCompleted ?? AtlasLocalStore.instance.completeCapture;
 
   final Future<File> Function() _createFile;
   final CaptureOutputFactory _openOutput;
+  final CaptureCompleted _onCompleted;
   CapturePhase _phase = CapturePhase.idle;
   CaptureOutput? _output;
   Future<File>? _starting;
@@ -95,8 +96,9 @@ class CaptureSession extends ChangeNotifier {
     final completer = Completer<File>();
     _starting = completer.future;
     () async {
+      File? file;
       try {
-        final file = await _createFile();
+        file = await _createFile();
         final output = _openOutput(file, _onOutputError);
         activeFile = file;
         _output = output;
@@ -110,6 +112,10 @@ class CaptureSession extends ChangeNotifier {
         completer.complete(file);
       } catch (error, stack) {
         lastError = error;
+        if (file != null) {
+          try { await _onCompleted(file, recordedFrames, error); }
+          catch (finalizeError) { lastError ??= finalizeError; }
+        }
         if (!_stopRequested) _setPhase(CapturePhase.idle);
         completer.completeError(error, stack);
       } finally {
@@ -155,23 +161,39 @@ class CaptureSession extends ChangeNotifier {
     final completer = Completer<File?>();
     _stopping = completer.future;
     () async {
+      File? file;
+      Object? failure;
+      StackTrace? failureStack;
       try {
-        // Wait for a pending Start to open its file before closing it.
-        // A failed Start has no writer to close and its error is preserved.
         if (_starting != null) {
-          try {
-            await _starting;
-          } catch (_) {}
+          try { await _starting; } catch (_) {}
         }
         final output = _output;
-        final file = activeFile;
-        // No subsequent frame may write to this output, even while close waits.
+        file = activeFile;
         _output = null;
-        await _flushTask;
-        if (output != null) await output.finish();
+        try {
+          await _flushTask;
+          if (output != null) await output.finish();
+        } catch (error, stack) {
+          failure = error;
+          failureStack = stack;
+          lastError ??= error;
+        }
         if (file != null) {
-          lastCompletedFile = file;
-          lastCompletedFrames = recordedFrames;
+          try {
+            await _onCompleted(file, recordedFrames, lastError ?? failure);
+          } catch (error, stack) {
+            failure ??= error;
+            failureStack ??= stack;
+            lastError ??= error;
+          }
+          if (failure == null) {
+            lastCompletedFile = file;
+            lastCompletedFrames = recordedFrames;
+          }
+        }
+        if (failure != null) {
+          Error.throwWithStackTrace(failure!, failureStack ?? StackTrace.current);
         }
         completer.complete(file);
       } catch (error, stack) {
