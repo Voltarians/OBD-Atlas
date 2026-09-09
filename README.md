@@ -63,6 +63,10 @@ Build a Linux release bundle:
 flutter build linux --release -t lib/main_linux.dart
 ```
 
+Linux also supports receive-only OBDLink MX+ monitoring through a BlueZ RFCOMM
+serial device. See [OBDLink MX+ on Linux ARM64](docs/LINUX_OBDLINK_MX.md) for
+pairing, binding and connection instructions.
+
 See `docs/LINUX_PCG1.md` for Raspberry Pi, SocketCAN and PCG-1 setup.
 
 ## Architecture

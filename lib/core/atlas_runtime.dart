@@ -10,6 +10,7 @@ import '../adapters/canalystii_adapter.dart';
 import '../adapters/gs_usb_adapter.dart';
 import '../adapters/linux_uc2_adapter.dart';
 import '../adapters/linux_uc2_pair_adapter.dart';
+import '../adapters/linux_obdlink_mx_adapter.dart';
 import '../adapters/lys_usbcan_adapter.dart';
 import '../adapters/slcan_adapter.dart';
 import '../adapters/socketcan_adapter.dart';
@@ -69,6 +70,7 @@ class AtlasRuntime extends ChangeNotifier {
   bool get isCapturing => capture.hasOpenCapture;
 
   List<String> scanSlcanPorts() => SlcanAdapter.availablePorts();
+  List<String> scanLinuxObdlinkPorts() => LinuxObdlinkMxAdapter.availablePorts();
   Future<List<String>> scanSocketCanInterfaces() => SocketCanAdapter.availableInterfaces();
   Future<List<int>> scanLinuxUc2Devices() => LinuxUc2Adapter.availableDeviceIndices();
   String? get linuxUc2LibraryPath => LinuxUc2Adapter.findLibraryPath();
@@ -120,6 +122,21 @@ class AtlasRuntime extends ChangeNotifier {
 
   Future<void> connectSocketCan(String interfaceName, {int channel = 1}) async {
     await _connectAdapter(SocketCanAdapter(interfaceName, channel: channel), channel);
+  }
+
+  Future<void> connectLinuxObdlinkMx(
+    String portName, {
+    int channel = 1,
+    int protocol = 6,
+  }) async {
+    await _connectAdapter(
+      LinuxObdlinkMxAdapter(
+        portName,
+        channel: channel,
+        protocol: protocol,
+      ),
+      channel,
+    );
   }
 
   Future<void> connectLinuxUc2(

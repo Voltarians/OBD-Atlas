@@ -163,6 +163,12 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
   bool _connectingUc2 = false;
   bool _connectingUc2Pair = false;
 
+  List<String> _obdlinkPorts = const <String>[];
+  String? _selectedObdlinkPort;
+  int _obdlinkAtlasChannel = 1;
+  bool _scanningObdlink = false;
+  bool _connectingObdlink = false;
+
   Future<void> _scanSocketCan() async {
     setState(() => _scanningSocketCan = true);
     try {
@@ -265,6 +271,46 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
       _showError(error);
     } finally {
       if (mounted) setState(() => _connectingUc2Pair = false);
+    }
+  }
+
+  Future<void> _scanObdlink() async {
+    setState(() => _scanningObdlink = true);
+    try {
+      final ports = AtlasRuntime.instance.scanLinuxObdlinkPorts();
+      if (!mounted) return;
+      setState(() {
+        _obdlinkPorts = ports;
+        if (_selectedObdlinkPort == null || !ports.contains(_selectedObdlinkPort)) {
+          _selectedObdlinkPort = ports.isEmpty ? null : ports.first;
+        }
+      });
+      if (ports.isEmpty) {
+        _showMessage('No serial ports found. Pair the MX+ and create /dev/rfcomm0 first.');
+      } else {
+        _showMessage('${ports.length} serial port(s) found. Select the MX+ RFCOMM port.');
+      }
+    } catch (error) {
+      _showError(error);
+    } finally {
+      if (mounted) setState(() => _scanningObdlink = false);
+    }
+  }
+
+  Future<void> _connectObdlink() async {
+    final port = _selectedObdlinkPort;
+    if (port == null) return;
+    setState(() => _connectingObdlink = true);
+    try {
+      await AtlasRuntime.instance.connectLinuxObdlinkMx(
+        port,
+        channel: _obdlinkAtlasChannel,
+      );
+      _showMessage('OBDLink MX+ monitoring on $port → Atlas CH$_obdlinkAtlasChannel.');
+    } catch (error) {
+      _showError(error);
+    } finally {
+      if (mounted) setState(() => _connectingObdlink = false);
     }
   }
 
@@ -372,6 +418,80 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                         runtime.linuxUc2LibraryPath == null
                             ? 'ARM64 library: NOT FOUND'
                             : 'ARM64 library: ${runtime.linuxUc2LibraryPath}',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.bluetooth),
+                        title: Text('OBDLink MX+ • Bluetooth RFCOMM'),
+                        subtitle: Text(
+                          'Receive-only ATMA monitoring • one selected CAN bus • no diagnostic requests',
+                        ),
+                      ),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          FilledButton.icon(
+                            onPressed: _scanningObdlink ? null : _scanObdlink,
+                            icon: _scanningObdlink
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.search),
+                            label: const Text('Scan serial ports'),
+                          ),
+                          SizedBox(
+                            width: 260,
+                            child: DropdownButtonFormField<String>(
+                              key: ValueKey('obdlink-$_selectedObdlinkPort'),
+                              initialValue: _selectedObdlinkPort,
+                              decoration: const InputDecoration(labelText: 'MX+ RFCOMM port'),
+                              items: _obdlinkPorts
+                                  .map((name) => DropdownMenuItem(value: name, child: Text(name)))
+                                  .toList(),
+                              onChanged: _connectingObdlink
+                                  ? null
+                                  : (value) => setState(() => _selectedObdlinkPort = value),
+                            ),
+                          ),
+                          _channelPicker(
+                            value: _obdlinkAtlasChannel,
+                            enabled: !_connectingObdlink,
+                            onChanged: (value) => setState(() => _obdlinkAtlasChannel = value),
+                          ),
+                          FilledButton.icon(
+                            onPressed: _connectingObdlink || _selectedObdlinkPort == null
+                                ? null
+                                : _connectObdlink,
+                            icon: _connectingObdlink
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.link),
+                            label: const Text('Monitor with MX+'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Linux setup: pair the MX+ with BlueZ, bind its serial service to '
+                        '/dev/rfcomm0, then scan here. CAN protocol 6 is monitored passively.',
                       ),
                     ],
                   ),
