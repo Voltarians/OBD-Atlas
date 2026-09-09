@@ -40,13 +40,17 @@ class _DbcWorkspaceState extends State<DbcWorkspace> {
   }
 
   Future<void> _export(StoredDbc definition) async {
-    final path = await FilePicker.saveFile(dialogTitle: 'Export DBC', fileName: definition.name, type: FileType.custom, allowedExtensions: const ['dbc']);
-    if (path == null) return;
     setState(() => _busy = true);
     try {
-      final destination = path.toLowerCase().endsWith('.dbc') ? path : '$path.dbc';
-      await DbcStore.instance.export(definition, destination);
-      _notice('Exported ${definition.name}');
+      final bytes = await DbcStore.instance.exportBytes(definition);
+      final destination = await FilePicker.saveFile(
+        dialogTitle: 'Export DBC',
+        fileName: definition.name,
+        type: FileType.custom,
+        allowedExtensions: const ['dbc'],
+        bytes: bytes,
+      );
+      if (destination != null) _notice('Exported ${definition.name}');
     } catch (error) {
       _notice(error.toString());
     } finally {

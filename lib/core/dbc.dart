@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
@@ -101,5 +102,12 @@ class DbcStore {
     await target.writeAsString(document.text, flush: true);
     DbcDocument.parse(target.uri.pathSegments.last, await target.readAsString());
     return target;
+  }
+
+  Future<Uint8List> exportBytes(StoredDbc source) async {
+    final document = DbcDocument.parse(source.name, await source.file.readAsString());
+    final bytes = Uint8List.fromList(utf8.encode(document.text));
+    DbcDocument.parse(source.name, utf8.decode(bytes));
+    return bytes;
   }
 }
