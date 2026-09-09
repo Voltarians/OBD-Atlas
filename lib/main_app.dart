@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'adapters/atlas_adapter.dart';
 import 'core/atlas_runtime.dart';
 import 'core/local_store.dart';
+import 'dbc_workspace.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -47,10 +48,11 @@ class _AtlasHomePageState extends State<AtlasHomePage> {
     NavigationDestination(icon: Icon(Icons.fiber_manual_record), label: 'Capture'),
     NavigationDestination(icon: Icon(Icons.monitor_heart), label: 'Live'),
     NavigationDestination(icon: Icon(Icons.storage), label: 'Library'),
+    NavigationDestination(icon: Icon(Icons.account_tree), label: 'DBC'),
     NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
   ];
   final _pages = const <Widget>[
-    VehiclePage(), ConnectPage(), CapturePage(), LiveDataPage(), LibraryPage(), SettingsPage(),
+    VehiclePage(), ConnectPage(), CapturePage(), LiveDataPage(), LibraryPage(), DbcWorkspace(), SettingsPage(),
   ];
 
   @override

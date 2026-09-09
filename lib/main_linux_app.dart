@@ -6,6 +6,7 @@ import 'adapters/atlas_adapter.dart';
 import 'core/atlas_runtime.dart';
 import 'core/capture_session.dart';
 import 'core/signal_discovery.dart';
+import 'dbc_workspace.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -51,6 +52,7 @@ class _LinuxHomePageState extends State<LinuxHomePage> {
     NavigationDestination(icon: Icon(Icons.hub), label: 'Connect'),
     NavigationDestination(icon: Icon(Icons.fiber_manual_record), label: 'Capture'),
     NavigationDestination(icon: Icon(Icons.monitor_heart), label: 'Live'),
+    NavigationDestination(icon: Icon(Icons.account_tree), label: 'DBC'),
     NavigationDestination(icon: Icon(Icons.computer), label: 'PCG-1'),
   ];
 
@@ -58,6 +60,7 @@ class _LinuxHomePageState extends State<LinuxHomePage> {
     LinuxConnectPage(),
     LinuxCapturePage(),
     LinuxLivePage(),
+    DbcWorkspace(),
     LinuxSystemPage(),
   ];
 
