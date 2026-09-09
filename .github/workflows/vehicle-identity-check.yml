@@ -1,0 +1,34 @@
+name: Vehicle Identity Check
+on:
+  push:
+    branches: ['feature/vehicle-identity-routing']
+  pull_request:
+    paths:
+      - 'lib/**'
+      - 'test/**'
+      - 'tools/**'
+      - 'tests/**'
+      - 'atlas.py'
+      - 'pubspec.yaml'
+      - '.github/workflows/vehicle-identity-check.yml'
+jobs:
+  python-intake:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s tests -v
+  flutter-identity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter create --platforms=linux,android,windows --project-name obd_atlas .
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
