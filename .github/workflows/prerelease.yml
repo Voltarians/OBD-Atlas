@@ -33,10 +33,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libstdc++-12-dev can-utils zip
       - uses: subosito/flutter-action@v2
+        if: matrix.architecture == 'x64'
         with:
           flutter-version: 3.47.2
           channel: stable
           cache: true
+      - name: Install Flutter from the stable repository on ARM64
+        if: matrix.architecture == 'arm64'
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" --version
       - name: Build and test
         run: |
           flutter create --platforms=linux --project-name obd_atlas .
