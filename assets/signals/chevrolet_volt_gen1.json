@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "catalogId": "chevrolet-volt-gen1",
+  "vehicle": {
+    "make": "Chevrolet",
+    "model": "Volt",
+    "generation": 1,
+    "validation": "Validated on one Gen-1 vehicle; confirm across model years before generalizing"
+  },
+  "conventions": {
+    "byteIndexing": "zero-based",
+    "bitIndexing": "zero-based, least-significant bit is bit 0",
+    "channelNames": {"2": "can1", "4": "can3", "5": "can4"}
+  },
+  "signals": [
+    {"name":"brakeSwitch","status":"confirmed","channel":4,"canId":"0x17D","extended":false,"decode":{"type":"bit","byte":2,"bit":5,"false":"released","true":"applied"}},
+    {"name":"brakePressureCandidate","status":"candidate","channel":5,"canId":"0x10250040","extended":true,"decode":{"type":"uint16","byte":0,"endianness":"big","observations":{"released":0,"light":1584,"medium":1602,"hard":1620}}},
+    {"name":"acceleratorPositionCandidate","status":"candidate","channel":4,"canId":"0x1C3","extended":false,"decode":{"type":"uint8","byte":6,"observations":{"released":0,"about10Percent":100,"about25Percent":165,"about50Percent":"194-195"},"note":"Observed response is nonlinear; no percent conversion is claimed"}},
+    {"name":"steeringAngle","status":"confirmed","channel":4,"canId":"0x1E5","extended":false,"decode":{"type":"int16","byte":1,"endianness":"big","scale":0.0625,"unit":"degree","positive":"left","negative":"right"}},
+    {"name":"gearSelector","status":"confirmed","channel":4,"canId":"0x1F5","extended":false,"decode":{"type":"enum","byte":3,"values":{"0x01":"park","0x02":"reverse","0x03":"neutral","0x04":"drive","0x05":"low"}}},
+    {"name":"turnStalk","status":"confirmed","channel":4,"canId":"0x140","extended":false,"decode":{"type":"enum","byte":2,"values":{"0x01":"off","0x05":"left","0x09":"right"},"note":"Hazards do not produce 0x0D here"}},
+    {"name":"hazardFlashCandidate","status":"candidate","channel":2,"canId":"0x1E3","extended":false,"decode":{"type":"uint8","byte":6,"observations":{"normal":"0x28","hazardPhases":["0x2A","0x2B"]},"note":"Correlated with hazard flashing but not yet isolated as a steady enable flag"}},
+    {"name":"parkingBrake","status":"confirmed","channel":4,"canId":"0x1E1","extended":false,"decode":{"type":"bit","byte":2,"bit":2,"false":"released","true":"applied"}},
+    {"name":"driverDoor","status":"confirmed","channel":5,"canId":"0x0C630040","extended":true,"decode":{"type":"enum","byte":0,"values":{"0x80":"closed","0x81":"open"}}},
+    {"name":"frontPassengerDoor","status":"confirmed","channel":5,"canId":"0x0C2F6040","extended":true,"decode":{"type":"bit","byte":0,"bit":0,"false":"closed","true":"open"}},
+    {"name":"leftRearDoor","status":"confirmed","channel":5,"canId":"0x0C2F8040","extended":true,"decode":{"type":"bit","byte":0,"bit":0,"false":"closed","true":"open"}},
+    {"name":"rightRearDoor","status":"confirmed","channel":5,"canId":"0x0C2FA040","extended":true,"decode":{"type":"bit","byte":0,"bit":0,"false":"closed","true":"open"}},
+    {"name":"hatch","status":"confirmed","channel":5,"canId":"0x106AA040","extended":true,"decode":{"type":"bit","byte":0,"bit":0,"false":"closed","true":"open"}},
+    {"name":"hood","status":"confirmed","channel":5,"canId":"0x10728040","extended":true,"decode":{"type":"enum","byte":0,"values":{"0x00":"closed","0x02":"open"}}},
+    {"name":"driverSeatBelt","status":"confirmed","channel":5,"canId":"0x10336058","extended":true,"decode":{"type":"bit","byte":0,"bit":0,"false":"unlatched","true":"latched"}},
+    {"name":"frontPassengerSeatBelt","status":"confirmed","channel":5,"canId":"0x10336058","extended":true,"decode":{"type":"bit","byte":0,"bit":2,"false":"unlatched","true":"latched"}},
+    {"name":"exteriorLightMode","status":"confirmed","channel":4,"canId":"0x140","extended":false,"decode":{"type":"payloadEnum","values":{"000A01":"manualOff","001201":"parking","021A01":"lowBeam","821C01":"highBeam","120201":"auto"},"note":"Byte 0 bit 7 is the high-beam indicator"}}
+  ]
+}
