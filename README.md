@@ -2,6 +2,10 @@
 
 Universal passive-first OBD-II vehicle research by Voltarians.
 
+## Public alpha
+
+Download the current Windows, Linux x64, Raspberry Pi/Linux ARM64, or Android test build from [GitHub Releases](https://github.com/Voltarians/OBD-Atlas/releases). See [the public prerelease instructions](docs/PUBLIC_PRERELEASE.md) before installing. This is an alpha research tool; use passive/listen-only capture.
+
 ## Frontend direction
 
 OBD Atlas is being built as a standalone offline-first application for **Windows**, **Android**, and **Linux**. Internet access is optional and is not required at the vehicle.
