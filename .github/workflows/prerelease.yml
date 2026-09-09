@@ -1,0 +1,103 @@
+name: Public Prerelease
+
+on:
+  push:
+    branches:
+      - build/linux-pcg1-foundation
+    paths:
+      - pubspec.yaml
+      - .github/workflows/prerelease.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: v0.1.0-alpha.1
+
+jobs:
+  linux:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            architecture: x64
+          - runner: ubuntu-24.04-arm
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libstdc++-12-dev can-utils zip
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Build and test
+        run: |
+          flutter create --platforms=linux --project-name obd_atlas .
+          flutter pub get
+          flutter test
+          flutter analyze
+          flutter build linux --release -t lib/main_linux.dart
+      - name: Package Linux bundle
+        run: |
+          cd build/linux/${{ matrix.architecture }}/release/bundle
+          zip -r ../../../../../OBD-Atlas-Linux-${{ matrix.architecture }}-${RELEASE_TAG}.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-${{ matrix.architecture }}
+          path: OBD-Atlas-Linux-${{ matrix.architecture }}-${{ env.RELEASE_TAG }}.zip
+
+  windows-android:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate projects and resolve packages
+        shell: pwsh
+        run: |
+          flutter create --platforms=android,windows --project-name obd_atlas .
+          Add-Content -Path android/gradle.properties -Value "kotlin.incremental=false"
+          flutter pub get
+      - name: Test and build
+        run: |
+          flutter test
+          flutter analyze
+          flutter build windows --release
+          flutter build apk --debug
+      - name: Package Windows and Android
+        shell: pwsh
+        run: |
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath "OBD-Atlas-Windows-x64-$env:RELEASE_TAG.zip"
+          Copy-Item build/app/outputs/flutter-apk/app-debug.apk "OBD-Atlas-Android-$env:RELEASE_TAG-debug.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-android
+          path: |
+            OBD-Atlas-Windows-x64-${{ env.RELEASE_TAG }}.zip
+            OBD-Atlas-Android-${{ env.RELEASE_TAG }}-debug.apk
+
+  publish:
+    needs: [linux, windows-android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: release
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: build/linux-pcg1-foundation
+          name: OBD Atlas 0.1.0 Alpha 1
+          prerelease: true
+          body_path: release-notes.md
+          files: release/*
