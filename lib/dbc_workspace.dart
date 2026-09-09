@@ -24,8 +24,8 @@ class _DbcWorkspaceState extends State<DbcWorkspace> {
   }
 
   Future<void> _import() async {
-    final picked = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: const ['dbc']);
-    final path = picked?.files.single.path;
+    final picked = await FilePicker.pickFile(type: FileType.custom, allowedExtensions: const ['dbc']);
+    final path = picked?.path;
     if (path == null) return;
     setState(() => _busy = true);
     try {
@@ -40,7 +40,7 @@ class _DbcWorkspaceState extends State<DbcWorkspace> {
   }
 
   Future<void> _export(StoredDbc definition) async {
-    final path = await FilePicker.platform.saveFile(dialogTitle: 'Export DBC', fileName: definition.name, type: FileType.custom, allowedExtensions: const ['dbc']);
+    final path = await FilePicker.saveFile(dialogTitle: 'Export DBC', fileName: definition.name, type: FileType.custom, allowedExtensions: const ['dbc']);
     if (path == null) return;
     setState(() => _busy = true);
     try {
