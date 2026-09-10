@@ -1,6 +1,6 @@
-# OBD Atlas 0.1.0 Alpha 3
+# OBD Atlas 0.1.0 Alpha 4
 
-Third public test build of the offline-first OBD Atlas vehicle research application.
+Fourth public test build of the offline-first OBD Atlas vehicle research application.
 
 ## Included
 
@@ -11,7 +11,7 @@ Third public test build of the offline-first OBD Atlas vehicle research applicat
 - Five-channel PCG-1 capture support and event-correlated signal discovery
 - Initial machine-readable Chevrolet Volt Gen-1 signal catalog
 - Linux ARM64 OBDLink MX+ support through BlueZ RFCOMM
-- Receive-only `ATMA` capture with standard and extended CAN-frame parsing
+- Receive-only `STMA` fast capture with compact standard and extended CAN-frame parsing
 - ARM64 RFCOMM crash isolation through a standard-library helper process
 - MX+ `STMA` fast monitoring with compact output for increased capture throughput
 
