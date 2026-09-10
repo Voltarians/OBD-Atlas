@@ -116,9 +116,18 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
       await _command(fastMonitor ? 'ATD0' : 'ATD1');
       await _command('ATAL');
       await _command('ATCFC0');
-      await _command('ATSP$protocol');
+      if (fastMonitor) {
+        // OBDLink FRPM: use ISO 11898 protocol 31 plus STM for raw
+        // 11-bit, 500 kbit/s CAN. STMA treats CAN as ISO 15765.
+        await _command('STP 31');
+        await _command('STCMM 0');
+        await _command('STFAC');
+        await _command('STFPA 000,000');
+      } else {
+        await _command('ATSP$protocol');
+      }
       _monitoring = true;
-      _write(fastMonitor ? 'STMA' : 'ATMA');
+      _write(fastMonitor ? 'STM' : 'ATMA');
       _setState(AtlasAdapterState.connected);
     } catch (_) {
       await disconnect();
@@ -179,9 +188,34 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
       final line = _buffer.substring(0, match.start).trim();
       _buffer = _buffer.substring(match.end);
       if (!_monitoring || line.isEmpty) continue;
+      final terminalError = monitorTerminalError(line);
+      if (terminalError != null && !_disconnecting) {
+        _monitoring = false;
+        _setState(AtlasAdapterState.error);
+        _frames.addError(StateError(terminalError));
+        continue;
+      }
       final frame = parseMonitorLine(line, channel: channel);
       if (frame != null) _frames.add(frame);
     }
+  }
+
+  static String? monitorTerminalError(String line) {
+    final cleaned = line.trim().toUpperCase();
+    if (cleaned.contains('BUFFER FULL')) {
+      return 'OBDLink buffer full: raw CAN traffic exceeded the RFCOMM '
+          'text-stream throughput.';
+    }
+    if (cleaned.contains('UART RX OVERFLOW')) {
+      return 'OBDLink UART receive overflow.';
+    }
+    if (cleaned.contains('STOPPED')) {
+      return 'OBDLink monitoring stopped.';
+    }
+    if (cleaned.contains('NO DATA')) {
+      return 'OBDLink monitoring ended with no data.';
+    }
+    return null;
   }
 
   static CanFrame? parseMonitorLine(String line, {int channel = 1}) {
@@ -196,7 +230,7 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
         cleaned.contains('NO DATA')) {
       return null;
     }
-    // STMA fast mode uses ATS0/ATD0 to remove spaces and the displayed DLC.
+    // Compact STM mode uses ATS0/ATD0 to remove spaces and displayed DLC.
     // 11-bit output has an odd hex length (3 + 2*n); 29-bit output is even.
     if (RegExp(r'^[0-9A-F]+$').hasMatch(cleaned)) {
       final idLength = cleaned.length.isOdd ? 3 : 8;

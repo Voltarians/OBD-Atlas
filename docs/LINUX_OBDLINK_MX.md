@@ -5,10 +5,13 @@ Linux and Raspberry Pi ARM64. This does not replace the five-channel PCG-1
 configuration: the MX+ monitors the single CAN protocol selected through its
 ELM/OBDLink interface.
 
-Atlas uses the STN `STMA` high-throughput monitor command by default. Spaces and
-the displayed DLC are disabled to reduce Bluetooth bandwidth and delay buffer
-overflow. It does not send OBD requests or application CAN frames while this
-transport is active.
+Atlas uses the STN `STM` command with raw ISO 11898 protocol 31, an explicit
+pass-all filter, and `STCMM 0` silent monitoring. Spaces and the displayed DLC
+are disabled to reduce Bluetooth bandwidth. Atlas reports `BUFFER FULL`,
+`UART RX OVERFLOW`, `STOPPED`, and `NO DATA` as transport errors instead of
+silently leaving a frozen frame counter. It does not send OBD requests,
+acknowledge CAN frames, or transmit application CAN frames while this transport
+is active.
 
 ## One-time Raspberry Pi setup
 
@@ -42,8 +45,8 @@ ls -l /dev/rfcomm0
 4. Select **Monitor with MX+**.
 5. Confirm that the selected channel reports frames before starting a capture.
 
-Atlas uses protocol 6 (ISO 15765-4, 11-bit identifiers at 500 kbit/s) for the
-Gen-1 Chevrolet Volt primary diagnostic CAN bus.
+Atlas uses protocol 31 (raw ISO 11898, 11-bit identifiers at 500 kbit/s) for
+passive capture of the Gen-1 Chevrolet Volt primary diagnostic CAN bus.
 
 To remove the RFCOMM binding later:
 
