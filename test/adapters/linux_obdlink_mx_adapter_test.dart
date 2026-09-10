@@ -39,7 +39,7 @@ void main() {
       expect(frame.extended, isTrue);
     });
 
-    test('parses an STMA fast-mode 11-bit frame without spaces or DLC', () {
+    test('parses an compact STM 11-bit frame without spaces or DLC', () {
       final frame = LinuxObdlinkMxAdapter.parseMonitorLine(
         '0C1AABBCCDDEEFF0011',
         channel: 2,
@@ -55,7 +55,7 @@ void main() {
       );
     });
 
-    test('parses an STMA fast-mode 29-bit frame without spaces or DLC', () {
+    test('parses an compact STM 29-bit frame without spaces or DLC', () {
       final frame = LinuxObdlinkMxAdapter.parseMonitorLine(
         '18DAF110023E00',
       );
@@ -64,6 +64,25 @@ void main() {
       expect(frame!.id, 0x18DAF110);
       expect(frame.extended, isTrue);
       expect(frame.data, <int>[0x02, 0x3E, 0x00]);
+    });
+
+    test('identifies terminal monitor conditions', () {
+      expect(
+        LinuxObdlinkMxAdapter.monitorTerminalError('BUFFER FULL'),
+        contains('buffer full'),
+      );
+      expect(
+        LinuxObdlinkMxAdapter.monitorTerminalError('STOPPED'),
+        contains('stopped'),
+      );
+      expect(
+        LinuxObdlinkMxAdapter.monitorTerminalError('UART RX OVERFLOW'),
+        contains('overflow'),
+      );
+      expect(
+        LinuxObdlinkMxAdapter.monitorTerminalError('0C1AABB'),
+        isNull,
+      );
     });
 
     test('rejects status, truncated, and invalid channel lines', () {
