@@ -128,12 +128,14 @@ class AtlasRuntime extends ChangeNotifier {
     String portName, {
     int channel = 1,
     int protocol = 6,
+    ObdlinkMxCanBus canBus = ObdlinkMxCanBus.highSpeedCan,
   }) async {
     await _connectAdapter(
       LinuxObdlinkMxAdapter(
         portName,
         channel: channel,
         protocol: protocol,
+        canBus: canBus,
       ),
       channel,
     );

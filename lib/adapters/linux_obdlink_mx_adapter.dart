@@ -5,6 +5,29 @@ import 'dart:io';
 import '../core/can_frame.dart';
 import 'atlas_adapter.dart';
 
+enum ObdlinkMxCanBus {
+  highSpeedCan(
+    protocolNumber: 31,
+    displayName: 'HS-CAN • pins 6/14 • 500 kbit/s',
+    shortName: 'HS-CAN',
+  ),
+  singleWireCan(
+    protocolNumber: 61,
+    displayName: 'SWCAN • pin 1 • 33.3 kbit/s',
+    shortName: 'SWCAN',
+  );
+
+  const ObdlinkMxCanBus({
+    required this.protocolNumber,
+    required this.displayName,
+    required this.shortName,
+  });
+
+  final int protocolNumber;
+  final String displayName;
+  final String shortName;
+}
+
 /// Receive-only OBDLink transport for Linux Bluetooth RFCOMM ports.
 ///
 /// A Python standard-library helper owns the RFCOMM file so an ARM64
@@ -16,6 +39,7 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
     this.baudRate = 115200,
     this.protocol = 6,
     this.fastMonitor = true,
+    this.canBus = ObdlinkMxCanBus.highSpeedCan,
   }) : assert(channel >= 1 && channel <= 5);
 
   final String portName;
@@ -23,6 +47,7 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
   final int baudRate;
   final int protocol;
   final bool fastMonitor;
+  final ObdlinkMxCanBus canBus;
 
   final _frames = StreamController<CanFrame>.broadcast();
   final _states = StreamController<AtlasAdapterState>.broadcast();
@@ -40,7 +65,8 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
   @override
   String get id => 'obdlink-mx:ch$channel:$portName';
   @override
-  String get displayName => 'CH$channel OBDLink MX+ $portName';
+  String get displayName =>
+      'CH$channel OBDLink MX+ ${canBus.shortName} $portName';
   @override
   String get transport => 'OBDLink MX+ RFCOMM';
   @override
@@ -117,12 +143,9 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
       await _command('ATAL');
       await _command('ATCFC0');
       if (fastMonitor) {
-        // OBDLink FRPM: use ISO 11898 protocol 31 plus STM for raw
-        // 11-bit, 500 kbit/s CAN. STMA treats CAN as ISO 15765.
-        await _command('STP 31');
-        await _command('STCMM 0');
-        await _command('STFAC');
-        await _command('STFPA 000,000');
+        for (final command in monitorSetupCommands(canBus)) {
+          await _command(command);
+        }
       } else {
         await _command('ATSP$protocol');
       }
@@ -216,6 +239,18 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
       return 'OBDLink monitoring ended with no data.';
     }
     return null;
+  }
+
+  static List<String> monitorSetupCommands(ObdlinkMxCanBus bus) {
+    // OBDLink FRPM: protocol 31 is raw 11-bit HS-CAN at 500 kbit/s;
+    // protocol 61 is raw 11-bit GM SWCAN at 33.3 kbit/s. STM preserves
+    // raw CAN frames; STMA would treat them as ISO 15765 messages.
+    return <String>[
+      'STP ${bus.protocolNumber}',
+      'STCMM 0',
+      'STFAC',
+      'STFPA 000,000',
+    ];
   }
 
   static CanFrame? parseMonitorLine(String line, {int channel = 1}) {

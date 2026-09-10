@@ -5,8 +5,9 @@ Linux and Raspberry Pi ARM64. This does not replace the five-channel PCG-1
 configuration: the MX+ monitors the single CAN protocol selected through its
 ELM/OBDLink interface.
 
-Atlas uses the STN `STM` command with raw ISO 11898 protocol 31, an explicit
-pass-all filter, and `STCMM 0` silent monitoring. Spaces and the displayed DLC
+Atlas uses the STN `STM` command with raw ISO 11898 protocol 31 for 500-kbit/s
+HS-CAN or protocol 61 for 33.3-kbit/s GM SWCAN, an explicit pass-all filter,
+and `STCMM 0` silent monitoring. Spaces and the displayed DLC
 are disabled to reduce Bluetooth bandwidth. Atlas reports `BUFFER FULL`,
 `UART RX OVERFLOW`, `STOPPED`, and `NO DATA` as transport errors instead of
 silently leaving a frozen frame counter. It does not send OBD requests,
@@ -42,11 +43,18 @@ ls -l /dev/rfcomm0
 1. Open **Connect**.
 2. Under **OBDLink MX+ • Bluetooth RFCOMM**, select **Scan serial ports**.
 3. Select `/dev/rfcomm0` and the desired Atlas channel.
-4. Select **Monitor with MX+**.
-5. Confirm that the selected channel reports frames before starting a capture.
+4. Select **HS-CAN** (DLC pins 6/14) or **SWCAN** (DLC pin 1).
+5. Select **Monitor with MX+**.
+6. Confirm that the selected channel reports frames before starting a capture.
 
 Atlas uses protocol 31 (raw ISO 11898, 11-bit identifiers at 500 kbit/s) for
-passive capture of the Gen-1 Chevrolet Volt primary diagnostic CAN bus.
+passive capture of the Gen-1 Chevrolet Volt primary diagnostic CAN bus. It uses
+protocol 61 (raw ISO 11898, 11-bit identifiers at 33.3 kbit/s) for GM SWCAN on
+DLC pin 1. The MX+ can monitor only one of these buses at a time.
+
+Unfiltered HS-CAN may report `BUFFER FULL` when traffic exceeds Bluetooth
+RFCOMM text-stream throughput. SWCAN's lower bus rate is expected to be more
+sustainable, but must still pass the Atlas in-vehicle endurance test.
 
 To remove the RFCOMM binding later:
 
