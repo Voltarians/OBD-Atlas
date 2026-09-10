@@ -1,6 +1,6 @@
 # OBD Atlas public alpha installation
 
-OBD Atlas 0.1.0 Alpha 3 is an early research release. Download the file matching the host from the GitHub Releases page.
+OBD Atlas 0.1.0 Alpha 4 is an early research release. Download the file matching the host from the GitHub Releases page.
 
 ## Raspberry Pi 5 / Linux ARM64
 
@@ -11,7 +11,7 @@ sudo apt update
 sudo apt install -y libgtk-3-0 can-utils bluez
 ```
 
-Extract `OBD-Atlas-Linux-arm64-v0.1.0-alpha.3.zip`, then run:
+Extract `OBD-Atlas-Linux-arm64-v0.1.0-alpha.4.zip`, then run:
 
 ```bash
 chmod +x obd_atlas
@@ -21,7 +21,7 @@ chmod +x obd_atlas
 UC2 users must separately provide the compatible ARM64 `libusbcan.so` and set `OBD_ATLAS_USBCAN_LIB` before starting Atlas. The verified PCG-1 configuration is documented in `docs/PCG1_VERIFIED_FIVE_CHANNEL_CONFIG.md`.
 
 OBDLink MX+ users can pair the adapter with BlueZ and expose its serial service
-as `/dev/rfcomm0`. Atlas then provides receive-only `ATMA` monitoring on one
+as `/dev/rfcomm0`. Atlas then provides receive-only `STMA` fast monitoring on one
 selected channel. See `docs/LINUX_OBDLINK_MX.md` for the exact setup procedure.
 
 ## Linux x64
