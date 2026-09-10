@@ -11,14 +11,14 @@ void main() {
       expect(
         LinuxObdlinkMxAdapter.monitorSetupCommands(
           ObdlinkMxCanBus.highSpeedCan,
-        ),
-        startsWith(<String>['STP 31', 'STCMM 0']),
+        ).take(2),
+        <String>['STP 31', 'STCMM 0'],
       );
       expect(
         LinuxObdlinkMxAdapter.monitorSetupCommands(
           ObdlinkMxCanBus.singleWireCan,
-        ),
-        startsWith(<String>['STP 61', 'STCMM 0']),
+        ).take(2),
+        <String>['STP 61', 'STCMM 0'],
       );
     });
 
