@@ -13,6 +13,7 @@ Third public test build of the offline-first OBD Atlas vehicle research applicat
 - Linux ARM64 OBDLink MX+ support through BlueZ RFCOMM
 - Receive-only `ATMA` capture with standard and extended CAN-frame parsing
 - ARM64 RFCOMM crash isolation through a standard-library helper process
+- MX+ `STMA` fast monitoring with compact output for increased capture throughput
 
 ## Important limitations
 

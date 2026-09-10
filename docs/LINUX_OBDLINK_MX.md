@@ -5,8 +5,10 @@ Linux and Raspberry Pi ARM64. This does not replace the five-channel PCG-1
 configuration: the MX+ monitors the single CAN protocol selected through its
 ELM/OBDLink interface.
 
-Atlas sends adapter configuration commands and `ATMA` (monitor all). It does
-not send OBD requests or application CAN frames while this transport is active.
+Atlas uses the STN `STMA` high-throughput monitor command by default. Spaces and
+the displayed DLC are disabled to reduce Bluetooth bandwidth and delay buffer
+overflow. It does not send OBD requests or application CAN frames while this
+transport is active.
 
 ## One-time Raspberry Pi setup
 
