@@ -11,9 +11,9 @@ Fourth public test build of the offline-first OBD Atlas vehicle research applica
 - Five-channel PCG-1 capture support and event-correlated signal discovery
 - Initial machine-readable Chevrolet Volt Gen-1 signal catalog
 - Linux ARM64 OBDLink MX+ support through BlueZ RFCOMM
-- Receive-only `STMA` fast capture with compact standard and extended CAN-frame parsing
+- Receive-only raw `STM` capture with compact standard and extended CAN-frame parsing
 - ARM64 RFCOMM crash isolation through a standard-library helper process
-- MX+ `STMA` fast monitoring with compact output for increased capture throughput
+- MX+ compact raw monitoring with visible terminal and overflow errors
 
 ## Important limitations
 
