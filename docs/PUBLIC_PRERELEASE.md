@@ -21,8 +21,9 @@ chmod +x obd_atlas
 UC2 users must separately provide the compatible ARM64 `libusbcan.so` and set `OBD_ATLAS_USBCAN_LIB` before starting Atlas. The verified PCG-1 configuration is documented in `docs/PCG1_VERIFIED_FIVE_CHANNEL_CONFIG.md`.
 
 OBDLink MX+ users can pair the adapter with BlueZ and expose its serial service
-as `/dev/rfcomm0`. Atlas then provides receive-only `STMA` fast monitoring on one
-selected channel. See `docs/LINUX_OBDLINK_MX.md` for the exact setup procedure.
+as `/dev/rfcomm0`. Atlas then provides receive-only raw `STM` monitoring of
+either HS-CAN or GM SWCAN on one selected channel. See
+`docs/LINUX_OBDLINK_MX.md` for the exact setup procedure.
 
 ## Linux x64
 

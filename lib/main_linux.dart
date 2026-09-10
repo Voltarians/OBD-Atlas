@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import 'adapters/atlas_adapter.dart';
+import 'adapters/linux_obdlink_mx_adapter.dart';
 import 'core/atlas_runtime.dart';
 import 'core/capture_session.dart';
 import 'core/signal_discovery.dart';
@@ -166,6 +167,7 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
   List<String> _obdlinkPorts = const <String>[];
   String? _selectedObdlinkPort;
   int _obdlinkAtlasChannel = 1;
+  ObdlinkMxCanBus _obdlinkCanBus = ObdlinkMxCanBus.highSpeedCan;
   bool _scanningObdlink = false;
   bool _connectingObdlink = false;
 
@@ -305,8 +307,12 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
       await AtlasRuntime.instance.connectLinuxObdlinkMx(
         port,
         channel: _obdlinkAtlasChannel,
+        canBus: _obdlinkCanBus,
       );
-      _showMessage('OBDLink MX+ monitoring on $port → Atlas CH$_obdlinkAtlasChannel.');
+      _showMessage(
+        'OBDLink MX+ ${_obdlinkCanBus.shortName} monitoring on $port '
+        '→ Atlas CH$_obdlinkAtlasChannel.',
+      );
     } catch (error) {
       _showError(error);
     } finally {
@@ -435,7 +441,7 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                         leading: Icon(Icons.bluetooth),
                         title: Text('OBDLink MX+ • Bluetooth RFCOMM'),
                         subtitle: Text(
-                          'Receive-only ATMA monitoring • one selected CAN bus • no diagnostic requests',
+                          'Receive-only raw STM monitoring • HS-CAN or GM SWCAN • no diagnostic requests',
                         ),
                       ),
                       Wrap(
@@ -468,6 +474,27 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                                   : (value) => setState(() => _selectedObdlinkPort = value),
                             ),
                           ),
+                          SizedBox(
+                            width: 285,
+                            child: DropdownButtonFormField<ObdlinkMxCanBus>(
+                              initialValue: _obdlinkCanBus,
+                              decoration: const InputDecoration(labelText: 'MX+ vehicle bus'),
+                              items: ObdlinkMxCanBus.values
+                                  .map(
+                                    (bus) => DropdownMenuItem(
+                                      value: bus,
+                                      child: Text(bus.displayName),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: _connectingObdlink
+                                  ? null
+                                  : (value) => setState(
+                                        () => _obdlinkCanBus =
+                                            value ?? ObdlinkMxCanBus.highSpeedCan,
+                                      ),
+                            ),
+                          ),
                           _channelPicker(
                             value: _obdlinkAtlasChannel,
                             enabled: !_connectingObdlink,
@@ -491,7 +518,8 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                       const SizedBox(height: 8),
                       const Text(
                         'Linux setup: pair the MX+ with BlueZ, bind its serial service to '
-                        '/dev/rfcomm0, then scan here. CAN protocol 6 is monitored passively.',
+                        '/dev/rfcomm0, then scan here. HS-CAN uses protocol 31; '
+                        'GM SWCAN uses protocol 61 on DLC pin 1.',
                       ),
                     ],
                   ),

@@ -2,6 +2,38 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:obd_atlas/adapters/linux_obdlink_mx_adapter.dart';
 
 void main() {
+  group('OBDLink MX+ CAN bus presets', () {
+    test('selects documented raw protocols for HS-CAN and SWCAN', () {
+      expect(ObdlinkMxCanBus.highSpeedCan.protocolNumber, 31);
+      expect(ObdlinkMxCanBus.singleWireCan.protocolNumber, 61);
+      expect(ObdlinkMxCanBus.singleWireCan.displayName, contains('pin 1'));
+      expect(ObdlinkMxCanBus.singleWireCan.displayName, contains('33.3'));
+      expect(
+        LinuxObdlinkMxAdapter.monitorSetupCommands(
+          ObdlinkMxCanBus.highSpeedCan,
+        ),
+        startsWith(<String>['STP 31', 'STCMM 0']),
+      );
+      expect(
+        LinuxObdlinkMxAdapter.monitorSetupCommands(
+          ObdlinkMxCanBus.singleWireCan,
+        ),
+        startsWith(<String>['STP 61', 'STCMM 0']),
+      );
+    });
+
+    test('identifies the selected physical bus in the adapter name', () {
+      final adapter = LinuxObdlinkMxAdapter(
+        '/dev/rfcomm0',
+        channel: 5,
+        canBus: ObdlinkMxCanBus.singleWireCan,
+      );
+
+      expect(adapter.displayName, contains('CH5'));
+      expect(adapter.displayName, contains('SWCAN'));
+    });
+  });
+
   group('LinuxObdlinkMxAdapter monitor parser', () {
     test('parses an 11-bit CAN frame with displayed DLC', () {
       final frame = LinuxObdlinkMxAdapter.parseMonitorLine(
