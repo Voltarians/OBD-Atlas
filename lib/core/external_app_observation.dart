@@ -182,8 +182,8 @@ class ExternalAppObservationSession {
 
     final candidates = <ObservationCandidate>[];
     for (final key in keys) {
-      final b = before[key] ?? const _Stats.empty();
-      final a = after[key] ?? const _Stats.empty();
+      final b = before[key] ?? _Stats.empty();
+      final a = after[key] ?? _Stats.empty();
       if (a.frames == 0) continue;
 
       final newPayloadCount = a.payloads.difference(b.payloads).length;
@@ -279,9 +279,7 @@ class _Key {
 
 class _Stats {
   _Stats();
-  const _Stats.empty()
-      : frames = 0,
-        payloads = const <String>{};
+  _Stats.empty();
 
   int frames = 0;
   Set<String> payloads = <String>{};
