@@ -15,12 +15,14 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
     this.channel = 1,
     this.baudRate = 115200,
     this.protocol = 6,
+    this.fastMonitor = true,
   }) : assert(channel >= 1 && channel <= 5);
 
   final String portName;
   final int channel;
   final int baudRate;
   final int protocol;
+  final bool fastMonitor;
 
   final _frames = StreamController<CanFrame>.broadcast();
   final _states = StreamController<AtlasAdapterState>.broadcast();
@@ -109,14 +111,14 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
       await _command('ATZ', timeout: const Duration(seconds: 4));
       await _command('ATE0');
       await _command('ATL0');
-      await _command('ATS1');
+      await _command(fastMonitor ? 'ATS0' : 'ATS1');
       await _command('ATH1');
-      await _command('ATD1');
+      await _command(fastMonitor ? 'ATD0' : 'ATD1');
       await _command('ATAL');
       await _command('ATCFC0');
       await _command('ATSP$protocol');
       _monitoring = true;
-      _write('ATMA');
+      _write(fastMonitor ? 'STMA' : 'ATMA');
       _setState(AtlasAdapterState.connected);
     } catch (_) {
       await disconnect();
@@ -193,6 +195,35 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
         cleaned.contains('BUFFER FULL') ||
         cleaned.contains('NO DATA')) {
       return null;
+    }
+    // STMA fast mode uses ATS0/ATD0 to remove spaces and the displayed DLC.
+    // 11-bit output has an odd hex length (3 + 2*n); 29-bit output is even.
+    if (RegExp(r'^[0-9A-F]+$').hasMatch(cleaned)) {
+      final idLength = cleaned.length.isOdd ? 3 : 8;
+      if (cleaned.length < idLength ||
+          (cleaned.length - idLength).isOdd ||
+          cleaned.length - idLength > 16) {
+        return null;
+      }
+      final idText = cleaned.substring(0, idLength);
+      final id = int.tryParse(idText, radix: 16);
+      if (id == null || id > 0x1FFFFFFF) return null;
+      final data = <int>[];
+      for (var cursor = idLength; cursor < cleaned.length; cursor += 2) {
+        final byte = int.tryParse(
+          cleaned.substring(cursor, cursor + 2),
+          radix: 16,
+        );
+        if (byte == null) return null;
+        data.add(byte);
+      }
+      return CanFrame(
+        timestamp: DateTime.now(),
+        id: id,
+        data: data,
+        extended: idLength == 8,
+        channel: channel,
+      );
     }
     final tokens = cleaned.split(RegExp(r'\s+'));
     if (tokens.isEmpty) return null;

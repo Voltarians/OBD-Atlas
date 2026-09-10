@@ -39,6 +39,33 @@ void main() {
       expect(frame.extended, isTrue);
     });
 
+    test('parses an STMA fast-mode 11-bit frame without spaces or DLC', () {
+      final frame = LinuxObdlinkMxAdapter.parseMonitorLine(
+        '0C1AABBCCDDEEFF0011',
+        channel: 2,
+      );
+
+      expect(frame, isNotNull);
+      expect(frame!.id, 0x0C1);
+      expect(frame.channel, 2);
+      expect(frame.extended, isFalse);
+      expect(
+        frame.data,
+        <int>[0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11],
+      );
+    });
+
+    test('parses an STMA fast-mode 29-bit frame without spaces or DLC', () {
+      final frame = LinuxObdlinkMxAdapter.parseMonitorLine(
+        '18DAF110023E00',
+      );
+
+      expect(frame, isNotNull);
+      expect(frame!.id, 0x18DAF110);
+      expect(frame.extended, isTrue);
+      expect(frame.data, <int>[0x02, 0x3E, 0x00]);
+    });
+
     test('rejects status, truncated, and invalid channel lines', () {
       expect(LinuxObdlinkMxAdapter.parseMonitorLine('SEARCHING...'), isNull);
       expect(LinuxObdlinkMxAdapter.parseMonitorLine('7E8 8 01 02'), isNull);
