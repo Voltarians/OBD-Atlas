@@ -1,0 +1,20 @@
+source,network,bitrate_kbps,can_id_hex,message_name,signal_name,start_bit,length,endian,signed,scale,offset,unit,confidence,notes
+Tom-evnut/AmperaBattery,internal_becm_bicm,125,0x460,Cells_01_to_03,Cell_01,3,12,motorola,false,0.00125,0,V,community_derived,Module 1
+Tom-evnut/AmperaBattery,internal_becm_bicm,125,0x460,Cells_01_to_03,Cell_02,19,12,motorola,false,0.00125,0,V,community_derived,Module 1
+Tom-evnut/AmperaBattery,internal_becm_bicm,125,0x460,Cells_01_to_03,Cell_03,35,12,motorola,false,0.00125,0,V,community_derived,Module 1
+Tom-evnut/AmperaBattery,internal_becm_bicm,125,0x470,Cells_04_to_06,Cell_04,3,12,motorola,false,0.00125,0,V,community_derived,Module 1
+Tom-evnut/AmperaBattery,internal_becm_bicm,125,0x470,Cells_04_to_06,Cell_05,19,12,motorola,false,0.00125,0,V,community_derived,Module 1
+Tom-evnut/AmperaBattery,internal_becm_bicm,125,0x470,Cells_04_to_06,Cell_06,35,12,motorola,false,0.00125,0,V,community_derived,Module 1
+Tom-evnut/AmperaBattery,internal_becm_bicm,125,0x461,Cells_07_to_10,Cell_07,3,12,motorola,false,0.00125,0,V,community_derived,Module 1
+Tom-evnut/AmperaBattery,internal_becm_bicm,125,0x461,Cells_07_to_10,Cell_08,19,12,motorola,false,0.00125,0,V,community_derived,Module 1
+Tom-evnut/AmperaBattery,internal_becm_bicm,125,0x461,Cells_07_to_10,Cell_09,35,12,motorola,false,0.00125,0,V,community_derived,Module 1
+Tom-evnut/AmperaBattery,internal_becm_bicm,125,0x461,Cells_07_to_10,Cell_10,51,12,motorola,false,0.00125,0,V,community_derived,Module 1
+Tom-evnut/AmperaBattery,internal_becm_bicm,125,0x471,Cells_11_to_14,Cell_11,3,12,motorola,false,0.00125,0,V,community_derived,Module 1
+Tom-evnut/AmperaBattery,internal_becm_bicm,125,0x471,Cells_11_to_14,Cell_12,19,12,motorola,false,0.00125,0,V,community_derived,Module 1
+Tom-evnut/AmperaBattery,internal_becm_bicm,125,0x471,Cells_11_to_14,Cell_13,35,12,motorola,false,0.00125,0,V,community_derived,Module 1
+Tom-evnut/AmperaBattery,internal_becm_bicm,125,0x471,Cells_11_to_14,Cell_14,51,12,motorola,false,0.00125,0,V,community_derived,Module 1
+Tom-evnut/AmperaBattery,internal_becm_bicm,125,0x7E0,Temp_01,Temp_01,1,10,motorola,false,0.0556,-27.778,C,community_derived,Temperature scale from source DBC
+Tom-evnut/AmperaBattery,internal_becm_bicm,125,0x7E1,Temp_02,Temp_02,1,10,motorola,false,0.0556,-27.778,C,community_derived,Temperature scale from source DBC
+Tom-evnut/AmperaBattery,internal_becm_bicm,125,0x200,BECM_Master_200,,,unknown,unknown,,, ,community_derived,BECM master traffic observed in source capture; command semantics require Atlas validation
+Tom-evnut/AmperaBattery,internal_becm_bicm,125,0x300,BECM_Master_300,,,unknown,unknown,,, ,candidate,BECM master/control traffic observed in source capture
+Tom-evnut/AmperaBattery,internal_becm_bicm,125,0x310,BECM_Master_310,,,unknown,unknown,,, ,candidate,BECM master/control traffic observed in source capture
