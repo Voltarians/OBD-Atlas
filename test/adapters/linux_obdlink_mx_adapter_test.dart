@@ -17,8 +17,8 @@ void main() {
       expect(
         LinuxObdlinkMxAdapter.monitorSetupCommands(
           ObdlinkMxCanBus.singleWireCan,
-        ).take(2),
-        <String>['STP 61', 'STCMM 0'],
+        ).take(3),
+        <String>['STP 61', 'STCSWM 3', 'STCMM 0'],
       );
     });
 
@@ -31,6 +31,15 @@ void main() {
 
       expect(adapter.displayName, contains('CH5'));
       expect(adapter.displayName, contains('SWCAN'));
+    });
+
+    test('discovers paired MX+ as a direct RFCOMM target', () {
+      final targets = LinuxObdlinkMxAdapter.parsePairedDeviceLines('''
+Device 00:04:3E:84:41:C1 OBDLink MX+ 92248
+Device C4:B7:57:0D:1C:EC TOYOTA Corolla
+''');
+
+      expect(targets, <String>['rfcomm://00:04:3E:84:41:C1:1']);
     });
   });
 
