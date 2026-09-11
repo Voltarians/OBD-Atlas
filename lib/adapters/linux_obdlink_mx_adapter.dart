@@ -87,7 +87,9 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
           .toList()
         ..sort();
       targets.addAll(ports);
-    } on FileSystemException {}
+    } on FileSystemException {
+      // Direct paired-device discovery below can still provide a target.
+    }
 
     // Direct RFCOMM sockets avoid root-owned /dev/rfcomm devices. Pairing is
     // still a one-time BlueZ operation because passkey confirmation is manual.
@@ -99,7 +101,9 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
       if (result.exitCode == 0) {
         targets.addAll(parsePairedDeviceLines('${result.stdout}'));
       }
-    } on Object {}
+    } on Object {
+      // BlueZ may be absent; manually bound /dev/rfcomm ports remain usable.
+    }
     return targets.toSet().toList()..sort();
   }
 
@@ -423,7 +427,9 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
         mode: FileMode.append,
         flush: true,
       );
-    } on Object {}
+    } on Object {
+      // Logging must never interrupt or terminate a vehicle-bus connection.
+    }
   }
 
   static const _rfcommHelper = r'''
