@@ -1,0 +1,9 @@
+source,fact,confidence,atlas_use
+Tom-evnut/AmperaBattery,BECM X1 carries car-facing 500 kbit/s CAN,community_derived,Select correct interface for HV Energy Management capture
+Tom-evnut/AmperaBattery,BECM X2 carries internal 125 kbit/s BECM-to-BICM/slave CAN,community_derived,Keep internal battery IDs in a separate namespace
+Tom-evnut/AmperaBattery,BECM X1 pin 3 is CAN Low and pin 4 is CAN High in bench configuration,community_derived,Bench harness reference only; verify against service data before vehicle wiring
+Tom-evnut/AmperaBattery,BECM X2 pin 11 is CAN Low and pin 12 is CAN High,community_derived,Internal battery research harness reference
+Electric Go Kart blog,K16 BECM communicates with BICMs over internal CAN and vehicle over a separate high-speed CAN network,community_derived,Confirms two-layer architecture
+Electric Go Kart blog,OEM system includes an inductive current sensor connected into the battery control system,community_derived,Search car-facing traffic/diagnostics for pack-current signal
+Electric Go Kart blog,OEM system includes contactors associated with the BECM/battery system,community_derived,Supports contactor-state/control search on HV Energy Management network
+OBD Atlas service-manual baseline,A28 contactor assembly K16 BECM K114B HPCM2 and K57 charger share the 500 kbit/s HV Energy Management network,confirmed_source,Primary network for precharge/contactor startup diagnostic
