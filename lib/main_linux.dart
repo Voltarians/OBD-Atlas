@@ -279,7 +279,7 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
   Future<void> _scanObdlink() async {
     setState(() => _scanningObdlink = true);
     try {
-      final ports = AtlasRuntime.instance.scanLinuxObdlinkPorts();
+      final ports = await AtlasRuntime.instance.scanLinuxObdlinkPorts();
       if (!mounted) return;
       setState(() {
         _obdlinkPorts = ports;
@@ -288,9 +288,11 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
         }
       });
       if (ports.isEmpty) {
-        _showMessage('No serial ports found. Pair the MX+ and create /dev/rfcomm0 first.');
+        _showMessage(
+          'No paired OBDLink MX+ found. Pair it once in Raspberry Pi Bluetooth settings.',
+        );
       } else {
-        _showMessage('${ports.length} serial port(s) found. Select the MX+ RFCOMM port.');
+        _showMessage('${ports.length} MX+ connection target(s) found.');
       }
     } catch (error) {
       _showError(error);
@@ -517,8 +519,8 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'Linux setup: pair the MX+ with BlueZ, bind its serial service to '
-                        '/dev/rfcomm0, then scan here. HS-CAN uses protocol 31; '
+                        'Pair the MX+ with BlueZ once, then Atlas opens and manages the '
+                        'RFCOMM connection automatically. HS-CAN uses protocol 31; '
                         'GM SWCAN uses protocol 61 on DLC pin 1.',
                       ),
                     ],
