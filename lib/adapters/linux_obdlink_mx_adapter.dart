@@ -61,6 +61,7 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
   bool _awaitingPrompt = false;
   bool _monitoring = false;
   bool _disconnecting = false;
+  Completer<void>? _firstFrame;
 
   @override
   String get id => 'obdlink-mx:ch$channel:$portName';
@@ -76,7 +77,8 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
   @override
   Stream<AtlasAdapterState> get states => _states.stream;
 
-  static List<String> availablePorts() {
+  static Future<List<String>> availablePorts() async {
+    final targets = <String>[];
     try {
       final ports = Directory('/dev')
           .listSync()
@@ -84,10 +86,35 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
           .where((path) => RegExp(r'/rfcomm\d+$').hasMatch(path))
           .toList()
         ..sort();
-      return ports;
-    } on FileSystemException {
-      return const <String>[];
+      targets.addAll(ports);
+    } on FileSystemException {}
+
+    // Direct RFCOMM sockets avoid root-owned /dev/rfcomm devices. Pairing is
+    // still a one-time BlueZ operation because passkey confirmation is manual.
+    try {
+      final result = await Process.run(
+        'bluetoothctl',
+        const <String>['devices', 'Paired'],
+      ).timeout(const Duration(seconds: 4));
+      if (result.exitCode == 0) {
+        targets.addAll(parsePairedDeviceLines('${result.stdout}'));
+      }
+    } on Object {}
+    return targets.toSet().toList()..sort();
+  }
+
+  static List<String> parsePairedDeviceLines(String output) {
+    final targets = <String>[];
+    for (final line in const LineSplitter().convert(output)) {
+      final match = RegExp(
+        r'^Device\s+([0-9A-Fa-f:]{17})\s+(.+)$',
+      ).firstMatch(line.trim());
+      if (match == null) continue;
+      final name = match.group(2)!.toUpperCase();
+      if (!name.contains('OBDLINK') && !name.contains('MX+')) continue;
+      targets.add('rfcomm://${match.group(1)!.toUpperCase()}:1');
     }
+    return targets;
   }
 
   void _setState(AtlasAdapterState value) {
@@ -100,6 +127,8 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
     if (_state == AtlasAdapterState.connected) return;
     _setState(AtlasAdapterState.connecting);
     _disconnecting = false;
+    _firstFrame = Completer<void>();
+    _log('CONNECT target=$portName bus=${canBus.shortName}');
     final ready = Completer<void>();
     final process = await Process.start(
       'python3',
@@ -122,6 +151,7 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
     unawaited(process.exitCode.then((code) {
       if (!_disconnecting && _state != AtlasAdapterState.disconnected) {
         final error = StateError('RFCOMM helper exited with code $code');
+        _log('ERROR $error');
         _setState(AtlasAdapterState.error);
         _frames.addError(error);
       }
@@ -151,8 +181,18 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
       }
       _monitoring = true;
       _write(fastMonitor ? 'STM' : 'ATMA');
+      _log('TX ${fastMonitor ? 'STM' : 'ATMA'}');
+      await _firstFrame!.future.timeout(
+        const Duration(seconds: 6),
+        onTimeout: () => throw TimeoutException(
+          'MX+ ${canBus.shortName} monitor started but received no CAN frames. '
+          'The adapter configuration or selected vehicle bus is not active.',
+        ),
+      );
       _setState(AtlasAdapterState.connected);
-    } catch (_) {
+      _log('CONNECTED first-frame-received');
+    } catch (error) {
+      _log('CONNECT FAILED $error');
       await disconnect();
       rethrow;
     }
@@ -175,12 +215,14 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
     );
     late final String response;
     try {
+      _log('TX $command');
       _write(command);
       response = await responseFuture;
     } finally {
       _awaitingPrompt = false;
     }
     final upper = response.toUpperCase();
+    _log('RX $command ${response.replaceAll(RegExp(r'[\r\n]+'), ' ').trim()}');
     if (upper.contains('?') ||
         upper.contains('ERROR') ||
         upper.contains('UNABLE TO CONNECT')) {
@@ -219,7 +261,10 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
         continue;
       }
       final frame = parseMonitorLine(line, channel: channel);
-      if (frame != null) _frames.add(frame);
+      if (frame != null) {
+        if (_firstFrame?.isCompleted == false) _firstFrame!.complete();
+        _frames.add(frame);
+      }
     }
   }
 
@@ -247,6 +292,7 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
     // raw CAN frames; STMA would treat them as ISO 15765 messages.
     return <String>[
       'STP ${bus.protocolNumber}',
+      if (bus == ObdlinkMxCanBus.singleWireCan) 'STCSWM 3',
       'STCMM 0',
       'STFAC',
       'STFPA 000,000',
@@ -362,17 +408,33 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
     _buffer = '';
     _responseBuffer = '';
     _awaitingPrompt = false;
+    _firstFrame = null;
     _setState(AtlasAdapterState.disconnected);
+  }
+
+  static void _log(String message) {
+    try {
+      final home = Platform.environment['HOME'];
+      if (home == null || home.isEmpty) return;
+      final directory = Directory('$home/Documents/OBD Atlas/logs')
+        ..createSync(recursive: true);
+      File('${directory.path}/obdlink-mx.log').writeAsStringSync(
+        '${DateTime.now().toUtc().toIso8601String()} $message\n',
+        mode: FileMode.append,
+        flush: true,
+      );
+    } on Object {}
   }
 
   static const _rfcommHelper = r'''
 import os
 import select
 import signal
+import socket
 import sys
 import termios
 
-path = sys.argv[1]
+target = sys.argv[1]
 baud = int(sys.argv[2])
 speeds = {
     9600: termios.B9600,
@@ -383,17 +445,28 @@ speeds = {
 if baud not in speeds:
     raise ValueError("unsupported baud rate")
 
-fd = os.open(path, os.O_RDWR | os.O_NOCTTY)
-attrs = termios.tcgetattr(fd)
-attrs[0] = 0
-attrs[1] = 0
-attrs[2] = termios.CS8 | termios.CREAD | termios.CLOCAL
-attrs[3] = 0
-attrs[4] = speeds[baud]
-attrs[5] = speeds[baud]
-attrs[6][termios.VMIN] = 0
-attrs[6][termios.VTIME] = 1
-termios.tcsetattr(fd, termios.TCSANOW, attrs)
+transport = None
+if target.startswith("rfcomm://"):
+    endpoint = target[len("rfcomm://"):]
+    address, channel_text = endpoint.rsplit(":", 1)
+    transport = socket.socket(
+        socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
+    transport.settimeout(10)
+    transport.connect((address, int(channel_text)))
+    transport.setblocking(False)
+    fd = transport.fileno()
+else:
+    fd = os.open(target, os.O_RDWR | os.O_NOCTTY)
+    attrs = termios.tcgetattr(fd)
+    attrs[0] = 0
+    attrs[1] = 0
+    attrs[2] = termios.CS8 | termios.CREAD | termios.CLOCAL
+    attrs[3] = 0
+    attrs[4] = speeds[baud]
+    attrs[5] = speeds[baud]
+    attrs[6][termios.VMIN] = 0
+    attrs[6][termios.VTIME] = 1
+    termios.tcsetattr(fd, termios.TCSANOW, attrs)
 
 def stop(_signum, _frame):
     raise KeyboardInterrupt
@@ -416,6 +489,9 @@ try:
 except KeyboardInterrupt:
     pass
 finally:
-    os.close(fd)
+    if transport is not None:
+        transport.close()
+    else:
+        os.close(fd)
 ''';
 }
