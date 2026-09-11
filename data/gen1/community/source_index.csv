@@ -1,0 +1,11 @@
+source,path,type,network,relevance
+Tom-evnut/AmperaBattery,README.md,documentation,both,BECM X1 500 kbps and X2 125 kbps architecture and wiring
+Tom-evnut/AmperaBattery,Volt_BMS.dbc,dbc,internal_becm_bicm,96 cell-group and temperature signal definitions
+Tom-evnut/AmperaBattery,Volt_BMS_Master.csv,capture,internal_becm_bicm,BECM master messages including 0x200/0x300/0x310
+Tom-evnut/AmperaBattery,VoltBMS/VoltBMS.ino,decoder,internal_becm_bicm,cell and temperature decode implementation
+Tom-evnut/AmperaBattery,VoltBMSV2/,decoder,internal_becm_bicm,second-generation decoder/control implementation
+Tom-evnut/AmperaBattery,Slave-CAN-Cap/,captures,internal_becm_bicm,raw internal battery traffic for validation
+Tom-evnut/AmperaBattery,internal-battery-comms.png,diagram,internal_becm_bicm,internal communications topology reference
+Tom-evnut/AmperaBattery,BECM-power-gnd.png,diagram,becm,bench/wake/power reference
+Tom-evnut/AmperaBattery,volt-pack-hookup.jpg,photo,becm,connector and pack hookup reference
+Tom-evnut/AmperaBattery,Volt BMS slaves.pdf,documentation,internal_becm_bicm,BICM/slave architecture reference

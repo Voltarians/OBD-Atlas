@@ -1,0 +1,13 @@
+source,network,bitrate_kbps,can_id_hex,signal_or_message,decode,confidence,notes
+Vehicle Reverse Engineering Wiki,vehicle_high_speed,500,0x1EF,Engine_RPM,bytes 3-4,community_derived,Community wiki; validate against Atlas captures before promotion
+Vehicle Reverse Engineering Wiki,vehicle_high_speed,500,0x1F5,Shift_Position,byte 4; 1=P 2=R N/D/L mappings reported,community_derived,Community wiki; validate exact enum values
+Vehicle Reverse Engineering Wiki,vehicle_high_speed,500,0x206,Battery_SOC_or_energy,bytes 1-2; reported ~0.250 kWh units,community_derived,Interpretation uncertain in source; retain as candidate
+Vehicle Reverse Engineering Wiki,vehicle_high_speed,500,0x3E9,Vehicle_Speed,bytes 1-2; 1/64 km/h,community_derived,Useful event-alignment signal
+Vehicle Reverse Engineering Wiki,diagnostic_response,500,0x5EC,Onboard_Charger_Current,byte 3; 0.2 A/count,community_derived,Response mapping reported by community wiki
+Vehicle Reverse Engineering Wiki,diagnostic_response,500,0x5EC,Onboard_Charger_Voltage,byte 4; 2 V/count,community_derived,Response mapping reported by community wiki
+Vehicle Reverse Engineering Wiki,diagnostic_response,500,0x5EC,Outside_Air_Temperature,byte 5; 0.5 C/count with +40 offset convention reported,community_derived,Validate sign/offset convention
+Vehicle Reverse Engineering Wiki,diagnostic_response,500,0x5EC,Outside_Air_Temperature_Filtered,byte 6; 0.5 C/count with +40 offset convention reported,community_derived,Validate sign/offset convention
+Vehicle Reverse Engineering Wiki,UDS,500,0x7E4,Onboard_Charger_Current_DID,0x4369 request; response via 0x5EC,community_derived,Diagnostic rather than passive broadcast
+Vehicle Reverse Engineering Wiki,UDS,500,0x7E4,Onboard_Charger_Voltage_DID,0x4368 request; response via 0x5EC,community_derived,Diagnostic rather than passive broadcast
+Vehicle Reverse Engineering Wiki,UDS,500,0x7E4,HV_Battery_Temperature_DID,0x434F request,community_derived,Potentially useful startup health context
+Vehicle Reverse Engineering Wiki,UDS,500,0x7E4,Power_Electronics_Coolant_Temperature_DID,0x1C43 request,community_derived,Potentially useful startup health context
