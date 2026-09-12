@@ -1,5 +1,5 @@
 import importlib.util
-import tempfile
+import sys
 import unittest
 from pathlib import Path
 
@@ -9,6 +9,7 @@ TOOL = ROOT / "tool" / "extract_gds2_dids.py"
 
 spec = importlib.util.spec_from_file_location("extract_gds2_dids", TOOL)
 module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
 assert spec.loader is not None
 spec.loader.exec_module(module)
 
