@@ -10,6 +10,7 @@ namespace {
 constexpr unsigned long kDeviceId = 0x1234;
 constexpr unsigned long kChannelId = 0x2345;
 constexpr unsigned long kFilterId = 0x3456;
+constexpr unsigned long kPeriodicMsgId = 0x4567;
 constexpr unsigned long kBaudRate = 500000;
 constexpr unsigned long kBatteryMillivolts = 12340;
 constexpr unsigned long kProgrammingPin = 13;
@@ -121,6 +122,29 @@ extern "C" __declspec(dllexport) long WINAPI PassThruDisconnect(
     unsigned long ChannelID) {
   return ChannelID == kChannelId ? atlas_j2534::STATUS_NOERROR
                                  : atlas_j2534::ERR_INVALID_CHANNEL_ID;
+}
+
+extern "C" __declspec(dllexport) long WINAPI PassThruStartPeriodicMsg(
+    unsigned long ChannelID, atlas_j2534::PASSTHRU_MSG* pMsg,
+    unsigned long* pMsgID, unsigned long TimeInterval) {
+  if (ChannelID != kChannelId) return atlas_j2534::ERR_INVALID_CHANNEL_ID;
+  if (pMsg == nullptr || pMsgID == nullptr) return atlas_j2534::ERR_NULL_PARAMETER;
+  if (TimeInterval != 1000) return atlas_j2534::ERR_INVALID_TIME_INTERVAL;
+  constexpr unsigned char kPeriodic[] = {
+      0x00, 0x00, 0x07, 0xE0, 0x02, 0x3E, 0x00};
+  if (!WriteMessageMatches(pMsg, kPeriodic,
+                           static_cast<unsigned long>(sizeof(kPeriodic)))) {
+    return atlas_j2534::ERR_INVALID_MSG;
+  }
+  *pMsgID = kPeriodicMsgId;
+  return atlas_j2534::STATUS_NOERROR;
+}
+
+extern "C" __declspec(dllexport) long WINAPI PassThruStopPeriodicMsg(
+    unsigned long ChannelID, unsigned long MsgID) {
+  if (ChannelID != kChannelId) return atlas_j2534::ERR_INVALID_CHANNEL_ID;
+  return MsgID == kPeriodicMsgId ? atlas_j2534::STATUS_NOERROR
+                                 : atlas_j2534::ERR_INVALID_MSG_ID;
 }
 
 extern "C" __declspec(dllexport) long WINAPI PassThruStartMsgFilter(
