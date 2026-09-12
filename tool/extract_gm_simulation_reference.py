@@ -2,7 +2,7 @@
 """Extract a provenance-preserving GM diagnostic reference map from Simulation.txt-style transcripts.
 
 The input format is an annotated legacy GM diagnostic transcript, not a vehicle
-capture.  Atlas therefore emits `legacyReference` evidence only.  The tool does
+capture. Atlas therefore emits `legacyReference` evidence only. The tool does
 not transmit, derive security keys, or claim that any address is valid for a
 specific Volt until independently observed.
 """
@@ -44,26 +44,21 @@ REQUEST_SERVICES = {
 
 POSITIVE_SERVICES = {((service + 0x40) & 0xFF): service for service in REQUEST_SERVICES}
 
-ACTION_PATTERNS = (
-    r"\s*-\s*Read Freeze Frame.*$",
-    r"\s*-\s*Request Freeze Frame.*$",
-    r"\s+Start Comm.*$",
-    r"\s+Read DTCs.*$",
-    r"\s+Clear DTCs.*$",
-    r"\s+Read Codes.*$",
-    r"\s+Clear Codes.*$",
-    r"\s+Read Data.*$",
-    r"\s+Define Data Packets.*$",
-    r"\s+Data Stream.*$",
-    r"\s+Read VIN.*$",
-    r"\s+Request PIDs.*$",
-    r"\s+Read IAT.*$",
+KNOWN_MODULE_HEADINGS = (
+    (re.compile(r"\bInflatable Restraint Sensing and Diagnostic Module\b", re.I), "Inflatable Restraint Sensing and Diagnostic Module"),
+    (re.compile(r"\bElectronic Power Steering Control Module\b", re.I), "Electronic Power Steering Control Module"),
+    (re.compile(r"\bElectronic Power Steering COntrol Module\b", re.I), "Electronic Power Steering Control Module"),
+    (re.compile(r"\bElectronic Brake Control Module\b", re.I), "Electronic Brake Control Module"),
+    (re.compile(r"\bElectronic Brake COntrol Module\b", re.I), "Electronic Brake Control Module"),
+    (re.compile(r"\bImmobilizer Control Module\b", re.I), "Immobilizer Control Module"),
+    (re.compile(r"\bKeyless Entry Control Module\b", re.I), "Keyless Entry Control Module"),
+    (re.compile(r"\bInstrument Cluster\b", re.I), "Instrument Cluster"),
+    (re.compile(r"\bFuel Pump Module\b", re.I), "Fuel Pump Module"),
+    (re.compile(r"\bRadio\b", re.I), "Radio"),
+    (re.compile(r"\bECM\b", re.I), "ECM"),
+    (re.compile(r"\bTCM\b", re.I), "TCM"),
+    (re.compile(r"\bBCM\b", re.I), "BCM"),
 )
-
-MODULE_ALIASES = {
-    "Electronic Brake COntrol Module": "Electronic Brake Control Module",
-    "Electronic Power Steering COntrol Module": "Electronic Power Steering Control Module",
-}
 
 
 @dataclass(frozen=True)
@@ -88,16 +83,9 @@ def module_from_heading(heading: str) -> str | None:
     text = heading.strip()
     if not text or text.lower().startswith("original"):
         return None
-    for pattern in ACTION_PATTERNS:
-        text = re.sub(pattern, "", text, flags=re.IGNORECASE)
-    text = text.strip(" ;-:")
-    text = MODULE_ALIASES.get(text, text)
-    if not text:
-        return None
-    # Only accept headings that look like a module/context label.  This avoids
-    # converting free-form commentary into an ECU identity.
-    if any(term.lower() in text.lower() for term in ("module", "ECM", "TCM", "BCM", "cluster", "radio", "immobilizer", "keyless")):
-        return text
+    for pattern, canonical in KNOWN_MODULE_HEADINGS:
+        if pattern.search(text):
+            return canonical
     return None
 
 
@@ -114,7 +102,6 @@ def parse(lines: Iterable[str]) -> list[ReferenceFrame]:
             heading = stripped[1:].strip()
             if not heading:
                 continue
-            # Commented-out frame examples start with a number; do not make them headings.
             if re.match(r"^(?:Original\s*-\s*)?\d+\s", heading, flags=re.IGNORECASE):
                 continue
             section = heading
@@ -216,8 +203,6 @@ def analyze(frames: list[ReferenceFrame]) -> dict:
         elif 0x500 <= frame.can_id <= 0x5FF:
             entry["dataCanIds"].add(frame.can_id)
         elif 0x600 <= frame.can_id <= 0x7FF:
-            # Some legacy responses (for example radio 0x60) do not follow the
-            # simple service+0x40 convention but still use the module response ID.
             entry["normalResponseCanIds"].add(frame.can_id)
 
     output_modules = []
