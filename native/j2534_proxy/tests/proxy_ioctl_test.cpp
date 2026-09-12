@@ -72,15 +72,20 @@ IoctlResult RunIoctl(const Api& api) {
   result.connect_result = api.connect(
       result.device_id, PROTOCOL_ISO15765, 0, 500000, &result.channel_id);
 
-  result.set_configs = {{{CONFIG_DATA_RATE, 500000}, {CONFIG_LOOPBACK, 1}}};
+  result.set_configs[0].Parameter = CONFIG_DATA_RATE;
+  result.set_configs[0].Value = 500000;
+  result.set_configs[1].Parameter = CONFIG_LOOPBACK;
+  result.set_configs[1].Value = 1;
   SCONFIG_LIST set_list{
       static_cast<unsigned long>(result.set_configs.size()),
       result.set_configs.data()};
   result.set_result = api.ioctl(
       result.channel_id, IOCTL_SET_CONFIG, &set_list, nullptr);
 
-  result.get_configs = {
-      {{CONFIG_DATA_RATE, 0xAAAAAAAA}, {CONFIG_LOOPBACK, 0xBBBBBBBB}}};
+  result.get_configs[0].Parameter = CONFIG_DATA_RATE;
+  result.get_configs[0].Value = 0xAAAAAAAA;
+  result.get_configs[1].Parameter = CONFIG_LOOPBACK;
+  result.get_configs[1].Value = 0xBBBBBBBB;
   SCONFIG_LIST get_list{
       static_cast<unsigned long>(result.get_configs.size()),
       result.get_configs.data()};
