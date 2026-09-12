@@ -6,9 +6,9 @@ The format is **JSON Lines**: one complete JSON object per line. It is append-on
 
 ## Safety boundary
 
-The standalone Python trace writer/parser does not load a J2534 DLL, open an interface, transmit CAN, change filters, set programming voltage, or synthesize vehicle messages.
+The standalone Python trace writer/parser does not load a J2534 DLL, open an interface, transmit CAN, change filters, start periodic messages, set programming voltage, or synthesize vehicle messages.
 
-The native Windows proxy uses the same trace semantics while forwarding the currently accepted device, channel, filter, message, IOCTL, and guarded programming-voltage APIs to a selected provider. Atlas never generates an extra request, IOCTL, or programming-voltage command merely because tracing is enabled.
+The native Windows proxy uses the same trace semantics while forwarding the currently accepted device, channel, periodic-message, filter, message, IOCTL, and guarded programming-voltage APIs to a selected provider. Atlas never generates an extra request, periodic message, IOCTL, or programming-voltage command merely because tracing is enabled.
 
 `PassThruSetProgrammingVoltage` is exported but blocked by default. It reaches the selected provider only when `OBD_ATLAS_J2534_ALLOW_PROGRAMMING_VOLTAGE=1` is present exactly. The native proxy is still restricted to off-vehicle acceptance testing until the remaining API and bench-safety gates pass.
 
@@ -44,6 +44,8 @@ Return codes and caller buffers remain the provider's results for forwarded call
 ## Message representation
 
 Filter messages retain exact metadata and bytes. ReadMsgs records returned count/order/metadata/payloads while bounding observation to the caller's original requested capacity. WriteMsgs snapshots the caller's input messages before forwarding and passes the original `pMsg` and `pNumMsgs` pointers directly to the provider.
+
+`PassThruStartPeriodicMsg` snapshots the exact caller-supplied `PASSTHRU_MSG` and records `timeIntervalMs` before forwarding the original message pointer, output-ID pointer, and interval unchanged. A provider-assigned `messageId` is recorded only on successful return. Rejected starts do not cause Atlas to read or invent an output ID. `PassThruStopPeriodicMsg` records the caller-supplied periodic message ID and returns the provider result unchanged.
 
 SecurityAccess (`0x27`) and TransferData (`0x36`) write payloads are redacted by default. The trace retains message length, service identity, J2534 metadata, and SHA-256 instead of the original sensitive bytes. Redaction never changes what is forwarded to the provider.
 
@@ -91,6 +93,8 @@ The native proxy currently forwards and traces:
 - `PassThruClose`
 - `PassThruConnect`
 - `PassThruDisconnect`
+- `PassThruStartPeriodicMsg`
+- `PassThruStopPeriodicMsg`
 - `PassThruStartMsgFilter`
 - `PassThruStopMsgFilter`
 - `PassThruReadMsgs`
@@ -105,6 +109,7 @@ The native proxy currently forwards and traces:
 Windows CI compares direct fake-provider behavior with proxied behavior for:
 
 - device and channel lifecycle;
+- periodic-message start/stop, exact interval and message forwarding, provider-assigned IDs, rejected intervals, and invalid stop IDs;
 - ISO15765 flow-control filters;
 - successful and timeout ReadMsgs;
 - successful and timeout WriteMsgs;
@@ -120,7 +125,7 @@ The programming-voltage proxy test verifies that the blocked call never reaches 
 
 Before use with SPS/SPS2, DPS, or other real vehicle/programming sessions, remaining gates include:
 
-1. periodic-message APIs and any remaining calls required by the chosen GM tool/provider;
+1. any additional J2534 calls required by the chosen GM tool/provider;
 2. sustained-load ordering and timeout equivalence;
 3. bounded trace overhead;
 4. provider-specific behavior against real vendor DLLs; and
