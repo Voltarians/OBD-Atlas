@@ -32,6 +32,7 @@ PassThruStartMsgFilterFn g_start_filter = nullptr;
 PassThruStopMsgFilterFn g_stop_filter = nullptr;
 PassThruReadMsgsFn g_read_msgs = nullptr;
 PassThruWriteMsgsFn g_write_msgs = nullptr;
+PassThruIoctlFn g_ioctl = nullptr;
 PassThruReadVersionFn g_read_version = nullptr;
 PassThruGetLastErrorFn g_get_last_error = nullptr;
 std::once_flag g_init_once;
@@ -165,6 +166,15 @@ std::string HexBytes(const unsigned char* data, size_t size) {
   return out.str();
 }
 
+template <typename T>
+bool SnapshotObject(const void* address, T* output) {
+  if (address == nullptr || output == nullptr) return false;
+  SIZE_T bytes_read = 0;
+  return ReadProcessMemory(GetCurrentProcess(), address, output, sizeof(T),
+                           &bytes_read) != FALSE &&
+         bytes_read == sizeof(T);
+}
+
 std::optional<std::string> Sha256Hex(const unsigned char* data, size_t size) {
   BCRYPT_ALG_HANDLE algorithm = nullptr;
   BCRYPT_HASH_HANDLE hash = nullptr;
@@ -174,7 +184,8 @@ std::optional<std::string> Sha256Hex(const unsigned char* data, size_t size) {
   std::vector<unsigned char> object;
   std::vector<unsigned char> digest;
 
-  if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) {
+  if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr,
+                                  0) < 0) {
     return std::nullopt;
   }
   auto close_algorithm = [&]() {
@@ -193,8 +204,8 @@ std::optional<std::string> Sha256Hex(const unsigned char* data, size_t size) {
 
   object.resize(object_size);
   digest.resize(hash_size);
-  if (BCryptCreateHash(algorithm, &hash, object.data(), object_size,
-                       nullptr, 0, 0) < 0) {
+  if (BCryptCreateHash(algorithm, &hash, object.data(), object_size, nullptr, 0,
+                       0) < 0) {
     close_algorithm();
     return std::nullopt;
   }
@@ -238,9 +249,16 @@ std::optional<SensitiveService> DetectSensitiveService(
   const unsigned char first = message->Data[service_index];
   const unsigned char frame_type = static_cast<unsigned char>(first & 0xF0);
   if (frame_type == 0x00 && size > service_index + 1) {
-    service_index += 1;
+    const unsigned char single_frame_length =
+        static_cast<unsigned char>(first & 0x0F);
+    if (single_frame_length > 0 && single_frame_length <= 7) {
+      service_index += 1;
+    }
   } else if (frame_type == 0x10 && size > service_index + 2) {
-    service_index += 2;
+    const unsigned int first_frame_length =
+        (static_cast<unsigned int>(first & 0x0F) << 8) |
+        static_cast<unsigned int>(message->Data[service_index + 1]);
+    if (first_frame_length > 7) service_index += 2;
   }
   if (service_index >= size) return std::nullopt;
 
@@ -263,8 +281,8 @@ std::string MessageJson(const PASSTHRU_MSG* message) {
       << ",\"dataSize\":" << message->DataSize
       << ",\"extraDataIndex\":" << message->ExtraDataIndex
       << ",\"payloadHex\":" << JsonString(HexBytes(message->Data, captured))
-      << ",\"payloadTruncated\":" << (captured != requested ? "true" : "false")
-      << "}";
+      << ",\"payloadTruncated\":"
+      << (captured != requested ? "true" : "false") << "}";
   return out.str();
 }
 
@@ -285,16 +303,18 @@ std::string TraceMessageJson(const PASSTHRU_MSG* message) {
     const auto digest = Sha256Hex(message->Data, captured);
     out << ",\"service\":" << static_cast<unsigned int>(sensitive->service)
         << ",\"payloadRedacted\":true"
-        << ",\"sensitiveService\":" << JsonString(sensitive->name)
-        << ",\"payloadSha256\":";
-    if (digest.has_value()) out << JsonString(*digest);
-    else out << "null";
+        << ",\"sensitiveService\":" << JsonString(sensitive->name);
+    if (digest.has_value()) {
+      out << ",\"payloadSha256\":" << JsonString(*digest);
+    } else {
+      out << ",\"payloadHashUnavailable\":true";
+    }
   } else {
     out << ",\"payloadRedacted\":false"
         << ",\"payloadHex\":" << JsonString(HexBytes(message->Data, captured));
   }
-  out << ",\"payloadTruncated\":" << (captured != requested ? "true" : "false")
-      << "}";
+  out << ",\"payloadTruncated\":"
+      << (captured != requested ? "true" : "false") << "}";
   return out.str();
 }
 
@@ -321,6 +341,83 @@ std::string TraceMessageArrayJson(const PASSTHRU_MSG* messages,
     out << TraceMessageJson(&messages[index]);
   }
   out << "]";
+  return out.str();
+}
+
+std::string ConfigListJson(const void* pointer) {
+  if (pointer == nullptr) return "null";
+  SCONFIG_LIST list{};
+  if (!SnapshotObject(pointer, &list)) {
+    return "{\"readable\":false}";
+  }
+
+  constexpr unsigned long kMaxObservedConfigs = 64;
+  const unsigned long captured =
+      std::min(list.NumOfParams, kMaxObservedConfigs);
+  std::ostringstream out;
+  out << "{\"readable\":true"
+      << ",\"numOfParams\":" << list.NumOfParams
+      << ",\"configPtrPresent\":"
+      << (list.ConfigPtr != nullptr ? "true" : "false")
+      << ",\"capturedParams\":" << (list.ConfigPtr != nullptr ? captured : 0)
+      << ",\"paramsTruncated\":"
+      << (list.NumOfParams > captured ? "true" : "false")
+      << ",\"configs\":[";
+
+  if (list.ConfigPtr != nullptr) {
+    const uintptr_t base = reinterpret_cast<uintptr_t>(list.ConfigPtr);
+    for (unsigned long index = 0; index < captured; ++index) {
+      if (index != 0) out << ",";
+      SCONFIG config{};
+      const void* address = reinterpret_cast<const void*>(
+          base + static_cast<uintptr_t>(index) * sizeof(SCONFIG));
+      if (SnapshotObject(address, &config)) {
+        out << "{\"index\":" << index
+            << ",\"readable\":true"
+            << ",\"parameter\":" << config.Parameter
+            << ",\"value\":" << config.Value << "}";
+      } else {
+        out << "{\"index\":" << index
+            << ",\"readable\":false}";
+      }
+    }
+  }
+  out << "]}";
+  return out.str();
+}
+
+std::string IoctlArgumentsJson(unsigned long ioctl_id, void* input,
+                               void* output) {
+  std::ostringstream out;
+  out << "{\"ioctlId\":" << ioctl_id
+      << ",\"inputPointerPresent\":"
+      << (input != nullptr ? "true" : "false")
+      << ",\"outputPointerPresent\":"
+      << (output != nullptr ? "true" : "false");
+  if (ioctl_id == IOCTL_GET_CONFIG || ioctl_id == IOCTL_SET_CONFIG) {
+    out << ",\"configInput\":" << ConfigListJson(input);
+  }
+  out << "}";
+  return out.str();
+}
+
+std::string IoctlOutputsJson(unsigned long ioctl_id, void* input,
+                             void* output) {
+  std::ostringstream out;
+  out << "{\"ioctlId\":" << ioctl_id;
+  if (ioctl_id == IOCTL_GET_CONFIG || ioctl_id == IOCTL_SET_CONFIG) {
+    out << ",\"configInputAfter\":" << ConfigListJson(input);
+  } else if (ioctl_id == IOCTL_READ_VBATT ||
+             ioctl_id == IOCTL_READ_PROG_VOLTAGE) {
+    unsigned long value = 0;
+    const bool readable = SnapshotObject(output, &value);
+    out << ",\"outputUnsignedLongReadable\":"
+        << (readable ? "true" : "false")
+        << ",\"outputUnsignedLong\":";
+    if (readable) out << value;
+    else out << "null";
+  }
+  out << "}";
   return out.str();
 }
 
@@ -493,13 +590,14 @@ void Initialize() {
   g_stop_filter = Resolve<PassThruStopMsgFilterFn>("PassThruStopMsgFilter");
   g_read_msgs = Resolve<PassThruReadMsgsFn>("PassThruReadMsgs");
   g_write_msgs = Resolve<PassThruWriteMsgsFn>("PassThruWriteMsgs");
+  g_ioctl = Resolve<PassThruIoctlFn>("PassThruIoctl");
   g_read_version = Resolve<PassThruReadVersionFn>("PassThruReadVersion");
   g_get_last_error = Resolve<PassThruGetLastErrorFn>("PassThruGetLastError");
   if (g_open == nullptr || g_close == nullptr || g_connect == nullptr ||
       g_disconnect == nullptr || g_start_filter == nullptr ||
       g_stop_filter == nullptr || g_read_msgs == nullptr ||
-      g_write_msgs == nullptr || g_read_version == nullptr ||
-      g_get_last_error == nullptr) {
+      g_write_msgs == nullptr || g_ioctl == nullptr ||
+      g_read_version == nullptr || g_get_last_error == nullptr) {
     return;
   }
 
@@ -525,8 +623,11 @@ extern "C" __declspec(dllexport) long WINAPI PassThruOpen(
   const long result = g_open(pName, pDeviceID);
   std::ostringstream outputs;
   outputs << "{\"deviceId\":";
-  if (pDeviceID != nullptr) outputs << *pDeviceID;
-  else outputs << "null";
+  if (result == atlas_j2534::STATUS_NOERROR && pDeviceID != nullptr) {
+    outputs << *pDeviceID;
+  } else {
+    outputs << "null";
+  }
   outputs << "}";
   EndCall(call, "PassThruOpen", result, outputs.str());
   return result;
@@ -625,8 +726,7 @@ extern "C" __declspec(dllexport) long WINAPI PassThruReadMsgs(
   if (!EnsureInitialized()) return atlas_j2534::ERR_FAILED;
 
   const bool count_pointer_present = pNumMsgs != nullptr;
-  const unsigned long requested_count =
-      count_pointer_present ? *pNumMsgs : 0;
+  const unsigned long requested_count = count_pointer_present ? *pNumMsgs : 0;
   std::ostringstream arguments;
   arguments << "{\"messageBufferPresent\":"
             << (pMsg == nullptr ? "false" : "true")
@@ -641,8 +741,7 @@ extern "C" __declspec(dllexport) long WINAPI PassThruReadMsgs(
       "PassThruReadMsgs", std::nullopt, arguments.str(), ChannelID);
   const long result = g_read_msgs(ChannelID, pMsg, pNumMsgs, Timeout);
 
-  const unsigned long returned_count =
-      count_pointer_present ? *pNumMsgs : 0;
+  const unsigned long returned_count = count_pointer_present ? *pNumMsgs : 0;
   const unsigned long captured_count =
       (pMsg != nullptr && count_pointer_present)
           ? std::min(returned_count, requested_count)
@@ -690,6 +789,19 @@ extern "C" __declspec(dllexport) long WINAPI PassThruWriteMsgs(
   else outputs << "null";
   outputs << "}";
   EndCall(call, "PassThruWriteMsgs", result, outputs.str());
+  return result;
+}
+
+extern "C" __declspec(dllexport) long WINAPI PassThruIoctl(
+    unsigned long ChannelID, unsigned long IoctlID,
+    void* pInput, void* pOutput) {
+  if (!EnsureInitialized()) return atlas_j2534::ERR_FAILED;
+  const std::string arguments = IoctlArgumentsJson(IoctlID, pInput, pOutput);
+  const auto call = BeginCall(
+      "PassThruIoctl", std::nullopt, arguments, ChannelID);
+  const long result = g_ioctl(ChannelID, IoctlID, pInput, pOutput);
+  EndCall(call, "PassThruIoctl", result,
+          IoctlOutputsJson(IoctlID, pInput, pOutput));
   return result;
 }
 
