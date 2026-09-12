@@ -24,6 +24,24 @@ Every record contains:
 
 The first record is always `session`. Each PassThru invocation produces a `callBegin` before forwarding and a matching `callEnd` after the provider/policy result is known. Both share one `callId`.
 
+## Durability and physical commit policy
+
+Each JSONL record is synchronously written to the trace file in sequence. Physical storage commits use bounded group commit instead of calling `FlushFileBuffers()` for every individual record.
+
+A physical commit is forced when:
+
+- the session record is written;
+- 256 records have accumulated since the preceding physical commit;
+- 100 ms has elapsed since the preceding physical commit and another trace record is written;
+- `PassThruClose` completes;
+- `PassThruDisconnect` completes;
+- `PassThruStopPeriodicMsg` completes; or
+- `PassThruSetProgrammingVoltage` completes.
+
+The file therefore remains append-only and ordered while avoiding two physical flushes for every ordinary PassThru call. In an abnormal process or machine termination, only the most recent uncommitted group is exposed to loss. Normal lifecycle shutdown forces a durable boundary. This policy affects trace durability only; it does not modify J2534 parameters, buffers, provider calls, provider timing, return codes, or record sequence allocation.
+
+The group-commit policy has a native Windows acceptance test covering immediate session/lifecycle commits, ordinary batching, the 256-record count boundary, and the 100 ms age boundary.
+
 ## Session record
 
 The session record identifies the source application and selected provider, including registry identity, DLL path metadata, a stable SHA-256 provider fingerprint, the sensitive-payload policy, `observerMode: transparent-forwarder`, and `proxyMayTransmitIndependently: false`.
@@ -116,19 +134,23 @@ Windows CI compares direct fake-provider behavior with proxied behavior for:
 - SecurityAccess/TransferData redaction while forwarding the original bytes;
 - IOCTL `SET_CONFIG`, `GET_CONFIG`, `READ_VBATT`, and an invalid opaque IOCTL;
 - programming-voltage policy plus end-to-end default-blocked/explicitly-enabled forwarding;
-- fail-closed provider identity; and
-- concurrent trace sequence ordering.
+- fail-closed provider identity;
+- concurrent trace sequence ordering;
+- group-commit durability boundaries; and
+- a 100,000-operation, four-thread sustained-load transparency run.
 
 The programming-voltage proxy test verifies that the blocked call never reaches the provider, the enabled call reaches it with exact arguments, provider error codes remain unchanged, and both decisions are represented in the trace.
+
+The sustained-load gate requires zero direct-vs-proxy result mismatches, contiguous trace sequence numbers, correctly paired callBegin/callEnd records, and no raw SecurityAccess or TransferData payload leakage. On the measured GitHub Actions runs, the complete Windows native CTest step fell from 944 seconds with per-record physical flushes to 12 seconds with bounded group commit, approximately a 79x reduction in full native-suite wall time. Timing varies between hosted runners, so this is evidence of the magnitude of improvement rather than a fixed runtime guarantee.
 
 ## Proxy acceptance gate
 
 Before use with SPS/SPS2, DPS, or other real vehicle/programming sessions, remaining gates include:
 
-1. any additional J2534 calls required by the chosen GM tool/provider;
-2. sustained-load ordering and timeout equivalence;
-3. bounded trace overhead;
-4. provider-specific behavior against real vendor DLLs; and
-5. fail-safe bench-interface validation before any in-vehicle session.
+1. any additional J2534 calls actually required by the chosen GM tool/provider;
+2. provider-specific behavior against real vendor DLLs;
+3. sustained-load and latency characterization with those real vendor DLLs;
+4. fail-safe bench-interface validation; and
+5. a deliberately staged first GM-tool session before production/programming use.
 
 Programming voltage must remain disabled during ordinary diagnostic observation. Until all remaining gates pass, Windows Atlas raw-bus capture through independent passive adapters remains the approved vehicle-observation method.
