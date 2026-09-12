@@ -1,6 +1,6 @@
-# OBD Atlas J2534 connection/filter proxy
+# OBD Atlas J2534 read-observer proxy
 
-This directory contains the **off-vehicle connection-and-filter** foundation for the planned Windows J2534 observer/forwarder.
+This directory contains the **off-vehicle connection, filter, and read-only message** foundation for the planned Windows J2534 observer/forwarder.
 
 ## Current exported API
 
@@ -12,12 +12,13 @@ Only these functions are implemented and forwarded:
 - `PassThruDisconnect`
 - `PassThruStartMsgFilter`
 - `PassThruStopMsgFilter`
+- `PassThruReadMsgs`
 - `PassThruReadVersion`
 - `PassThruGetLastError`
 
-The proxy does **not** currently export or forward `PassThruReadMsgs`, `PassThruWriteMsgs`, IOCTLs, programming-voltage control, or any other message/vehicle-control API.
+The proxy does **not** currently export or forward `PassThruWriteMsgs`, IOCTLs, programming-voltage control, or any other transmit/vehicle-control API.
 
-Therefore this DLL is **not suitable for GDS2/SPS2/DPS vehicle use yet**. It exists only to prove DLL loading, exact device/channel/filter forwarding, and trace generation against an off-vehicle/fake provider.
+Therefore this DLL is **not suitable for GDS2/SPS2/DPS vehicle use yet**. It exists only to prove DLL loading, exact device/channel/filter/read forwarding, and trace generation against an off-vehicle/fake provider.
 
 ## Configuration
 
@@ -46,6 +47,8 @@ The DLL emits `obd-atlas.j2534-trace.v1` JSONL records compatible with `tool/j25
 Each record has UTC and monotonic timing. Connect records the exact `ProtocolID`, `Flags`, and `BaudRate`; its returned `ChannelID` is recorded without modification. Disconnect records the supplied channel ID.
 
 `PassThruStartMsgFilter` records the filter type plus the exact J2534 metadata and payload bytes supplied in the mask, pattern, and flow-control `PASSTHRU_MSG` structures. Atlas does not alter those structures before forwarding. A provider-assigned filter ID is recorded only after a successful call. `PassThruStopMsgFilter` records the supplied filter ID and channel ID.
+
+`PassThruReadMsgs` records the caller's requested message count and timeout before forwarding. After the provider returns, Atlas records the provider's returned message count and snapshots at most the caller's original requested capacity. Each captured message records `ProtocolID`, `RxStatus`, `TxFlags`, provider timestamp, `DataSize`, `ExtraDataIndex`, and payload bytes. If a provider reports more returned messages than the caller allocated, Atlas marks the trace as truncated rather than reading beyond the caller's buffer. The caller's message array and count pointer are passed directly to the real provider and are never rewritten by Atlas.
 
 Trace record numbering/writes are serialized so concurrent J2534 calls retain contiguous JSONL sequence order; provider calls themselves are not serialized by Atlas. Trace write failures after initialization are observational failures only and do not alter the provider return value.
 
@@ -82,20 +85,30 @@ The filter test additionally requires exact equality of:
 - a deliberately rejected filter type preserving the provider error and caller filter-ID buffer; and
 - `PassThruStopMsgFilter` return value.
 
+The read test additionally requires exact equality of:
+
+- `PassThruReadMsgs` return code;
+- returned message count;
+- message ordering;
+- every returned `PASSTHRU_MSG` metadata field;
+- exact payload bytes;
+- a successful two-message read from a caller capacity of four;
+- an `ERR_TIMEOUT` read returning zero messages; and
+- the timeout read leaving a sentinel-filled caller message buffer unchanged.
+
 Additional tests verify fail-closed invalid provider identity and multithreaded trace sequence ordering.
 
 Windows CI builds and runs these native tests before the Flutter Windows build.
 
 ## Acceptance boundary
 
-Passing the device/channel/filter tests does **not** authorize vehicle use. Before Atlas can sit between a GM application and a real J2534 device, later stages must independently add and test:
+Passing the device/channel/filter/read tests does **not** authorize vehicle use. Before Atlas can sit between a GM application and a real J2534 device, later stages must independently add and test:
 
-- `PassThruReadMsgs` forwarding;
 - `PassThruWriteMsgs` forwarding;
 - IOCTL forwarding;
 - programming-voltage forwarding;
-- byte-for-byte message/buffer equivalence;
-- ordering and timeout equivalence;
+- byte-for-byte transmit-buffer equivalence;
+- ordering and timeout equivalence under sustained load;
 - bounded trace overhead; and
 - fail-safe behavior with real vendor DLLs on a bench interface.
 
