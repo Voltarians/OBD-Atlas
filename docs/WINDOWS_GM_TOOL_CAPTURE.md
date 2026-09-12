@@ -78,6 +78,19 @@ Initial calls to observe:
 
 The proxy must preserve return codes, timing and message contents exactly. Capture code must never synthesize extra diagnostic messages.
 
+### J2534 trace foundation
+
+The application-side evidence format is defined before any forwarding DLL is introduced:
+
+- `assets/schemas/j2534_trace_v1.schema.json`
+- `tool/j2534_trace.py`
+- `tests/test_j2534_trace.py`
+- `docs/J2534_TRACE_FORMAT.md`
+
+The trace is append-only JSONL with paired `callBegin`/`callEnd` records, shared call IDs, contiguous record sequence, UTC plus monotonic timestamps, provider fingerprinting, device/channel identity, arguments, outputs, return codes and normalized message records.
+
+SecurityAccess (`0x27`) and TransferData (`0x36`) payloads are redacted by default while preserving byte length and SHA-256. The writer/parser is platform-independent and does not load a J2534 DLL, open an interface or communicate with a vehicle.
+
 ### Safety boundary
 
 The J2534 tap is an observer/forwarder. Atlas must not change GDS2/SPS2/DPS requests, security values, transfer blocks, filter definitions or programming-voltage commands.
@@ -149,10 +162,18 @@ Priority BECM mappings:
 
 ## Development order
 
-1. Treat the current Windows five-channel Atlas frontend as the raw-bus recorder rather than creating another application.
-2. Restore/add timestamped free-text capture markers to the cross-platform capture session.
-3. Add the observation-only live GM diagnostic endpoint/service/DID panel.
-4. Add Windows J2534 installation discovery and vendor-DLL inventory.
-5. Define the J2534 trace file schema and tests.
-6. Build the forwarding proxy and prove transparent behavior off-vehicle.
-7. Extend `GM Tool Capture` mode to correlate raw buses, markers and J2534 trace events on a common monotonic timeline.
+Completed foundation:
+
+1. Windows five-channel Atlas frontend used as the raw-bus recorder.
+2. Timestamped capture/event markers shared by Windows and the capture session.
+3. Observation-only live GM endpoint/service/DID panel.
+4. Read-only Windows J2534 installation/provider inventory.
+5. J2534 trace schema, writer/parser, provider fingerprinting, redaction policy and regression tests.
+
+Next gates:
+
+6. Build the Windows forwarding-proxy skeleton with standard J2534 exports, but keep it off-vehicle.
+7. Forward and trace harmless lifecycle/version calls first (`PassThruOpen`, `PassThruReadVersion`, `PassThruGetLastError`, `PassThruClose`).
+8. Add connection, message, filter, IOCTL and programming-voltage forwarding only after the skeleton is stable.
+9. Build an off-vehicle transparency/replay harness and prove direct-vendor versus proxied behavior.
+10. Only after that gate, correlate J2534 traces with raw buses and operator markers in `GM Tool Capture` mode.
