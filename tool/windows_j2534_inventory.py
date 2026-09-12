@@ -12,6 +12,7 @@ vendor/library identity selected for GDS2, SPS/SPS2 or DPS.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -50,6 +51,21 @@ INTERESTING_VALUES = (
 
 def registry_locations() -> tuple[str, ...]:
     return J2534_REGISTRY_LOCATIONS
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def provider_fingerprint(provider: dict[str, Any]) -> str:
+    identity = {
+        "registryPath": provider.get("registryPath"),
+        "registrySubkey": provider.get("registrySubkey"),
+        "name": provider.get("name"),
+        "vendor": provider.get("vendor"),
+        "functionLibrary": provider.get("functionLibrary"),
+    }
+    return hashlib.sha256(_canonical_json(identity).encode("utf-8")).hexdigest()
 
 
 def _read_value(key: Any, name: str) -> Any | None:
@@ -161,9 +177,48 @@ def inventory_windows_registry() -> list[dict[str, Any]]:
     return providers
 
 
+def select_provider(
+    providers: Iterable[dict[str, Any]],
+    *,
+    exact_name: str | None = None,
+    registry_subkey: str | None = None,
+) -> dict[str, Any]:
+    """Select exactly one provider without loading its DLL.
+
+    Selection is intentionally exact and fail-closed. Atlas should never pick
+    the first vaguely matching J2534 provider on a programming workstation.
+    """
+    if bool(exact_name) == bool(registry_subkey):
+        raise ValueError("specify exactly one of exact_name or registry_subkey")
+    rows = list(providers)
+    if exact_name is not None:
+        matches = [row for row in rows if str(row.get("name")) == exact_name]
+        selector = f"name={exact_name!r}"
+    else:
+        matches = [
+            row for row in rows
+            if str(row.get("registrySubkey")) == str(registry_subkey)
+        ]
+        selector = f"registrySubkey={registry_subkey!r}"
+    if len(matches) != 1:
+        raise ValueError(f"provider selection {selector} matched {len(matches)} providers")
+    selected = dict(matches[0])
+    selected["providerFingerprintSha256"] = provider_fingerprint(selected)
+    selected["selectionReadOnly"] = True
+    return selected
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--json-out", type=Path, help="optional JSON output")
+    parser.add_argument("--json-out", type=Path, help="optional full inventory JSON output")
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--select-name", help="exact provider Name to select")
+    selection.add_argument("--select-subkey", help="exact provider registry subkey to select")
+    parser.add_argument(
+        "--selection-out",
+        type=Path,
+        help="write the uniquely selected provider manifest as JSON",
+    )
     args = parser.parse_args()
 
     try:
@@ -183,6 +238,31 @@ def main() -> int:
     rendered = json.dumps(result, indent=2)
     if args.json_out:
         args.json_out.write_text(rendered + "\n", encoding="utf-8")
+
+    if args.selection_out:
+        if not args.select_name and not args.select_subkey:
+            print("--selection-out requires --select-name or --select-subkey")
+            return 2
+        try:
+            selected = select_provider(
+                providers,
+                exact_name=args.select_name,
+                registry_subkey=args.select_subkey,
+            )
+        except ValueError as error:
+            print(error)
+            return 2
+        selection_result = {
+            "schemaVersion": 1,
+            "source": "Windows J2534 registry",
+            "readOnly": True,
+            "selectedProvider": selected,
+        }
+        args.selection_out.write_text(
+            json.dumps(selection_result, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
     print(rendered)
     return 0
 
