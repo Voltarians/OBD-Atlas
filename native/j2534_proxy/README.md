@@ -1,6 +1,6 @@
 # OBD Atlas J2534 message-forwarding proxy
 
-This directory contains the **off-vehicle connection, filter, message, and IOCTL** foundation for the planned Windows J2534 observer/forwarder.
+This directory contains the **off-vehicle connection, filter, message, IOCTL, and guarded programming-voltage** foundation for the planned Windows J2534 observer/forwarder.
 
 ## Current exported API
 
@@ -15,12 +15,13 @@ The proxy currently forwards:
 - `PassThruReadMsgs`
 - `PassThruWriteMsgs`
 - `PassThruIoctl`
+- `PassThruSetProgrammingVoltage` — exported but blocked by default
 - `PassThruReadVersion`
 - `PassThruGetLastError`
 
-It does **not** currently export `PassThruSetProgrammingVoltage`, periodic-message APIs, or the remaining J2534 surface.
+Periodic-message APIs and the remaining J2534 surface are not implemented yet.
 
-This DLL is still **not authorized for GDS2/SPS2/DPS vehicle use**. It only forwards calls made by the source application; Atlas never synthesizes an extra diagnostic request or IOCTL. The current gates prove forwarding against an off-vehicle fake provider.
+This DLL is still **not authorized for GDS2/SPS2/DPS vehicle use**. It only forwards calls made by the source application; Atlas never synthesizes an extra diagnostic request, IOCTL, or programming-voltage request. The current gates prove forwarding against an off-vehicle fake provider.
 
 ## Configuration
 
@@ -35,8 +36,11 @@ The proxy is configured with environment variables before it is loaded:
 - `OBD_ATLAS_J2534_PROVIDER_REGISTRY_PATH` — exact PassThru registry path.
 - `OBD_ATLAS_J2534_PROVIDER_REGISTRY_SUBKEY` — exact provider subkey.
 - `OBD_ATLAS_J2534_PROVIDER_FINGERPRINT` — 64-character lowercase SHA-256 provider fingerprint.
+- `OBD_ATLAS_J2534_ALLOW_PROGRAMMING_VOLTAGE=1` — explicit opt-in required before programming-voltage calls can reach the provider.
 
 The proxy fails closed if the required provider fingerprint is missing/invalid and rejects a configuration where the real-provider DLL resolves to the proxy itself.
+
+Programming-voltage forwarding is separately fail-closed. Only the exact value `1` enables it; unset, empty, `0`, `true`, `yes`, `01`, and similar values remain blocked.
 
 ## Trace behavior
 
@@ -52,7 +56,9 @@ The DLL emits `obd-atlas.j2534-trace.v1` JSONL records with one session record a
 
 For all other IOCTL IDs, Atlas records only the IOCTL ID and pointer presence. It does **not** dereference unknown opaque buffers. Known-buffer snapshots use `ReadProcessMemory` against the current process so tracing does not add an ordinary invalid-pointer dereference before provider forwarding.
 
-Important distinction: `READ_PROG_VOLTAGE` is an IOCTL read. The voltage-setting API `PassThruSetProgrammingVoltage` remains unimplemented and unexported.
+`PassThruSetProgrammingVoltage` records the requested pin, raw voltage value, whether the explicit safety policy was enabled, whether the selected provider exposes the function, and whether the provider was actually called. When policy is disabled, Atlas returns `ERR_NOT_SUPPORTED` without invoking the provider. When explicitly enabled, Atlas forwards the exact caller-supplied device ID, pin number, and voltage unchanged and returns the provider result unchanged.
+
+Important distinction: `READ_PROG_VOLTAGE` is a read-only IOCTL. `PassThruSetProgrammingVoltage` can request a provider to drive voltage and is therefore guarded by the additional opt-in policy documented in `docs/J2534_PROGRAMMING_VOLTAGE_POLICY.md`.
 
 ## Off-vehicle transparency tests
 
@@ -64,20 +70,22 @@ Windows CTest compares direct-provider and proxied behavior for:
 - ReadMsgs success and timeout paths;
 - WriteMsgs ordinary DID requests, sensitive payload redaction, and timeout behavior;
 - IOCTL `SET_CONFIG`, `GET_CONFIG`, `READ_VBATT`, and an invalid opaque IOCTL;
+- programming-voltage policy behavior and end-to-end guarded forwarding;
 - fail-closed invalid provider identity; and
 - concurrent trace sequence ordering.
 
-The IOCTL test specifically requires identical return codes, configuration arrays, returned battery voltage, and untouched sentinel input/output buffers on the rejected IOCTL path.
+The programming-voltage integration test proves that a default-blocked call never reaches the fake provider, an explicitly enabled call reaches it with exact device/pin/voltage arguments, provider errors are preserved, and both policy decisions are visible in the trace.
 
 ## Acceptance boundary
 
 Passing these off-vehicle tests does **not** authorize vehicle or programming use. Remaining gates include:
 
-- `PassThruSetProgrammingVoltage` forwarding and an explicit safety policy;
 - periodic-message APIs and any additional J2534 calls required by the selected GM tool/provider;
 - sustained-load ordering/timeout equivalence;
 - bounded trace overhead;
 - provider-specific testing against real vendor DLLs; and
 - fail-safe bench-interface validation before any in-vehicle session.
+
+Programming voltage must remain disabled during ordinary diagnostic observation. Enabling it is reserved for a later, explicitly approved bench or programming workflow.
 
 Until those gates pass, Windows Atlas's independent passive CAN/SWCAN adapters remain the approved vehicle-observation method.
