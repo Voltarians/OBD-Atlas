@@ -2,7 +2,7 @@
 
 These definitions were derived from controlled event captures on one Gen-1 Chevrolet Volt using the verified PCG-1 five-channel configuration. Byte and bit indexes are zero-based. Confirmed means the state repeated cleanly in the test vehicle; it does not yet imply validation across every Gen-1 model year.
 
-The machine-readable source of truth is `assets/signals/chevrolet_volt_gen1.json`. Runtime code must preserve the `confirmed` versus `candidate` distinction.
+The machine-readable source of truth is `assets/signals/chevrolet_volt_gen1.json`. Runtime code preserves three confidence tiers: `confirmed`, `communityCorroborated`, and `candidate`. See `docs/COMMUNITY_CORROBORATION_POLICY.md` for the three-source rule.
 
 ## Confirmed signals
 
@@ -23,6 +23,26 @@ The machine-readable source of truth is `assets/signals/chevrolet_volt_gen1.json
 | Hood | 5 / can4 | `0x10728040` ext | byte 0: 00 closed, 02 open |
 | Driver/front passenger belts | 5 / can4 | `0x10336058` ext | byte 0 bit 0 driver, bit 2 passenger |
 | Exterior lights | 4 / can3 | `0x140` | full payload: `000A01` off, `001201` parking, `021A01` low, `821C01` high, `120201` auto |
+
+## Community-corroborated signals
+
+These entries are imported into the main Atlas signal catalog because at least three distinct community source families agree on the material decode. They are usable reference knowledge but are **not directly validated by Atlas on our test vehicle** and therefore are not labeled `confirmed`.
+
+The first imported set is the Gen-1 Volt/Ampera charger network:
+
+| Signal | Channel | CAN ID | Decode | Confidence |
+| --- | ---: | --- | --- | --- |
+| Charger HV current | 3 / can2 | `0x212` | DBC `7|13@0+`, 0.05 A/count | communityCorroborated |
+| Charger HV voltage | 3 / can2 | `0x212` | DBC `10|10@0+`, 0.5 V/count | communityCorroborated |
+| Charger LV current | 3 / can2 | `0x212` | DBC `16|8@0+`, 0.2 A/count | communityCorroborated |
+| Charger LV voltage | 3 / can2 | `0x212` | DBC `24|8@0+`, 0.1 V/count | communityCorroborated |
+| Requested charge current | 3 / can2 | `0x304` | DBC `8|8@1+`, 0.05 A/count | communityCorroborated |
+| Requested charge voltage | 3 / can2 | `0x304` | DBC `23|16@0+`, 0.5 V/count | communityCorroborated |
+| Charger mode | 3 / can2 | `0x30E` | byte 0: 00 disabled, 01 LV/12V, 02 HV, 03 HV+LV | communityCorroborated |
+
+The source families recorded with these entries include comma.ai/OpenDBC, Damien Maguire's AmperaCharger implementation, the independently published Ampera charger CAN documentation on Leaf Drive Blog, and the Battery-Emulator Chevy Volt charger implementation. The latter also documents its community influences, so Atlas records all provenance rather than treating a copied mirror as extra votes.
+
+`0x30A` AC-input telemetry is intentionally **not** promoted. Available community definitions do not agree cleanly enough for the three-source gate.
 
 ## Candidates needing another controlled test
 
@@ -64,5 +84,8 @@ References:
 
 - GM Global-A community/OpenDBC powertrain definitions: `gm_global_a_powertrain_volt.dbc`
 - GM Global-A community/OpenDBC high-voltage definitions: `gm_global_a_high_voltage_management.dbc`
+- Damien Maguire, `AmperaCharger/Ampera_charger_V1.ino`
+- Leaf Drive Blog, 2018 Ampera Charger CAN documentation
+- Battery-Emulator, `CHEVY-VOLT-CHARGER.cpp` / `.h`
 - 2012 Chevrolet Volt service information, P0C77/P0C78 Battery System Precharge: https://charm.li/Chevrolet/2012/Volt%20L4-1.4L%20Elect/Repair%20and%20Diagnosis/A%20L%20L%20%20Diagnostic%20Trouble%20Codes%20%28%20DTC%20%29/Testing%20and%20Inspection/P%20Code%20Charts/P0C78/
 - 2012 Chevrolet Volt service information, Body Control System Description and Operation / Power Mode Master.
