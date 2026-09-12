@@ -196,6 +196,25 @@ class GmToolSessionExtractorTests(unittest.TestCase):
         self.assertEqual(events[0]["service"], "ReadDataByIdentifier")
         self.assertEqual(legacy_events, [])
 
+    def test_single_module_transport_catalog_adds_hpcm2_family(self):
+        source = {
+            "schemaVersion": 1,
+            "catalogId": "hpcm2-test",
+            "module": "K114B HPCM2",
+            "confidence": "communityCandidate",
+            "transport": {
+                "requestCanId": "0x7E4",
+                "responseCanId": "0x7EC",
+                "dynamicResponseCanId": "0x5EC",
+            },
+        }
+        index = module.build_address_index(source)
+        self.assertEqual(index[0x7E4][0]["module"], "K114B HPCM2")
+        self.assertEqual(index[0x7E4][0]["role"], "request")
+        self.assertEqual(index[0x7EC][0]["role"], "normalResponse")
+        self.assertEqual(index[0x5EC][0]["role"], "dataStream")
+        self.assertEqual(index[0x7E4][0]["confidence"], "communityCandidate")
+
 
 if __name__ == "__main__":
     unittest.main()
