@@ -9,5 +9,6 @@ EXPORTS
     PassThruReadMsgs
     PassThruWriteMsgs
     PassThruIoctl
+    PassThruSetProgrammingVoltage
     PassThruReadVersion
     PassThruGetLastError
