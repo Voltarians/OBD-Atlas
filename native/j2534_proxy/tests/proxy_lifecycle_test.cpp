@@ -135,7 +135,7 @@ int wmain(int argc, wchar_t** argv) {
 
   const std::wstring provider_string = provider_path.wstring();
   const std::wstring trace_string = trace_path.wstring();
-  const std::wstring fingerprint(64, L'A');
+  const std::wstring fingerprint(64, L'a');
   SetEnvironmentVariableW(L"OBD_ATLAS_J2534_REAL_DLL", provider_string.c_str());
   SetEnvironmentVariableW(L"OBD_ATLAS_J2534_TRACE_PATH", trace_string.c_str());
   SetEnvironmentVariableW(L"OBD_ATLAS_J2534_SOURCE_APP", L"atlas-ci");
@@ -172,7 +172,7 @@ int wmain(int argc, wchar_t** argv) {
     return Fail("trace session record missing");
   }
   if (!Contains(trace, "\"providerFingerprintSha256\":\"" +
-                           std::string(64, 'A') + "\"")) {
+                           std::string(64, 'a') + "\"")) {
     return Fail("provider fingerprint missing from trace");
   }
   for (const char* api_name : {"PassThruOpen", "PassThruReadVersion",
