@@ -20,6 +20,29 @@ class GmToolSessionExtractorTests(unittest.TestCase):
         messages = list(module.reassemble_isotp(frames))
         return module.extract_diagnostic_events(messages)
 
+    @staticmethod
+    def _reference():
+        return {
+            "schemaVersion": 1,
+            "catalogId": "test-legacy-reference",
+            "confidence": "legacyReference",
+            "modules": [
+                {
+                    "module": "ECM",
+                    "requestCanIds": ["0x7E0"],
+                    "normalResponseCanIds": ["0x7E8"],
+                    "dataCanIds": ["0x5E8"],
+                    "functionalRequestCanIds": ["0x7DF"],
+                },
+                {
+                    "module": "BCM",
+                    "requestCanIds": ["0x244"],
+                    "normalResponseCanIds": ["0x644"],
+                    "dataCanIds": ["0x544"],
+                },
+            ],
+        }
+
     def test_read_data_by_identifier(self):
         events = self._events(
             [
@@ -64,12 +87,15 @@ class GmToolSessionExtractorTests(unittest.TestCase):
         self.assertTrue(summary["programmingTrafficObserved"])
         self.assertIn("RequestDownload", summary["programmingServicesObserved"])
         self.assertIn("TransferData", summary["programmingServicesObserved"])
-        transfer = next(e for e in events if e["service"] == "TransferData" and e["direction"] == "request")
+        transfer = next(
+            e
+            for e in events
+            if e["service"] == "TransferData" and e["direction"] == "request"
+        )
         self.assertEqual(transfer["blockSequenceCounter"], 1)
         self.assertEqual(transfer["transferData"], "AABB")
 
     def test_multiframe_transfer_data(self):
-        # Payload is 36 80 followed by 8 data bytes = 10 bytes total.
         lines = [
             "(4.000000) can1 7E0#100A368001020304\n",
             "(4.001000) can1 7E8#3000000000000000\n",
@@ -94,6 +120,81 @@ class GmToolSessionExtractorTests(unittest.TestCase):
             ["(6.000000) can1 210#BE44000000E00000\n"]
         )
         self.assertEqual(events, [])
+
+    def test_reference_enrichment_and_iso_tp_latency(self):
+        index = module.build_address_index(self._reference())
+        lines = [
+            "(7.000000) can1 7E0#0322435600000000\n",
+            "(7.012000) can1 7E8#05624356FFFA0000\n",
+        ]
+        frames = list(module.parse_frames(lines))
+        events = module.extract_diagnostic_events(module.reassemble_isotp(frames))
+        module.annotate_events(events, index)
+        transactions = module.build_transactions(events)
+
+        self.assertEqual(events[0]["likelyModule"], "ECM")
+        self.assertEqual(events[0]["addressEvidence"], "legacyReference")
+        self.assertEqual(events[1]["addressRole"], "normalResponse")
+        self.assertEqual(transactions[0]["module"], "ECM")
+        self.assertEqual(transactions[0]["initialResponseLatencyMs"], 12.0)
+        self.assertEqual(transactions[0]["finalResponseLatencyMs"], 12.0)
+
+    def test_legacy_unframed_family_and_data_stream_are_observed(self):
+        index = module.build_address_index(self._reference())
+        lines = [
+            "(8.000000) can0 244#3E\n",
+            "(8.010000) can0 644#7E00000000000000\n",
+            "(8.020000) can0 544#0500010203040506\n",
+        ]
+        frames = list(module.parse_frames(lines))
+        events = module.extract_legacy_reference_events(frames, index)
+        module.annotate_events(events, index)
+        traffic = module.build_endpoint_traffic(frames, index)
+        transactions = module.build_transactions(events)
+
+        self.assertEqual(events[0]["transport"], "legacyUnframedReference")
+        self.assertEqual(events[0]["likelyModule"], "BCM")
+        self.assertEqual(events[1]["addressRole"], "normalResponse")
+        stream = next(row for row in traffic if row["role"] == "dataStream")
+        self.assertEqual(stream["canId"], "0x544")
+        self.assertEqual(stream["module"], "BCM")
+        self.assertEqual(transactions[0]["initialResponseLatencyMs"], 10.0)
+
+    def test_response_pending_records_initial_and_final_latency(self):
+        index = module.build_address_index(self._reference())
+        lines = [
+            "(9.000000) can1 7E0#0236010000000000\n",
+            "(9.010000) can1 7E8#037F367800000000\n",
+            "(9.100000) can1 7E8#0276010000000000\n",
+        ]
+        frames = list(module.parse_frames(lines))
+        events = module.extract_diagnostic_events(module.reassemble_isotp(frames))
+        module.annotate_events(events, index)
+        transaction = module.build_transactions(events)[0]
+
+        self.assertEqual(transaction["responseCount"], 2)
+        self.assertEqual(
+            transaction["responses"][0]["negativeResponseName"], "responsePending"
+        )
+        self.assertEqual(transaction["initialResponseLatencyMs"], 10.0)
+        self.assertEqual(transaction["finalResponseLatencyMs"], 100.0)
+        self.assertEqual(transaction["finalResponseDirection"], "positiveResponse")
+
+    def test_iso_tp_origin_is_not_reclassified_as_legacy_service(self):
+        index = module.build_address_index(self._reference())
+        lines = [
+            "(10.000000) can1 7E0#0422F19000000000\n",
+            "(10.010000) can1 7E8#0462F19001000000\n",
+        ]
+        frames = list(module.parse_frames(lines))
+        iso_events = module.extract_diagnostic_events(module.reassemble_isotp(frames))
+        legacy_events = module.extract_legacy_reference_events(
+            frames, index, iso_events
+        )
+        events = module.merge_events(iso_events, legacy_events)
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0]["service"], "ReadDataByIdentifier")
+        self.assertEqual(legacy_events, [])
 
 
 if __name__ == "__main__":
