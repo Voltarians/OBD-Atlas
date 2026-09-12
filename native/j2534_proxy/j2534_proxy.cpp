@@ -23,6 +23,8 @@ HMODULE g_self_module = nullptr;
 HMODULE g_provider_module = nullptr;
 PassThruOpenFn g_open = nullptr;
 PassThruCloseFn g_close = nullptr;
+PassThruConnectFn g_connect = nullptr;
+PassThruDisconnectFn g_disconnect = nullptr;
 PassThruReadVersionFn g_read_version = nullptr;
 PassThruGetLastErrorFn g_get_last_error = nullptr;
 std::once_flag g_init_once;
@@ -125,8 +127,8 @@ std::wstring CanonicalPath(const std::wstring& path) {
 
 std::wstring SelfModulePath() {
   wchar_t buffer[32768]{};
-  const DWORD written =
-      GetModuleFileNameW(g_self_module, buffer, static_cast<DWORD>(std::size(buffer)));
+  const DWORD written = GetModuleFileNameW(
+      g_self_module, buffer, static_cast<DWORD>(std::size(buffer)));
   if (written == 0 || written >= std::size(buffer)) return {};
   return CanonicalPath(std::wstring(buffer, written));
 }
@@ -240,7 +242,8 @@ bool WriteSession(const std::wstring& real_dll) {
 }
 
 CallContext BeginCall(const char* api, std::optional<unsigned long> device_id,
-                      const std::string& arguments_json) {
+                      const std::string& arguments_json,
+                      std::optional<unsigned long> channel_id = std::nullopt) {
   std::lock_guard<std::mutex> record_lock(g_record_mutex);
   const unsigned long long call_number = g_call_sequence.fetch_add(1) + 1;
   char call_buffer[32]{};
@@ -255,8 +258,10 @@ CallContext BeginCall(const char* api, std::optional<unsigned long> device_id,
       << ",\"deviceId\":";
   if (device_id.has_value()) out << device_id.value();
   else out << "null";
-  out << ",\"channelId\":null"
-      << ",\"arguments\":" << arguments_json << "}";
+  out << ",\"channelId\":";
+  if (channel_id.has_value()) out << channel_id.value();
+  else out << "null";
+  out << ",\"arguments\":" << arguments_json << "}";
   g_trace.WriteLine(out.str());
   return context;
 }
@@ -304,10 +309,12 @@ void Initialize() {
 
   g_open = Resolve<PassThruOpenFn>("PassThruOpen");
   g_close = Resolve<PassThruCloseFn>("PassThruClose");
+  g_connect = Resolve<PassThruConnectFn>("PassThruConnect");
+  g_disconnect = Resolve<PassThruDisconnectFn>("PassThruDisconnect");
   g_read_version = Resolve<PassThruReadVersionFn>("PassThruReadVersion");
-  g_get_last_error =
-      Resolve<PassThruGetLastErrorFn>("PassThruGetLastError");
-  if (g_open == nullptr || g_close == nullptr || g_read_version == nullptr ||
+  g_get_last_error = Resolve<PassThruGetLastErrorFn>("PassThruGetLastError");
+  if (g_open == nullptr || g_close == nullptr || g_connect == nullptr ||
+      g_disconnect == nullptr || g_read_version == nullptr ||
       g_get_last_error == nullptr) {
     return;
   }
@@ -350,6 +357,39 @@ extern "C" __declspec(dllexport) long WINAPI PassThruClose(
   return result;
 }
 
+extern "C" __declspec(dllexport) long WINAPI PassThruConnect(
+    unsigned long DeviceID, unsigned long ProtocolID, unsigned long Flags,
+    unsigned long BaudRate, unsigned long* pChannelID) {
+  if (!EnsureInitialized()) return atlas_j2534::ERR_FAILED;
+  std::ostringstream arguments;
+  arguments << "{\"protocolId\":" << ProtocolID
+            << ",\"flags\":" << Flags
+            << ",\"baudRate\":" << BaudRate
+            << ",\"channelIdPointerPresent\":"
+            << (pChannelID == nullptr ? "false" : "true") << "}";
+  const auto call = BeginCall(
+      "PassThruConnect", DeviceID, arguments.str());
+  const long result =
+      g_connect(DeviceID, ProtocolID, Flags, BaudRate, pChannelID);
+  std::ostringstream outputs;
+  outputs << "{\"channelId\":";
+  if (pChannelID != nullptr) outputs << *pChannelID;
+  else outputs << "null";
+  outputs << "}";
+  EndCall(call, "PassThruConnect", result, outputs.str());
+  return result;
+}
+
+extern "C" __declspec(dllexport) long WINAPI PassThruDisconnect(
+    unsigned long ChannelID) {
+  if (!EnsureInitialized()) return atlas_j2534::ERR_FAILED;
+  const auto call =
+      BeginCall("PassThruDisconnect", std::nullopt, "{}", ChannelID);
+  const long result = g_disconnect(ChannelID);
+  EndCall(call, "PassThruDisconnect", result, "{}");
+  return result;
+}
+
 extern "C" __declspec(dllexport) long WINAPI PassThruReadVersion(
     unsigned long DeviceID, char* pFirmwareVersion, char* pDllVersion,
     char* pApiVersion) {
@@ -360,9 +400,10 @@ extern "C" __declspec(dllexport) long WINAPI PassThruReadVersion(
   std::ostringstream outputs;
   outputs << "{\"firmwareVersion\":"
           << JsonString(BoundedCString(pFirmwareVersion, 80))
-          << ",\"dllVersion\":" << JsonString(BoundedCString(pDllVersion, 80))
-          << ",\"apiVersion\":" << JsonString(BoundedCString(pApiVersion, 80))
-          << "}";
+          << ",\"dllVersion\":"
+          << JsonString(BoundedCString(pDllVersion, 80))
+          << ",\"apiVersion\":"
+          << JsonString(BoundedCString(pApiVersion, 80)) << "}";
   EndCall(call, "PassThruReadVersion", result, outputs.str());
   return result;
 }
