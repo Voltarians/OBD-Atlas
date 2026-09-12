@@ -25,6 +25,8 @@ PassThruOpenFn g_open = nullptr;
 PassThruCloseFn g_close = nullptr;
 PassThruConnectFn g_connect = nullptr;
 PassThruDisconnectFn g_disconnect = nullptr;
+PassThruStartMsgFilterFn g_start_filter = nullptr;
+PassThruStopMsgFilterFn g_stop_filter = nullptr;
 PassThruReadVersionFn g_read_version = nullptr;
 PassThruGetLastErrorFn g_get_last_error = nullptr;
 std::once_flag g_init_once;
@@ -147,6 +149,33 @@ bool IsLowerHexSha256(const std::wstring& value) {
     }
   }
   return true;
+}
+
+std::string HexBytes(const unsigned char* data, size_t size) {
+  std::ostringstream out;
+  out << std::uppercase << std::hex << std::setfill('0');
+  for (size_t index = 0; index < size; ++index) {
+    out << std::setw(2) << static_cast<unsigned int>(data[index]);
+  }
+  return out.str();
+}
+
+std::string MessageJson(const PASSTHRU_MSG* message) {
+  if (message == nullptr) return "null";
+  const size_t requested = static_cast<size_t>(message->DataSize);
+  const size_t capacity = sizeof(message->Data);
+  const size_t captured = requested <= capacity ? requested : capacity;
+  std::ostringstream out;
+  out << "{\"protocolId\":" << message->ProtocolID
+      << ",\"rxStatus\":" << message->RxStatus
+      << ",\"txFlags\":" << message->TxFlags
+      << ",\"timestamp\":" << message->Timestamp
+      << ",\"dataSize\":" << message->DataSize
+      << ",\"extraDataIndex\":" << message->ExtraDataIndex
+      << ",\"payloadHex\":" << JsonString(HexBytes(message->Data, captured))
+      << ",\"payloadTruncated\":" << (captured != requested ? "true" : "false")
+      << "}";
+  return out.str();
 }
 
 class TraceWriter {
@@ -311,10 +340,13 @@ void Initialize() {
   g_close = Resolve<PassThruCloseFn>("PassThruClose");
   g_connect = Resolve<PassThruConnectFn>("PassThruConnect");
   g_disconnect = Resolve<PassThruDisconnectFn>("PassThruDisconnect");
+  g_start_filter = Resolve<PassThruStartMsgFilterFn>("PassThruStartMsgFilter");
+  g_stop_filter = Resolve<PassThruStopMsgFilterFn>("PassThruStopMsgFilter");
   g_read_version = Resolve<PassThruReadVersionFn>("PassThruReadVersion");
   g_get_last_error = Resolve<PassThruGetLastErrorFn>("PassThruGetLastError");
   if (g_open == nullptr || g_close == nullptr || g_connect == nullptr ||
-      g_disconnect == nullptr || g_read_version == nullptr ||
+      g_disconnect == nullptr || g_start_filter == nullptr ||
+      g_stop_filter == nullptr || g_read_version == nullptr ||
       g_get_last_error == nullptr) {
     return;
   }
@@ -389,6 +421,49 @@ extern "C" __declspec(dllexport) long WINAPI PassThruDisconnect(
       BeginCall("PassThruDisconnect", std::nullopt, "{}", ChannelID);
   const long result = g_disconnect(ChannelID);
   EndCall(call, "PassThruDisconnect", result, "{}");
+  return result;
+}
+
+extern "C" __declspec(dllexport) long WINAPI PassThruStartMsgFilter(
+    unsigned long ChannelID, unsigned long FilterType,
+    atlas_j2534::PASSTHRU_MSG* pMaskMsg,
+    atlas_j2534::PASSTHRU_MSG* pPatternMsg,
+    atlas_j2534::PASSTHRU_MSG* pFlowControlMsg,
+    unsigned long* pFilterID) {
+  if (!EnsureInitialized()) return atlas_j2534::ERR_FAILED;
+  std::ostringstream arguments;
+  arguments << "{\"filterType\":" << FilterType
+            << ",\"filterIdPointerPresent\":"
+            << (pFilterID == nullptr ? "false" : "true")
+            << ",\"maskMsg\":" << MessageJson(pMaskMsg)
+            << ",\"patternMsg\":" << MessageJson(pPatternMsg)
+            << ",\"flowControlMsg\":" << MessageJson(pFlowControlMsg)
+            << "}";
+  const auto call = BeginCall(
+      "PassThruStartMsgFilter", std::nullopt, arguments.str(), ChannelID);
+  const long result = g_start_filter(
+      ChannelID, FilterType, pMaskMsg, pPatternMsg, pFlowControlMsg, pFilterID);
+  std::ostringstream outputs;
+  outputs << "{\"filterId\":";
+  if (result == atlas_j2534::STATUS_NOERROR && pFilterID != nullptr) {
+    outputs << *pFilterID;
+  } else {
+    outputs << "null";
+  }
+  outputs << "}";
+  EndCall(call, "PassThruStartMsgFilter", result, outputs.str());
+  return result;
+}
+
+extern "C" __declspec(dllexport) long WINAPI PassThruStopMsgFilter(
+    unsigned long ChannelID, unsigned long FilterID) {
+  if (!EnsureInitialized()) return atlas_j2534::ERR_FAILED;
+  std::ostringstream arguments;
+  arguments << "{\"filterId\":" << FilterID << "}";
+  const auto call = BeginCall(
+      "PassThruStopMsgFilter", std::nullopt, arguments.str(), ChannelID);
+  const long result = g_stop_filter(ChannelID, FilterID);
+  EndCall(call, "PassThruStopMsgFilter", result, "{}");
   return result;
 }
 
