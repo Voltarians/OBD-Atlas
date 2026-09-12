@@ -38,6 +38,11 @@ using PassThruReadMsgsFn = long(WINAPI*)(
     PASSTHRU_MSG* pMsg,
     unsigned long* pNumMsgs,
     unsigned long Timeout);
+using PassThruWriteMsgsFn = long(WINAPI*)(
+    unsigned long ChannelID,
+    PASSTHRU_MSG* pMsg,
+    unsigned long* pNumMsgs,
+    unsigned long Timeout);
 using PassThruReadVersionFn = long(WINAPI*)(
     unsigned long DeviceID,
     char* pFirmwareVersion,
