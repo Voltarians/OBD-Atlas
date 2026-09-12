@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "evidenceId": "chevrolet-volt-gen1-hv-passive-observations",
+  "vehicle": {
+    "make": "Chevrolet",
+    "model": "Volt",
+    "generation": 1
+  },
+  "purpose": "Preserve passive high-voltage-energy-management observations separately from promoted signal definitions.",
+  "network": {
+    "name": "High Voltage Energy Management High Speed GMLAN",
+    "bitrate": 500000,
+    "serviceManualConnector": "X84B",
+    "serviceManualPins": {"canHigh": 3, "canLow": 11},
+    "note": "Interface names such as can0/vcan0 vary by capture. Network identity must come from the session manifest or verified harness configuration, not from the interface name alone."
+  },
+  "captures": [
+    {
+      "file": "volt_capture_20260831_102900.log",
+      "manifest": "volt_capture_20260831_102900.session.json",
+      "loggedInterface": "vcan0",
+      "manifestNetwork": "auxiliary_high_voltage_energy_management",
+      "adapter": "LYS USBCAN channel 0",
+      "bitrate": 500000,
+      "dlcPins": [3, 11],
+      "frames": 39599,
+      "role": "authoritative physical-network provenance plus representative HV payloads"
+    },
+    {
+      "file": "atlas_capture_20260907_081403.log",
+      "loggedInterface": "can0",
+      "role": "repeated multiplexed cell, temperature and coolant observations"
+    },
+    {
+      "file": "atlas_capture_20260907_082045.log",
+      "loggedInterface": "can0",
+      "role": "repeated multiplexed cell, temperature and coolant observations"
+    },
+    {
+      "file": "atlas_capture_20260909_003655.log",
+      "loggedInterface": "can0",
+      "role": "cross-session cell, temperature, coolant and charger observations"
+    }
+  ],
+  "observations": [
+    {
+      "canIds": ["0x200", "0x202", "0x204", "0x206"],
+      "label": "multiplexed battery-voltage measurement blocks",
+      "communityDefinition": {
+        "source": "comma.ai/OpenDBC gm_global_a_high_voltage_management.dbc",
+        "voltageFields": [
+          {"startBit": 4, "length": 12, "endianness": "motorola", "scale": 0.00125, "unit": "V"},
+          {"startBit": 20, "length": 12, "endianness": "motorola", "scale": 0.00125, "unit": "V"},
+          {"startBit": 39, "length": 12, "endianness": "motorola", "scale": 0.00125, "unit": "V"}
+        ],
+        "bankSelector": {"startBit": 55, "length": 3, "endianness": "motorola"}
+      },
+      "atlasObservations": {
+        "structure": "4 CAN IDs x 8 banks x 3 voltage measurements = 96 voltage measurement slots",
+        "representativeFrames": [
+          {"canId":"0x200","payload":"177AF73EBBC01800","bank":0,"decodedVolts":[3.75625,3.71875,3.755]},
+          {"canId":"0x200","payload":"17BCF7A6BD00F800","bank":7,"decodedVolts":[3.7975,3.78375,3.78]},
+          {"canId":"0x200","payload":"1734F70CB9A01800","bank":0,"decodedVolts":[3.7125,3.6875,3.7125]},
+          {"canId":"0x202","payload":"172EF73AB9801800","bank":0,"decodedVolts":[3.70875,3.71625,3.71]},
+          {"canId":"0x204","payload":"1734F734B9901800","bank":0,"decodedVolts":[3.7125,3.7125,3.71125]},
+          {"canId":"0x206","payload":"1732F734B9C01800","bank":0,"decodedVolts":[3.71125,3.7125,3.715]}
+        ],
+        "assessment": "Decoded values are physically plausible lithium-ion cell voltages and the multiplex structure exactly spans 96 measurements, matching the Gen-1 BECM service inventory."
+      },
+      "confidence": "atlasObservedCandidate",
+      "boundary": "The 96 measurement slots are not yet equated to GM GDS2 Hybrid/EV Battery 1-96 numbering or physical pack position. That ordering requires controlled GDS2 cross-validation."
+    },
+    {
+      "canId": "0x302",
+      "label": "multiplexed battery temperature groups",
+      "communityDefinition": {
+        "source": "comma.ai/OpenDBC gm_global_a_high_voltage_management.dbc",
+        "scale": 0.5,
+        "offset": -40,
+        "unit": "degC",
+        "mux": "byte 0 bit 2",
+        "mux0": "six values A-F in bytes 1-6",
+        "mux1": "three values G-I in bytes 1-3"
+      },
+      "representativeFrames": [
+        {"payload":"038BA18B898C8A1E","mux":0,"labels":["A","B","C","D","E","F"],"decodedDegC":[29.5,40.5,29.5,28.5,30.0,29.0]},
+        {"payload":"1F8C8B9300000030","mux":1,"labels":["G","H","I"],"decodedDegC":[30.0,29.5,33.5]},
+        {"payload":"1F7F7E8900000030","mux":1,"labels":["G","H","I"],"decodedDegC":[23.5,23.0,28.5]}
+      ],
+      "assessment": "Two alternating mux groups yield nine temperature channels with physically plausible values across saved captures, matching the nine-temperature/module thermal target in the Gen-1 service inventory.",
+      "confidence": "atlasObservedCandidate",
+      "boundary": "Community labels A-I are not yet mapped to exact GM scan-tool sensor/module numbering."
+    },
+    {
+      "canId": "0x460",
+      "label": "battery coolant temperature pair",
+      "communityDefinition": {
+        "source": "comma.ai/OpenDBC gm_global_a_high_voltage_management.dbc",
+        "first": {"startBit":1,"length":10,"endianness":"motorola","scale":0.125,"offset":-40},
+        "second": {"startBit":17,"length":10,"endianness":"motorola","scale":0.125,"offset":-40}
+      },
+      "representativeFrames": [
+        {"payload":"0A3C0A3C","decodedDegC":[31.5,31.5]},
+        {"payload":"0A400A3C","decodedDegC":[32.0,31.5]},
+        {"payload":"0A3C0A34","decodedDegC":[31.5,30.5]},
+        {"payload":"0A200A1C","decodedDegC":[28.0,27.5]}
+      ],
+      "confidence": "atlasObservedCandidate",
+      "boundary": "The two values are strongly temperature-like. The OpenDBC inlet/outlet labels still require controlled comparison with GM/GDS2 coolant Sensor 1/2 data before Atlas marks the role as confirmed."
+    },
+    {
+      "canId": "0x212",
+      "label": "charger DC output statistics",
+      "representativeFrames": [
+        {"payload":"000000011200","decoded":{"hvCurrentA":0.0,"hvVoltageV":0.0,"lvCurrentA":0.0,"lvVoltageV":13.7}},
+        {"payload":"000000010E00","decoded":{"hvCurrentA":0.0,"hvVoltageV":0.0,"lvCurrentA":0.0,"lvVoltageV":13.5}},
+        {"payload":"00000000FC00","decoded":{"hvCurrentA":0.0,"hvVoltageV":0.0,"lvCurrentA":0.0,"lvVoltageV":12.6}}
+      ],
+      "confidence": "communityCorroboratedWithAtlasPlausibility",
+      "note": "The saved disabled/HV-zero frames independently show a plausible 12-V output rail using the existing corroborated decode."
+    },
+    {
+      "canId": "0x304",
+      "label": "charger requested current/voltage storage",
+      "communityDefinition": {
+        "current": "byte 1 x 0.05 A",
+        "voltage": "big-endian bytes 2-3 x 0.5 V",
+        "independentImplementation": "Battery-Emulator CHEVY-VOLT-CHARGER.cpp writes byte1=current*20 and bytes2-3=voltage*2"
+      },
+      "observedDisabledPayload": "00007C00",
+      "observedCompanionMode": "0x30E byte0 = 0 (disabled)",
+      "boundary": "The stored voltage bytes can decode to a nonsensical value while the charger is disabled. Atlas must not present 0x304 setpoints as meaningful unless the companion 0x30E mode enables the relevant charger output."
+    },
+    {
+      "canIds": ["0x308", "0x30A"],
+      "label": "charger fields intentionally left ambiguous",
+      "confidence": "candidateRawOnly",
+      "reason": "Available community sources do not agree cleanly enough on their material meaning. Battery-Emulator explicitly treats 0x308 content as unknown, while 0x30A interpretations conflict across sources.",
+      "atlasPolicy": "Preserve payloads and provenance; do not promote a semantic decode until controlled charging evidence or stronger independent corroboration exists."
+    }
+  ],
+  "globalEvidenceBoundary": [
+    "No individual positive/negative/precharge/multifunction contactor broadcast state is claimed by these observations.",
+    "Pack-current sign/scale remains candidate pending controlled charge/load validation.",
+    "Physical network identity is session-specific; never infer it solely from the Linux/Windows interface name.",
+    "The 96 multiplexed voltage slots require GDS2 cross-validation before exact GM Battery 1-96 numbering is asserted."
+  ]
+}
