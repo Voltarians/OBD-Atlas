@@ -46,6 +46,10 @@ if(BUILD_TESTING)
   target_include_directories(j2534_proxy_connection_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_compile_definitions(j2534_proxy_connection_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 
+  add_executable(j2534_proxy_periodic_msg_test tests/proxy_periodic_msg_test.cpp)
+  target_include_directories(j2534_proxy_periodic_msg_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_compile_definitions(j2534_proxy_periodic_msg_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+
   add_executable(j2534_proxy_filter_test tests/proxy_filter_test.cpp)
   target_include_directories(j2534_proxy_filter_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_compile_definitions(j2534_proxy_filter_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
@@ -96,6 +100,12 @@ if(BUILD_TESTING)
   add_test(
     NAME j2534_proxy_connection_transparency
     COMMAND j2534_proxy_connection_test
+      $<TARGET_FILE:obd_atlas_j2534_proxy>
+      $<TARGET_FILE:fake_j2534_provider>
+  )
+  add_test(
+    NAME j2534_proxy_periodic_msg_transparency
+    COMMAND j2534_proxy_periodic_msg_test
       $<TARGET_FILE:obd_atlas_j2534_proxy>
       $<TARGET_FILE:fake_j2534_provider>
   )
