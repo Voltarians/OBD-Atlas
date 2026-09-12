@@ -6,9 +6,9 @@ The format is **JSON Lines**: one complete JSON object per line. It is append-on
 
 ## Safety boundary
 
-The trace layer itself does not load a J2534 DLL, open an interface, transmit CAN, change filters, set programming voltage, or synthesize vehicle messages.
+The standalone Python trace writer/parser does not load a J2534 DLL, open an interface, transmit CAN, change filters, set programming voltage, or synthesize vehicle messages.
 
-A future proxy may use this writer only while forwarding the GM application's calls unchanged to a selected real provider. Atlas must never generate an extra request merely because tracing is enabled.
+The native Windows proxy now uses the same trace semantics while forwarding only the currently accepted lifecycle APIs to a selected provider. Atlas must never generate an extra request merely because tracing is enabled.
 
 ## Record ordering
 
@@ -45,13 +45,15 @@ The fingerprint is intended to make it obvious when two traces were produced aga
 A `callBegin` may contain:
 
 - `callId`
-- `api`, for example `PassThruOpen`, `PassThruConnect`, or `PassThruWriteMsgs`
+- `api`, for example `PassThruOpen`, `PassThruConnect`, or later `PassThruWriteMsgs`
 - `threadId`
 - `deviceId` and `channelId` when applicable
 - `arguments`
 - optional normalized `messages`
 
 The trace writer never changes the caller's message object.
+
+`PassThruConnect` currently records the exact `ProtocolID`, `Flags`, and `BaudRate` supplied by the caller. `PassThruDisconnect` records the supplied channel ID.
 
 ## Call end
 
@@ -64,7 +66,7 @@ A matching `callEnd` contains:
 - optional returned/read `messages`
 - optional `errorText`
 
-Return codes and output buffers must reflect the real vendor DLL result. The proxy acceptance tests will compare direct-vendor and proxied operation byte-for-byte where practical.
+Return codes and output buffers must reflect the real vendor DLL result. For Connect, Atlas records a returned channel ID only when the provider reports success; failed calls do not cause Atlas to read or modify an undefined caller output buffer.
 
 ## Message representation
 
@@ -78,7 +80,7 @@ Normalized J2534 messages can retain fields such as:
 - `dataLength`
 - either `payloadHex` or a redacted digest
 
-Atlas does not guess a diagnostic service from arbitrary transport bytes inside the trace writer. The future proxy/decoder must explicitly provide the decoded service when known.
+Atlas does not guess a diagnostic service from arbitrary transport bytes inside the trace writer. The future message proxy/decoder must explicitly provide the decoded service when known.
 
 ## Sensitive payload policy
 
@@ -95,19 +97,29 @@ A redacted message preserves:
 
 This allows traces to be compared without putting security values or programming transfer blocks into ordinary logs.
 
-Explicit inclusion is supported by the library for controlled bench/research cases, but it is not the default Atlas policy.
+Explicit inclusion is supported by the Python library for controlled bench/research cases, but it is not the default Atlas policy.
 
 ## Current implementation
 
 - Schema: `assets/schemas/j2534_trace_v1.schema.json`
 - Writer/parser: `tool/j2534_trace.py`
-- Tests: `tests/test_j2534_trace.py`
+- Python tests: `tests/test_j2534_trace.py`
+- Native Windows proxy: `native/j2534_proxy/`
 
-The current implementation is platform-independent and performs no J2534 operations. It exists so the file format, redaction rules, ordering semantics, and provider identity are fixed and tested before the Windows forwarding DLL is introduced.
+The native proxy currently forwards and traces only:
+
+- `PassThruOpen`
+- `PassThruClose`
+- `PassThruConnect`
+- `PassThruDisconnect`
+- `PassThruReadVersion`
+- `PassThruGetLastError`
+
+Windows CI compares direct fake-provider behavior with proxied behavior for device lifecycle and channel lifecycle, verifies fail-closed provider identity, and stress-tests concurrent trace ordering. No message read/write, filters, IOCTL, or programming-voltage API is enabled yet.
 
 ## Proxy acceptance gate
 
-Before any J2534 proxy is used with SPS/SPS2 or DPS programming, an off-vehicle test harness must demonstrate that enabling the proxy does not materially change:
+Before any J2534 proxy is used with SPS/SPS2 or DPS programming, off-vehicle and bench tests must demonstrate that enabling the proxy does not materially change:
 
 1. exported API behavior;
 2. argument values passed to the real provider;
@@ -118,5 +130,7 @@ Before any J2534 proxy is used with SPS/SPS2 or DPS programming, an off-vehicle 
 7. programming-voltage requests;
 8. call ordering; and
 9. timing beyond a documented bounded tracing overhead.
+
+Device Open/Close and Connect/Disconnect are now staged behind direct-vs-proxy tests, but the overall vehicle/programming gate remains closed until the remaining message/filter/IOCTL/programming-voltage stages pass independently.
 
 Until that gate passes, Windows Atlas raw-bus capture through independent passive adapters remains the approved vehicle-observation method.
