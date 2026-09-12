@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "vehicle": "Chevrolet Volt Gen-1",
+  "primaryCapture": {
+    "name": "atlas_capture_20260912_030630.log",
+    "sha256": "9f6ace96622d40e146bee0ce422103d9cca3c2669df5954693d352355a4d3cfa",
+    "event": "controlled brake application before Start followed by later brake release"
+  },
+  "replicationCapture": {
+    "name": "55b13800-a876-45f9-86a4-93e10f83c21b.log",
+    "sha256": "aa24b93165cc88a1e95d3840489476b61e4d4c932eb8db72c9f44ea67b525236",
+    "event": "brake application followed immediately by Start; capture ends while brake remains applied",
+    "observations": {
+      "0x0C9AssertSeconds": 9.210666,
+      "0x1E9AssertSeconds": 9.123623,
+      "0x0D1To0x0F1NearestSampleCorrelation": 0.9952917,
+      "0x214To0x2F9PairedSamples": 200,
+      "0x214To0x2F9PairedValuesEqual": 200
+    }
+  },
+  "evidence": [
+    {
+      "canId": "0x0C9",
+      "communitySignal": "BrakePressed",
+      "dbc": "40|1@0+",
+      "status": "confirmed",
+      "frameCount": 6578,
+      "assertSeconds": 16.640092,
+      "releaseSeconds": 64.771908,
+      "replicated": true,
+      "note": "The bit asserted only after the controlled brake application and cleared during the controlled release; it asserted again during the independent brake/start capture."
+    },
+    {
+      "canId": "0x1E9",
+      "communitySignal": "BrakePedalPressed",
+      "dbc": "6|1@0+",
+      "status": "confirmed",
+      "frameCount": 4054,
+      "assertSeconds": 16.529852,
+      "releaseSeconds": 64.817684,
+      "replicated": true,
+      "note": "Independent EBCM brake-pedal-pressed flag reproduces the controlled event in both startup captures."
+    },
+    {
+      "canId": "0x0D1",
+      "communitySignal": "BrakeNormalized1",
+      "dbc": "39|8@0+",
+      "status": "confirmed",
+      "frameCount": 8108,
+      "observedRawRange": [0, 236],
+      "firstNonzeroSeconds": 16.507523,
+      "lastNonzeroSeconds": 64.858383,
+      "reference": "0x0F1 BrakePedalPosition",
+      "nearestSampleCorrelation": 0.9997199,
+      "replicationNearestSampleCorrelation": 0.9952917,
+      "note": "Confirmed as a raw normalized brake field. No percentage conversion is claimed."
+    },
+    {
+      "canId": "0x214",
+      "communitySignal": "UserBrakePressure",
+      "dbc": "0|9@0+",
+      "status": "confirmed",
+      "frameCount": 1622,
+      "observedRawRange": [0, 22],
+      "firstNonzeroSeconds": 16.776107,
+      "lastNonzeroSeconds": 64.500514,
+      "replicated": true,
+      "note": "Confirmed as the community-defined raw user-brake-pressure field during the controlled brake event; no engineering unit conversion is claimed."
+    },
+    {
+      "canId": "0x2F9",
+      "communitySignal": "UserBrakePressure2",
+      "dbc": "47|9@0+",
+      "status": "confirmed",
+      "frameCount": 1622,
+      "observedRawRange": [0, 22],
+      "firstNonzeroSeconds": 16.777264,
+      "lastNonzeroSeconds": 64.500515,
+      "pairedReference": "0x214 UserBrakePressure",
+      "pairedSamples": 1622,
+      "pairedValuesEqual": 1622,
+      "nearestSampleCorrelation": 1.0,
+      "replicationPairedSamples": 200,
+      "replicationPairedValuesEqual": 200,
+      "note": "The decoded raw value matched 0x214 on every nearest-time paired sample in both controlled startup captures."
+    }
+  ],
+  "boundary": {
+    "pressureUnitsConfirmed": false,
+    "percentageCalibrationConfirmed": false,
+    "statement": "Atlas confirms the state/raw fields and their controlled-event behavior only; it does not infer hydraulic pressure units or pedal percentage from these captures."
+  },
+  "diagnosticEndpointScan": {
+    "familiesChecked": ["0x7E4/0x7EC/0x5EC", "0x7E0/0x7E8", "0x7E2/0x7EA", "0x244/0x644/0x544"],
+    "primaryCaptureMatchingFrames": 0,
+    "replicationCaptureMatchingFrames": 0,
+    "note": "Both startup captures contain broadcast vehicle traffic, not hidden GM-tool diagnostic sessions."
+  }
+}

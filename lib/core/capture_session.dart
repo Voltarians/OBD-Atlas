@@ -129,6 +129,18 @@ class CaptureSession extends ChangeNotifier {
     }
   }
 
+  /// Writes a non-frame annotation into the same evidence stream without
+  /// changing the recorded CAN-frame count. Atlas annotations are comment
+  /// lines so existing candump parsers can safely ignore them.
+  void writeAnnotation(String line) {
+    if (!isRecording) return;
+    try {
+      _output?.writeLine(line);
+    } catch (error, stack) {
+      _onOutputError(error, stack);
+    }
+  }
+
   void _scheduleFlush(CaptureOutput output) {
     _flushTask = _flushTask.then<void>((_) async {
       if (identical(_output, output) && isRecording) await output.flush();

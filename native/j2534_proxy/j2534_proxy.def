@@ -1,0 +1,16 @@
+LIBRARY "obd_atlas_j2534_proxy"
+EXPORTS
+    PassThruOpen
+    PassThruClose
+    PassThruConnect
+    PassThruDisconnect
+    PassThruStartPeriodicMsg
+    PassThruStopPeriodicMsg
+    PassThruStartMsgFilter
+    PassThruStopMsgFilter
+    PassThruReadMsgs
+    PassThruWriteMsgs
+    PassThruIoctl
+    PassThruSetProgrammingVoltage
+    PassThruReadVersion
+    PassThruGetLastError

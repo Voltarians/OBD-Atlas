@@ -1,0 +1,179 @@
+# Windows GM Tool Capture Architecture
+
+## Goal
+
+Run OBD Atlas on the same Windows computer as GDS2, SPS/SPS2 or DPS and capture the session directly rather than requiring a separate Raspberry Pi recorder.
+
+The architecture deliberately separates two evidence layers:
+
+1. **Raw vehicle-network evidence** captured by Atlas through independent passive CAN/SWCAN adapters.
+2. **J2534 application evidence** captured at the Windows PassThru API boundary between the GM application and the VCX/J2534 device.
+
+The two layers are timestamp-correlated after capture. Either layer may be useful independently; together they provide the strongest diagnostic mapping evidence.
+
+## Phase A: Windows Atlas raw-bus capture
+
+The existing Windows Atlas frontend already supports the capture hardware needed for a five-channel recorder:
+
+- CH1: candleLight / gs_usb / CANable
+- CH2 + CH3: CANalyst-II dual channel
+- CH4 + CH5: LYS USBCAN-II dual channel
+
+The CANalyst-II and LYS paths use direct WinUSB transports. They do not require Atlas to borrow the VCX device that GDS2 is using.
+
+For Gen-1 Volt research the preferred mapping is:
+
+- Primary HS GMLAN, 500 kbit/s
+- Chassis HS GMLAN, 500 kbit/s
+- Powertrain Expansion HS GMLAN, 500 kbit/s
+- High Voltage Energy Management HS GMLAN, 500 kbit/s
+- SWCAN, 33.333 kbit/s
+
+This lets one Windows laptop run GDS2 while Atlas independently records every populated CAN-family vehicle network available through the X84/X84B breakout harness.
+
+### Live GM diagnostic-event panel
+
+The Windows Capture page includes an observation-only live GM diagnostic panel. It analyzes the existing recent-frame window and does not insert traffic or alter the raw capture stream.
+
+The panel currently recognizes:
+
+- K114B HPCM2 `0x7E4` request / `0x7EC` response / `0x5EC` dynamic stream
+- ECM `0x7E0` / `0x7E8` / `0x5E8`
+- TCM `0x7E2` / `0x7EA` / `0x5EA`
+- Fuel Pump Module `0x7E3` / `0x7EB` / `0x5EB`
+- legacy GM BCM, EBCM, EPS, immobilizer, IPC, keyless-entry, radio and SDM request/response/data-stream families from the Simulation.txt reference catalog
+
+For recognized diagnostic payloads Atlas shows the likely module, address role, service, DID when present, response latency, raw payload, source catalog and evidence confidence. Classic ISO-TP single- and multi-frame payloads are reassembled in the live view. `0x7F xx 0x78` response-pending events retain the original request until a final response arrives.
+
+Raw `0x5xx` data streams are displayed as streams rather than being forced through UDS decoding.
+
+The live display preserves evidence boundaries. HPCM2 remains `communityCandidate` until directly confirmed; Simulation.txt endpoint families remain `legacyReference` until vehicle-specific evidence supports promotion.
+
+### Why Atlas should not initially share the VCX device
+
+A J2534 interface and its vendor driver may not support two independent applications opening and controlling the same physical device at the same time. Even when multiple channels are technically supported, competing applications can alter filters, protocol settings, bus selection, programming voltage or connection state.
+
+For research capture, GDS2/SPS2/DPS should own the VCX interface. Atlas should observe the raw buses through separate listen-only adapters. This minimizes the chance that the recorder changes the diagnostic session.
+
+## Phase B: Windows Atlas J2534 tap
+
+Raw CAN alone tells Atlas what appeared on the vehicle network but does not always reveal the application's intent. A Windows J2534 tap adds the missing application-side evidence.
+
+The preferred implementation is a transparent PassThru proxy/shim that exposes the normal J2534 ABI to the GM application and forwards every call to the selected real vendor J2534 DLL while recording metadata.
+
+Initial calls to observe:
+
+- `PassThruOpen`
+- `PassThruClose`
+- `PassThruConnect`
+- `PassThruDisconnect`
+- `PassThruReadMsgs`
+- `PassThruWriteMsgs`
+- `PassThruStartMsgFilter`
+- `PassThruStopMsgFilter`
+- `PassThruSetProgrammingVoltage`
+- `PassThruReadVersion`
+- `PassThruGetLastError`
+- `PassThruIoctl`
+
+The proxy must preserve return codes, timing and message contents exactly. Capture code must never synthesize extra diagnostic messages.
+
+### J2534 trace foundation
+
+The application-side evidence format is defined before any forwarding DLL is introduced:
+
+- `assets/schemas/j2534_trace_v1.schema.json`
+- `tool/j2534_trace.py`
+- `tests/test_j2534_trace.py`
+- `docs/J2534_TRACE_FORMAT.md`
+
+The trace is append-only JSONL with paired `callBegin`/`callEnd` records, shared call IDs, contiguous record sequence, UTC plus monotonic timestamps, provider fingerprinting, device/channel identity, arguments, outputs, return codes and normalized message records.
+
+SecurityAccess (`0x27`) and TransferData (`0x36`) payloads are redacted by default while preserving byte length and SHA-256. The writer/parser is platform-independent and does not load a J2534 DLL, open an interface or communicate with a vehicle.
+
+### Safety boundary
+
+The J2534 tap is an observer/forwarder. Atlas must not change GDS2/SPS2/DPS requests, security values, transfer blocks, filter definitions or programming-voltage commands.
+
+Before the proxy is used during an SPS/DPS programming event, it must pass an off-vehicle replay/loopback acceptance test proving that forwarded calls, return codes and message buffers are byte-for-byte equivalent to direct vendor-DLL operation. Until then, raw-bus capture remains the production-safe method.
+
+## Phase C: correlated GM-tool evidence bundle
+
+A completed GM-tool capture should contain:
+
+- Atlas raw candump capture
+- session manifest
+- adapter/channel/network map
+- operator event markers
+- source application (`gds2`, `sps2`, `dps`)
+- application version when known
+- VCX/J2534 product and DLL/version identity
+- J2534 call log when the proxy is enabled
+- extracted ISO-TP/UDS/GM diagnostic session JSON
+- GDS2 DID/dynamic-packet extraction when applicable
+- SHA-256 hashes of every raw evidence file
+
+The offline pipeline can then answer three separate questions:
+
+1. What action did the operator perform in GDS2/SPS2/DPS?
+2. What did the Windows diagnostic application request through J2534?
+3. What traffic actually appeared on each vehicle network?
+
+## GDS2 mapping workflow on one Windows computer
+
+1. Connect VCX to GDS2 normally.
+2. Connect Atlas passive adapters to the X84/X84B breakout harness.
+3. Open Windows Atlas and verify all expected channels are receiving.
+4. Start Atlas capture before opening the target GDS2 Data Display group.
+5. Record a marker for the exact module/page/group or parameter being displayed.
+6. Watch the live GM diagnostic panel for endpoint/service/DID and latency evidence.
+7. Leave the selected parameter/group active for several seconds.
+8. Change only one small group at a time when practical.
+9. Stop Atlas capture only after leaving the Data Display page.
+10. Run `extract_gds2_dids.py` and `extract_gm_tool_session.py` offline.
+11. Promote a DID/signal mapping only when repeated traffic and displayed values agree.
+
+## First Gen-1 Volt targets
+
+Priority HPCM2 mappings:
+
+- Positive contactor command
+- Negative contactor command
+- Precharge transistor command
+- Multifunction contactor command
+- Precharge current too high
+- Precharge time short
+- Precharge time too long
+- Contactor open reasons
+- HV interlock
+- Isolation resistance
+
+Priority BECM mappings:
+
+- all 96 cell voltages
+- high-resolution pack current
+- low-resolution pack current
+- pack terminal voltage
+- minimum/maximum/average cell voltage
+- minimum/maximum sensor index
+- pack SOC and SOC limits
+- pack resistance
+- pack/battery temperatures
+
+## Development order
+
+Completed foundation:
+
+1. Windows five-channel Atlas frontend used as the raw-bus recorder.
+2. Timestamped capture/event markers shared by Windows and the capture session.
+3. Observation-only live GM endpoint/service/DID panel.
+4. Read-only Windows J2534 installation/provider inventory.
+5. J2534 trace schema, writer/parser, provider fingerprinting, redaction policy and regression tests.
+
+Next gates:
+
+6. Build the Windows forwarding-proxy skeleton with standard J2534 exports, but keep it off-vehicle.
+7. Forward and trace harmless lifecycle/version calls first (`PassThruOpen`, `PassThruReadVersion`, `PassThruGetLastError`, `PassThruClose`).
+8. Add connection, message, filter, IOCTL and programming-voltage forwarding only after the skeleton is stable.
+9. Build an off-vehicle transparency/replay harness and prove direct-vendor versus proxied behavior.
+10. Only after that gate, correlate J2534 traces with raw buses and operator markers in `GM Tool Capture` mode.

@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://voltarians.example/schemas/j2534_trace_v1.schema.json",
+  "title": "OBD Atlas J2534 trace record",
+  "description": "One JSONL record from an OBD Atlas transparent J2534 observation/forwarding trace.",
+  "type": "object",
+  "required": ["schema", "recordType", "sequence", "utc", "monotonicNs"],
+  "properties": {
+    "schema": {"const": "obd-atlas.j2534-trace.v1"},
+    "recordType": {"enum": ["session", "callBegin", "callEnd"]},
+    "sequence": {"type": "integer", "minimum": 0},
+    "utc": {"type": "string"},
+    "monotonicNs": {"type": "integer", "minimum": 0},
+    "callId": {"type": "string"},
+    "api": {"type": "string"},
+    "threadId": {"type": "integer"},
+    "deviceId": {"type": ["integer", "null"]},
+    "channelId": {"type": ["integer", "null"]},
+    "returnCode": {"type": "integer"},
+    "durationNs": {"type": "integer", "minimum": 0},
+    "arguments": {"type": "object"},
+    "outputs": {"type": "object"},
+    "messages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["dataLength", "payloadRedacted"],
+        "properties": {
+          "protocolId": {},
+          "rxStatus": {},
+          "txFlags": {},
+          "timestamp": {},
+          "service": {},
+          "dataLength": {"type": "integer", "minimum": 0},
+          "payloadRedacted": {"type": "boolean"},
+          "payloadHex": {"type": "string", "pattern": "^[0-9A-F]*$"},
+          "payloadSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "sensitiveService": {"type": "string"}
+        }
+      }
+    },
+    "observerMode": {"type": "string"},
+    "proxyMayTransmitIndependently": {"type": "boolean"},
+    "sourceApplication": {"type": "string"},
+    "sourceApplicationVersion": {"type": ["string", "null"]},
+    "processId": {"type": "integer"},
+    "provider": {"type": "object"},
+    "providerFingerprintSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sensitivePayloadPolicy": {"type": "string"},
+    "errorText": {"type": "string"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"recordType": {"const": "callBegin"}}},
+      "then": {"required": ["callId", "api", "arguments"]}
+    },
+    {
+      "if": {"properties": {"recordType": {"const": "callEnd"}}},
+      "then": {"required": ["callId", "api", "returnCode", "durationNs", "outputs"]}
+    },
+    {
+      "if": {"properties": {"recordType": {"const": "session"}}},
+      "then": {"required": ["sourceApplication", "provider", "providerFingerprintSha256", "sensitivePayloadPolicy"]}
+    }
+  ]
+}

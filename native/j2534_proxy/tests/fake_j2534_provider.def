@@ -1,0 +1,16 @@
+LIBRARY "fake_j2534_provider"
+EXPORTS
+    PassThruOpen
+    PassThruClose
+    PassThruConnect
+    PassThruDisconnect
+    PassThruStartPeriodicMsg
+    PassThruStopPeriodicMsg
+    PassThruStartMsgFilter
+    PassThruStopMsgFilter
+    PassThruReadMsgs
+    PassThruWriteMsgs
+    PassThruIoctl
+    PassThruSetProgrammingVoltage
+    PassThruReadVersion
+    PassThruGetLastError
