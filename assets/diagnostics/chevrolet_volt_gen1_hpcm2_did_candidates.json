@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "catalogId": "chevrolet-volt-gen1-hpcm2-did-candidates",
+  "module": "K114B HPCM2",
+  "transport": {
+    "protocol": "ISO15765",
+    "bitrate": 500000,
+    "requestCanId": "0x7E4",
+    "responseCanId": "0x7EC",
+    "readService": "0x22"
+  },
+  "confidence": "communityCandidate",
+  "note": "Mappings below align community-observed DIDs with GM service-tool parameter names. They are not Atlas-confirmed until reproduced from a controlled GDS2/VCX capture or independently corroborated under the Atlas source policy.",
+  "sources": [
+    {"id":"spark-ev-forum","title":"CAN bus hacking thread - HPCM2 ReadDataByParameterIdentifier observations","url":"https://www.mychevysparkev.com/threads/can-bus-hacking-thread.3926/"},
+    {"id":"gm2013-hpcm2","title":"2013 Chevrolet Volt HPCM2 Scan Tool Information","url":"https://charm.li/Chevrolet/2013/Volt%20L4-1.4L%20Elect/Repair%20and%20Diagnosis/Hybrid%20Drive%20Systems/Testing%20and%20Inspection/Scan%20Tool%20Testing%20and%20Procedures/Hybrid%20Powertrain%20Control%20Module%202%20Scan%20Tool%20Information/"}
+  ],
+  "mappings": [
+    {"did":"0x40E9","gmParameter":"Hybrid/EV Battery Pack Resistance","communityLabel":"Battery resistance","rawLength":2,"communityScale":"raw / 32767 ohm","status":"candidate"},
+    {"did":"0x41B0","gmParameter":"14V Power Module Power Available From Hybrid/EV Battery Pack","communityLabel":"14V power available","rawLength":2,"communityScale":"possibly 1 W/count","status":"candidate"},
+    {"did":"0x41C4","gmParameter":"Hybrid/EV Battery Voltage Sensor Average","communityLabel":"Average battery cell/module voltage","rawLength":2,"communityScale":"approximately raw / 39.32 V","status":"candidate"},
+    {"did":"0x4329","gmParameter":"Minimum Hybrid/EV Battery Module Voltage","communityLabel":"Minimum battery cell/module voltage","rawLength":2,"communityScale":"approximately raw / 39.32 V","status":"candidate"},
+    {"did":"0x432B","gmParameter":"Maximum Hybrid/EV Battery Module Voltage","communityLabel":"Maximum battery cell/module voltage","rawLength":2,"communityScale":"approximately raw / 39.32 V","status":"candidate"},
+    {"did":"0x432C","gmParameter":"Hybrid/EV Battery Voltage Sensor with Maximum Value","communityLabel":"Battery cell number with maximum voltage","rawLength":1,"communityScale":"index","status":"candidate"},
+    {"did":"0x433B","gmParameter":"Hybrid/EV Battery Pack Minimum Voltage","communityLabel":"Minimum allowed battery voltage","rawLength":2,"communityScale":"approximately 0.52 V/count","status":"candidate"},
+    {"did":"0x433C","gmParameter":"Hybrid/EV Battery Pack Maximum Voltage","communityLabel":"Maximum allowed battery voltage","rawLength":2,"communityScale":"approximately 0.52 V/count","status":"candidate"},
+    {"did":"0x432D","gmParameter":"Hybrid/EV Battery Pack Voltage","communityLabel":"Battery pack voltage","rawLength":2,"communityScale":"approximately 0.52 V/count","status":"candidate"},
+    {"did":"0x4356","gmParameter":"Hybrid/EV Battery Pack Current","communityLabel":"Battery pack current","rawLength":2,"communityScale":"signed; observed FF FA about -0.90 A; exact scale requires validation","status":"candidate"},
+    {"did":"0x41A3","gmParameter":null,"communityLabel":"Capacity?","rawLength":2,"communityScale":"unknown","status":"unmappedCandidate"}
+  ]
+}
