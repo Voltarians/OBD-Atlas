@@ -4,6 +4,8 @@ EXPORTS
     PassThruClose
     PassThruConnect
     PassThruDisconnect
+    PassThruStartPeriodicMsg
+    PassThruStopPeriodicMsg
     PassThruStartMsgFilter
     PassThruStopMsgFilter
     PassThruReadMsgs
