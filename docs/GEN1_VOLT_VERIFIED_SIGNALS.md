@@ -9,6 +9,8 @@ The machine-readable source of truth is `assets/signals/chevrolet_volt_gen1.json
 | Signal | Channel | CAN ID | Decode |
 | --- | ---: | --- | --- |
 | Brake switch | 4 / can3 | `0x17D` | byte 2 bit 5: 0 released, 1 applied |
+| Brake pedal pressed | 2 / can1 | `0x0F1` | byte 0 bit 1: 0 released, 1 pressed |
+| Brake pedal position | 2 / can1 | `0x0F1` | DBC `15|8@0+`, raw pedal-position value |
 | Steering angle | 4 / can3 | `0x1E5` | signed big-endian bytes 1–2, 1/16 degree/count, positive left |
 | Gear selector | 4 / can3 | `0x1F5` | byte 3: 01 P, 02 R, 03 N, 04 D, 05 L |
 | Turn stalk | 4 / can3 | `0x140` | byte 2: 01 off, 05 left, 09 right |
@@ -36,6 +38,8 @@ The 2026-09-12 controlled startup capture adds the following evidence-backed def
 
 | Signal | Channel | CAN ID | Decode | Confidence |
 | --- | ---: | --- | --- | --- |
+| Brake pedal pressed | 2 / can1 | `0x0F1` | byte 0 bit 1 | confirmed |
+| Brake pedal position | 2 / can1 | `0x0F1` | DBC `15|8@0+`, raw count | confirmed |
 | System power mode | 2 / can1 | `0x1F1` | byte 0 low 2 bits: 0 off, 1 accessory, 2 run, 3 crank/start request | confirmed |
 | HV battery voltage | 2 / can1 | `0x2C7` | DBC `31|12@0+`, 0.125 V/count | confirmed |
 | Pack voltage | 3 / can2 | `0x210` | DBC `7|12@0+`, 0.125 V/count | confirmed |
@@ -44,9 +48,11 @@ The 2026-09-12 controlled startup capture adds the following evidence-backed def
 
 ### Startup evidence
 
-In `atlas_capture_20260912_030630.log`, `0x1F1` transitions from power mode 0 to 3 at the start request, then to 2 when the vehicle reaches RUN. This matches the GM Global-A `SystemPowerMode` definition and the Volt service description of the BCM as the power-mode master.
+In `atlas_capture_20260912_030630.log`, `0x0F1` provides an independent brake reference. Its raw pedal-position field starts at zero, rises progressively when the brake is applied, and returns to zero when the pedal is released. The community-defined brake-pressed bit asserts after the position value rises above the initial low counts and clears again on release. This independently validates both `BrakePedalPosition` and `BrakePressed` without assigning a percentage calibration.
 
-The same capture contains `0x210#BE44...`; `0xBE4 * 0.125 = 380.5 V`. The independently defined `0x2C7` battery-voltage field agrees at approximately the same pack voltage, which is why both voltage signals are promoted to confirmed. Current fields remain candidates until sign and scale are checked during a controlled charge or load event.
+The same capture shows `0x1F1` transitioning from power mode 0 to 3 at the start request, then to 2 when the vehicle reaches RUN. This matches the GM Global-A `SystemPowerMode` definition and the Volt service description of the BCM as the power-mode master.
+
+The capture also contains `0x210#BE44...`; `0xBE4 * 0.125 = 380.5 V`. The independently defined `0x2C7` battery-voltage field agrees at approximately the same pack voltage, which is why both voltage signals are promoted to confirmed. Current fields remain candidates until sign and scale are checked during a controlled charge or load event.
 
 ### Service-information anchor for future precharge diagnostics
 
