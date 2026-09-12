@@ -7,7 +7,9 @@ import 'package:flutter/material.dart';
 
 import 'adapters/atlas_adapter.dart';
 import 'core/atlas_runtime.dart';
+import 'core/capture_session.dart';
 import 'core/local_store.dart';
+import 'core/signal_discovery.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -322,32 +324,155 @@ class _ConnectPageState extends State<ConnectPage> {
   );
 }
 
-class CapturePage extends StatelessWidget {
+class CapturePage extends StatefulWidget {
   const CapturePage({super.key});
+
+  @override
+  State<CapturePage> createState() => _CapturePageState();
+}
+
+class _CapturePageState extends State<CapturePage> {
+  final _eventLabel = TextEditingController(text: 'GDS2 action');
+  final _markerLabel = TextEditingController();
+
+  @override
+  void dispose() {
+    _eventLabel.dispose();
+    _markerLabel.dispose();
+    super.dispose();
+  }
+
+  void _mark(AtlasRuntime runtime) {
+    final text = _markerLabel.text.trim();
+    if (text.isEmpty || !runtime.capture.isRecording) return;
+    runtime.markCaptureEvent(text, source: 'windows-ui');
+    _markerLabel.clear();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Marked: $text')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: AtlasRuntime.instance,
     builder: (context, _) {
       final runtime = AtlasRuntime.instance;
       final connected = runtime.anyConnected;
+      final phase = runtime.capture.phase;
+      final isStarting = phase == CapturePhase.starting;
+      final isRecording = phase == CapturePhase.recording;
+      final isStopping = phase == CapturePhase.stopping;
       return PageShell(
-        title: 'Passive Capture',
-        subtitle: 'Raw CAN traffic is preserved locally before interpretation.',
+        title: 'GM Tool / Passive Capture',
+        subtitle: 'Record raw CAN beside GDS2, SPS2 or DPS and write timestamped Atlas event markers into the same evidence stream.',
         child: Card(child: Padding(
           padding: const EdgeInsets.all(20),
           child: Column(children: [
-            Icon(runtime.isCapturing ? Icons.stop_circle : Icons.fiber_manual_record, size: 56),
+            Icon(isRecording || isStopping ? Icons.stop_circle : Icons.fiber_manual_record, size: 56),
             const SizedBox(height: 12),
-            Text(runtime.isCapturing ? 'Capture active' : connected ? '${runtime.connectedChannelCount} Atlas channels ready' : 'No adapter connected'),
+            Text(isStarting
+                ? 'Starting capture…'
+                : isRecording
+                    ? 'Capture active'
+                    : isStopping
+                        ? 'Stopping and saving…'
+                        : connected
+                            ? '${runtime.connectedChannelCount} Atlas channels ready'
+                            : 'No adapter connected'),
             const SizedBox(height: 6),
             Text('${runtime.totalFrames} total frames • ${runtime.framesPerSecond} frames/s'),
             const SizedBox(height: 12),
-            if (!runtime.isCapturing)
-              FilledButton.icon(onPressed: connected ? runtime.startCapture : null, icon: const Icon(Icons.play_arrow), label: const Text('Start capture'))
-            else
-              FilledButton.icon(onPressed: runtime.stopCapture, icon: const Icon(Icons.stop), label: const Text('Stop capture')),
+            if (phase == CapturePhase.idle)
+              SizedBox(
+                width: 420,
+                child: TextField(
+                  controller: _eventLabel,
+                  decoration: const InputDecoration(
+                    labelText: 'Discovery event',
+                    hintText: 'HPCM2 contactor display, GDS2 DTC read…',
+                  ),
+                ),
+              ),
+            if (phase == CapturePhase.idle) const SizedBox(height: 12),
+            if (phase == CapturePhase.idle)
+              FilledButton.icon(
+                onPressed: connected ? () => runtime.startCapture(eventLabel: _eventLabel.text) : null,
+                icon: const Icon(Icons.play_arrow),
+                label: const Text('Start capture'),
+              ),
+            if (isRecording) ...[
+              SizedBox(
+                width: 620,
+                child: TextField(
+                  controller: _markerLabel,
+                  onSubmitted: (_) => _mark(runtime),
+                  decoration: InputDecoration(
+                    labelText: 'Timestamped marker',
+                    hintText: 'Example: GDS2 HPCM2 - Positive Contactor Command visible',
+                    suffixIcon: IconButton(
+                      tooltip: 'Write marker to capture',
+                      onPressed: () => _mark(runtime),
+                      icon: const Icon(Icons.flag),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                alignment: WrapAlignment.center,
+                children: [
+                  if (runtime.discovery.phase == DiscoveryPhase.baseline)
+                    FilledButton.icon(
+                      onPressed: runtime.markDiscoveryEventStart,
+                      icon: const Icon(Icons.flag),
+                      label: Text('Mark ${runtime.discovery.eventLabel} start'),
+                    ),
+                  if (runtime.discovery.phase == DiscoveryPhase.event)
+                    FilledButton.icon(
+                      onPressed: runtime.markDiscoveryEventEnd,
+                      icon: const Icon(Icons.flag_outlined),
+                      label: Text('Mark ${runtime.discovery.eventLabel} end'),
+                    ),
+                  FilledButton.tonalIcon(
+                    onPressed: runtime.stopCapture,
+                    icon: const Icon(Icons.stop),
+                    label: const Text('Stop capture'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              const Text('Markers are stored as # ATLAS_EVENT lines with UTC and epoch timestamps; CAN frame counts remain unchanged.'),
+            ],
+            if (isStarting || isStopping) ...[
+              const SizedBox(height: 12),
+              const CircularProgressIndicator(),
+            ],
             if (runtime.activeCaptureFile != null) ...[
-              const SizedBox(height: 8), SelectableText(runtime.activeCaptureFile!.path),
+              const SizedBox(height: 10),
+              SelectableText(runtime.activeCaptureFile!.path),
+            ],
+            if (phase == CapturePhase.idle && runtime.capture.lastCompletedFile != null) ...[
+              const SizedBox(height: 10),
+              Text('Saved ${runtime.capture.lastCompletedFrames} frames'),
+            ],
+            if (phase == CapturePhase.idle && runtime.discovery.phase == DiscoveryPhase.complete) ...[
+              const SizedBox(height: 20),
+              const Divider(),
+              const SizedBox(height: 8),
+              Text('${runtime.discovery.eventLabel} signal candidates', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 8),
+              if (runtime.discovery.candidates.isEmpty)
+                const Text('No restored event-correlated bit changes found for the marked windows.')
+              else
+                ...runtime.discovery.candidates.take(20).map((candidate) => ListTile(
+                  dense: true,
+                  leading: CircleAvatar(child: Text('${candidate.channel}')),
+                  title: Text('CH${candidate.channel} • ID ${candidate.idHex} • byte ${candidate.byteIndex} bit ${candidate.bitIndex}'),
+                  subtitle: Text('Bit set: ${candidate.transition}'),
+                  trailing: Text(candidate.score.toStringAsFixed(2)),
+                )),
             ],
           ]),
         )),
