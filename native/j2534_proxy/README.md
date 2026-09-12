@@ -1,6 +1,6 @@
-# OBD Atlas J2534 read-observer proxy
+# OBD Atlas J2534 message-forwarding proxy
 
-This directory contains the **off-vehicle connection, filter, and read-only message** foundation for the planned Windows J2534 observer/forwarder.
+This directory contains the **off-vehicle connection, filter, read, and write message** foundation for the planned Windows J2534 observer/forwarder.
 
 ## Current exported API
 
@@ -13,12 +13,13 @@ Only these functions are implemented and forwarded:
 - `PassThruStartMsgFilter`
 - `PassThruStopMsgFilter`
 - `PassThruReadMsgs`
+- `PassThruWriteMsgs`
 - `PassThruReadVersion`
 - `PassThruGetLastError`
 
-The proxy does **not** currently export or forward `PassThruWriteMsgs`, IOCTLs, programming-voltage control, or any other transmit/vehicle-control API.
+The proxy does **not** currently export or forward IOCTLs, programming-voltage control, periodic-message APIs, or the remaining J2534 surface.
 
-Therefore this DLL is **not suitable for GDS2/SPS2/DPS vehicle use yet**. It exists only to prove DLL loading, exact device/channel/filter/read forwarding, and trace generation against an off-vehicle/fake provider.
+This DLL is still **not authorized for GDS2/SPS2/DPS vehicle use**. `PassThruWriteMsgs` forwards only messages the calling application supplied; Atlas never creates an extra request. The current gate proves forwarding against an off-vehicle fake provider, not a real vehicle or programming session.
 
 ## Configuration
 
@@ -49,6 +50,10 @@ Each record has UTC and monotonic timing. Connect records the exact `ProtocolID`
 `PassThruStartMsgFilter` records the filter type plus the exact J2534 metadata and payload bytes supplied in the mask, pattern, and flow-control `PASSTHRU_MSG` structures. Atlas does not alter those structures before forwarding. A provider-assigned filter ID is recorded only after a successful call. `PassThruStopMsgFilter` records the supplied filter ID and channel ID.
 
 `PassThruReadMsgs` records the caller's requested message count and timeout before forwarding. After the provider returns, Atlas records the provider's returned message count and snapshots at most the caller's original requested capacity. Each captured message records `ProtocolID`, `RxStatus`, `TxFlags`, provider timestamp, `DataSize`, `ExtraDataIndex`, and payload bytes. If a provider reports more returned messages than the caller allocated, Atlas marks the trace as truncated rather than reading beyond the caller's buffer. The caller's message array and count pointer are passed directly to the real provider and are never rewritten by Atlas.
+
+`PassThruWriteMsgs` snapshots the caller's requested messages for evidence and then passes the **same original message array and count pointer** directly to the provider. Ordinary diagnostic payloads are retained in the trace. When the ISO15765 message can be explicitly decoded as service `0x27` SecurityAccess or `0x36` TransferData, Atlas redacts the payload by default and stores the message length, service label, and SHA-256 digest instead. Redaction changes only the trace representation; it never changes the bytes forwarded to the provider.
+
+Sensitive-service classification is deliberately narrow: Atlas recognizes the J2534 ISO15765 form after the four-byte arbitration ID, including direct service bytes and ISO-TP single-frame/first-frame PCI. It does not search arbitrary data for `0x27` or `0x36`.
 
 Trace record numbering/writes are serialized so concurrent J2534 calls retain contiguous JSONL sequence order; provider calls themselves are not serialized by Atlas. Trace write failures after initialization are observational failures only and do not alter the provider return value.
 
@@ -96,20 +101,29 @@ The read test additionally requires exact equality of:
 - an `ERR_TIMEOUT` read returning zero messages; and
 - the timeout read leaving a sentinel-filled caller message buffer unchanged.
 
+The write test additionally requires exact equality of:
+
+- `PassThruWriteMsgs` return code and returned message count;
+- the original caller message buffers before/after forwarding;
+- two ordinary ISO15765 DID-request messages accepted byte-for-byte by the fake provider;
+- SecurityAccess and TransferData messages accepted byte-for-byte by the fake provider while their trace payloads remain redacted;
+- SHA-256 redaction evidence for both sensitive services; and
+- an `ERR_TIMEOUT` write returning zero messages.
+
 Additional tests verify fail-closed invalid provider identity and multithreaded trace sequence ordering.
 
 Windows CI builds and runs these native tests before the Flutter Windows build.
 
 ## Acceptance boundary
 
-Passing the device/channel/filter/read tests does **not** authorize vehicle use. Before Atlas can sit between a GM application and a real J2534 device, later stages must independently add and test:
+Passing the device/channel/filter/read/write tests does **not** authorize vehicle or programming use. Before Atlas can sit between a GM application and a real J2534 device, later stages must independently add and test:
 
-- `PassThruWriteMsgs` forwarding;
 - IOCTL forwarding;
 - programming-voltage forwarding;
-- byte-for-byte transmit-buffer equivalence;
+- remaining J2534 APIs required by the selected GM tool/provider;
 - ordering and timeout equivalence under sustained load;
-- bounded trace overhead; and
-- fail-safe behavior with real vendor DLLs on a bench interface.
+- bounded trace overhead;
+- provider-specific behavior against real vendor DLLs; and
+- fail-safe behavior on a bench interface before any in-vehicle session.
 
 Until those gates pass, use Windows Atlas's independent passive CAN/SWCAN adapters for vehicle observation.
