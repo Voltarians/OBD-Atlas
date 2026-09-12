@@ -29,6 +29,7 @@ std::once_flag g_init_once;
 bool g_initialized = false;
 std::atomic<unsigned long long> g_call_sequence{0};
 std::atomic<unsigned long long> g_record_sequence{0};
+std::mutex g_record_mutex;
 
 std::wstring GetEnvW(const wchar_t* name) {
   const DWORD needed = GetEnvironmentVariableW(name, nullptr, 0);
@@ -130,7 +131,7 @@ std::wstring SelfModulePath() {
   return CanonicalPath(std::wstring(buffer, written));
 }
 
-std::string BoundedCString(const char* value, size_t max_length = 255) {
+std::string BoundedCString(const char* value, size_t max_length) {
   if (value == nullptr) return {};
   const size_t length = strnlen_s(value, max_length);
   return std::string(value, length);
@@ -192,6 +193,7 @@ std::string BaseRecord(const char* record_type, unsigned long long sequence,
 }
 
 bool WriteSession(const std::wstring& real_dll) {
+  std::lock_guard<std::mutex> record_lock(g_record_mutex);
   const auto sequence = g_record_sequence.fetch_add(1);
   const uint64_t now_ns = MonotonicNs();
   const std::wstring source_app = GetEnvW(L"OBD_ATLAS_J2534_SOURCE_APP");
@@ -239,6 +241,7 @@ bool WriteSession(const std::wstring& real_dll) {
 
 CallContext BeginCall(const char* api, std::optional<unsigned long> device_id,
                       const std::string& arguments_json) {
+  std::lock_guard<std::mutex> record_lock(g_record_mutex);
   const unsigned long long call_number = g_call_sequence.fetch_add(1) + 1;
   char call_buffer[32]{};
   std::snprintf(call_buffer, sizeof(call_buffer), "call-%08llu", call_number);
@@ -260,6 +263,7 @@ CallContext BeginCall(const char* api, std::optional<unsigned long> device_id,
 
 void EndCall(const CallContext& context, const char* api, long return_code,
              const std::string& outputs_json) {
+  std::lock_guard<std::mutex> record_lock(g_record_mutex);
   const uint64_t ended_ns = MonotonicNs();
   const auto sequence = g_record_sequence.fetch_add(1);
   std::ostringstream out;
@@ -354,9 +358,10 @@ extern "C" __declspec(dllexport) long WINAPI PassThruReadVersion(
   const long result =
       g_read_version(DeviceID, pFirmwareVersion, pDllVersion, pApiVersion);
   std::ostringstream outputs;
-  outputs << "{\"firmwareVersion\":" << JsonString(BoundedCString(pFirmwareVersion))
-          << ",\"dllVersion\":" << JsonString(BoundedCString(pDllVersion))
-          << ",\"apiVersion\":" << JsonString(BoundedCString(pApiVersion))
+  outputs << "{\"firmwareVersion\":"
+          << JsonString(BoundedCString(pFirmwareVersion, 80))
+          << ",\"dllVersion\":" << JsonString(BoundedCString(pDllVersion, 80))
+          << ",\"apiVersion\":" << JsonString(BoundedCString(pApiVersion, 80))
           << "}";
   EndCall(call, "PassThruReadVersion", result, outputs.str());
   return result;
@@ -367,7 +372,7 @@ extern "C" __declspec(dllexport) long WINAPI PassThruGetLastError(
   if (!EnsureInitialized()) return atlas_j2534::ERR_FAILED;
   const auto call = BeginCall("PassThruGetLastError", std::nullopt, "{}");
   const long result = g_get_last_error(pErrorDescription);
-  const std::string description = BoundedCString(pErrorDescription);
+  const std::string description = BoundedCString(pErrorDescription, 80);
   EndCall(call, "PassThruGetLastError", result,
           std::string("{\"errorDescription\":") + JsonString(description) + "}");
   return result;
