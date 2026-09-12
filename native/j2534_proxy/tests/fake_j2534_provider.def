@@ -8,5 +8,6 @@ EXPORTS
     PassThruStopMsgFilter
     PassThruReadMsgs
     PassThruWriteMsgs
+    PassThruIoctl
     PassThruReadVersion
     PassThruGetLastError
