@@ -8,7 +8,9 @@ The format is **JSON Lines**: one complete JSON object per line. It is append-on
 
 The standalone Python trace writer/parser does not load a J2534 DLL, open an interface, transmit CAN, change filters, set programming voltage, or synthesize vehicle messages.
 
-The native Windows proxy now uses the same trace semantics while forwarding the currently accepted device, channel, filter, read, and write-message APIs to a selected provider. Atlas must never generate an extra request merely because tracing is enabled. `PassThruWriteMsgs` forwards only the message array supplied by the calling application and is still restricted to off-vehicle acceptance testing until the remaining J2534 and bench-safety gates pass.
+The native Windows proxy uses the same trace semantics while forwarding the currently accepted device, channel, filter, message, and IOCTL APIs to a selected provider. Atlas never generates an extra request or IOCTL merely because tracing is enabled.
+
+`PassThruSetProgrammingVoltage` remains unimplemented and unexported. The native proxy is still restricted to off-vehicle acceptance testing until the remaining API and bench-safety gates pass.
 
 ## Record ordering
 
@@ -20,110 +22,49 @@ Every record contains:
 - `utc`: wall-clock UTC timestamp
 - `monotonicNs`: monotonic timestamp used for latency/order correlation
 
-The first record is always `session`.
-
-Each PassThru invocation produces a `callBegin` before forwarding the call and a matching `callEnd` after the vendor DLL returns. Both share one `callId`.
-
-This two-record model is intentional: if a provider call blocks, crashes, or the process terminates, the unmatched `callBegin` remains visible in the evidence.
+The first record is always `session`. Each PassThru invocation produces a `callBegin` before forwarding and a matching `callEnd` after the vendor DLL returns. Both share one `callId`.
 
 ## Session record
 
-The session record identifies the application and selected provider:
+The session record identifies the source application and selected provider, including registry identity, DLL path metadata, a stable SHA-256 provider fingerprint, the sensitive-payload policy, `observerMode: transparent-forwarder`, and `proxyMayTransmitIndependently: false`.
 
-- `sourceApplication`, such as `gds2`, `sps2`, or `dps`
-- `sourceApplicationVersion` when known
-- provider registry path/subkey, vendor, name, and function-library metadata
-- `providerFingerprintSha256`, computed from the normalized provider identity
-- `sensitivePayloadPolicy`
-- `observerMode: transparent-forwarder`
-- `proxyMayTransmitIndependently: false`
+## Call begin / end
 
-The fingerprint is intended to make it obvious when two traces were produced against different J2534 registrations or DLL builds.
+A `callBegin` can record:
 
-## Call begin
+- API name and `callId`
+- thread, device, and channel IDs
+- structured arguments
+- normalized message snapshots when applicable
 
-A `callBegin` may contain:
+A matching `callEnd` records the provider return code, duration, and structured outputs.
 
-- `callId`
-- `api`, for example `PassThruOpen`, `PassThruConnect`, `PassThruStartMsgFilter`, `PassThruReadMsgs`, or `PassThruWriteMsgs`
-- `threadId`
-- `deviceId` and `channelId` when applicable
-- `arguments`
-- optional normalized `messages`
-
-The trace writer never changes the caller's message object.
-
-`PassThruConnect` records the exact `ProtocolID`, `Flags`, and `BaudRate` supplied by the caller. `PassThruDisconnect` records the supplied channel ID.
-
-`PassThruStartMsgFilter` records the supplied filter type plus the mask, pattern, and flow-control `PASSTHRU_MSG` metadata and payload bytes. The native proxy caps observation at the fixed J2534 message-buffer capacity if a malformed `DataSize` exceeds that capacity; it does not change the caller's structure. `PassThruStopMsgFilter` records the supplied filter ID.
-
-`PassThruReadMsgs` records the caller's requested message count, message/count pointer presence, and timeout before forwarding the call unchanged to the provider.
-
-`PassThruWriteMsgs` records the caller's requested message count and timeout plus a normalized snapshot of the exact input message array **before** forwarding. Atlas passes the original `pMsg` and `pNumMsgs` pointers directly to the selected provider; tracing does not create a replacement transmit buffer.
-
-## Call end
-
-A matching `callEnd` contains:
-
-- the same `callId` and `api`
-- `returnCode`
-- `durationNs`
-- `outputs`
-- optional returned/read `messages`
-- optional `errorText`
-
-Return codes and output buffers must reflect the real vendor DLL result. For Connect, Atlas records a returned channel ID only when the provider reports success. For StartMsgFilter, Atlas records a returned filter ID only when the provider reports success. Failed calls do not cause Atlas to read or modify undefined caller output buffers.
-
-For `PassThruReadMsgs`, the native proxy records the provider-returned message count and snapshots at most the caller's original requested capacity. If a malformed provider reports more messages than the caller allocated, the trace marks the capture as truncated rather than reading beyond the caller buffer. Atlas does not rewrite the caller's `pMsg` array or `pNumMsgs` value after the provider returns.
-
-For `PassThruWriteMsgs`, Atlas records the provider-returned message count after forwarding. The acceptance harness compares the caller's message structures before and after both direct and proxied writes to ensure the proxy does not alter them.
+Return codes and caller buffers always remain the vendor DLL's results. Tracing is observational.
 
 ## Message representation
 
-Normalized J2534 messages can retain fields such as:
+Filter messages retain exact metadata and bytes. ReadMsgs records returned count/order/metadata/payloads while bounding observation to the caller's original requested capacity. WriteMsgs snapshots the caller's input messages before forwarding and passes the original `pMsg` and `pNumMsgs` pointers directly to the provider.
 
-- protocol ID
-- receive status
-- transmit flags
-- provider/J2534 timestamp
-- diagnostic service when Atlas has explicitly decoded it
-- data size / extra-data index
-- either `payloadHex` or a redacted digest
+SecurityAccess (`0x27`) and TransferData (`0x36`) write payloads are redacted by default. The trace retains message length, service identity, J2534 metadata, and SHA-256 instead of the original sensitive bytes. Redaction never changes what is forwarded to the provider.
 
-Filter-definition messages are configuration metadata rather than diagnostic request payloads, so their exact bytes are retained for equivalence testing.
+## IOCTL representation
 
-Read-message tracing currently retains the exact provider-returned payload bytes during the off-vehicle acceptance stage so direct-vs-proxy equivalence can be proven.
+`PassThruIoctl(ChannelID, IoctlID, pInput, pOutput)` is forwarded with the caller's **original pointers unchanged**.
 
-Write-message tracing applies the sensitive-payload policy before anything is written to disk. Ordinary request payloads remain visible for equivalence and DID/service mapping. SecurityAccess and TransferData requests are represented by length, service identity, and digest instead of their original bytes.
+Atlas structurally observes only IOCTL buffers with a known J2534 04.04 shape:
 
-## Sensitive payload policy
+- `GET_CONFIG` (`0x01`) — `pInput` is an `SCONFIG_LIST`; Atlas can snapshot the requested parameters before the call and provider-returned values afterward.
+- `SET_CONFIG` (`0x02`) — `pInput` is an `SCONFIG_LIST`; Atlas snapshots the exact requested parameter/value pairs and the same memory after return.
+- `READ_VBATT` (`0x03`) — `pOutput` is an unsigned long; Atlas records the returned value.
+- `READ_PROG_VOLTAGE` (`0x0E`) — also an unsigned-long read result if the source application invokes it.
 
-By default:
+For all other IOCTL IDs, Atlas records only the IOCTL ID and whether input/output pointers were present. It does **not** interpret or dereference unknown opaque buffers.
 
-- service `0x27` SecurityAccess write payloads are redacted
-- service `0x36` TransferData write payloads are redacted
+Known snapshots are read using `ReadProcessMemory(GetCurrentProcess(), ...)` rather than ordinary pointer dereferences. This keeps evidence collection from adding a normal invalid-pointer access before the vendor DLL sees the original pointer.
 
-A redacted message preserves:
+`READ_PROG_VOLTAGE` is distinct from the voltage-setting API. `PassThruSetProgrammingVoltage` is still absent.
 
-- byte length
-- SHA-256 of the original J2534 message bytes
-- service identity
-- non-payload J2534 metadata
-
-The native proxy uses Windows CNG SHA-256 for this digest. Redaction affects only the trace snapshot; the application-supplied buffer is forwarded unchanged to the provider.
-
-Sensitive-service detection is intentionally transport-aware rather than a raw-byte scan. For ISO15765 messages Atlas examines the diagnostic portion after the four-byte arbitration ID and recognizes direct service bytes plus valid ISO-TP single-frame and first-frame forms. It does not label an arbitrary occurrence of `0x27` or `0x36` elsewhere in the message as a sensitive service.
-
-This allows traces to be compared without placing security values or programming transfer blocks into ordinary logs.
-
-Explicit inclusion is supported by the platform-independent Python library for controlled bench/research cases, but sensitive inclusion is not enabled in the native Windows proxy at this stage.
-
-## Current implementation
-
-- Schema: `assets/schemas/j2534_trace_v1.schema.json`
-- Writer/parser: `tool/j2534_trace.py`
-- Python tests: `tests/test_j2534_trace.py`
-- Native Windows proxy: `native/j2534_proxy/`
+## Current native API surface
 
 The native proxy currently forwards and traces:
 
@@ -135,27 +76,34 @@ The native proxy currently forwards and traces:
 - `PassThruStopMsgFilter`
 - `PassThruReadMsgs`
 - `PassThruWriteMsgs`
+- `PassThruIoctl`
 - `PassThruReadVersion`
 - `PassThruGetLastError`
 
-Windows CI compares direct fake-provider behavior with proxied behavior for device lifecycle, channel lifecycle, ISO15765 flow-control filter setup/teardown, successful/timeout reads, and successful/timeout writes. The write test also proves ordinary payload visibility and default SecurityAccess/TransferData trace redaction. CI additionally verifies fail-closed provider identity and stress-tests concurrent trace ordering.
+## Acceptance tests
 
-IOCTL, programming-voltage, periodic-message, and other remaining J2534 APIs are not enabled yet.
+Windows CI compares direct fake-provider behavior with proxied behavior for:
+
+- device and channel lifecycle;
+- ISO15765 flow-control filters;
+- successful and timeout ReadMsgs;
+- successful and timeout WriteMsgs;
+- SecurityAccess/TransferData redaction while forwarding the original bytes;
+- IOCTL `SET_CONFIG`, `GET_CONFIG`, `READ_VBATT`, and an invalid opaque IOCTL;
+- fail-closed provider identity; and
+- concurrent trace sequence ordering.
+
+The IOCTL test requires identical return codes, `SCONFIG` memory, battery-voltage output, and untouched sentinel buffers on the rejected IOCTL path.
 
 ## Proxy acceptance gate
 
-Before any J2534 proxy is used with SPS/SPS2 or DPS programming, off-vehicle and bench tests must demonstrate that enabling the proxy does not materially change:
+Before use with SPS/SPS2, DPS, or other real vehicle/programming sessions, remaining gates include:
 
-1. exported API behavior;
-2. argument values passed to the real provider;
-3. returned status codes;
-4. input/output message count, order, metadata, and content;
-5. filter definitions;
-6. IOCTL buffers;
-7. programming-voltage requests;
-8. call ordering; and
-9. timing beyond a documented bounded tracing overhead.
+1. `PassThruSetProgrammingVoltage` behavior and safety policy;
+2. periodic-message APIs and any remaining calls required by the chosen GM tool/provider;
+3. sustained-load ordering and timeout equivalence;
+4. bounded trace overhead;
+5. provider-specific behavior against real vendor DLLs; and
+6. fail-safe bench-interface validation before any in-vehicle session.
 
-Device Open/Close, Connect/Disconnect, Start/StopMsgFilter, ReadMsgs, and WriteMsgs are now staged behind direct-vs-proxy tests, but the overall vehicle/programming gate remains closed until the remaining IOCTL/programming-voltage/provider-specific and bench-safety stages pass independently.
-
-Until that gate passes, Windows Atlas raw-bus capture through independent passive adapters remains the approved vehicle-observation method.
+Until those gates pass, Windows Atlas raw-bus capture through independent passive adapters remains the approved vehicle-observation method.
