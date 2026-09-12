@@ -38,6 +38,14 @@ using PassThruConnectFn = long(WINAPI*)(
     unsigned long BaudRate,
     unsigned long* pChannelID);
 using PassThruDisconnectFn = long(WINAPI*)(unsigned long ChannelID);
+using PassThruStartPeriodicMsgFn = long(WINAPI*)(
+    unsigned long ChannelID,
+    PASSTHRU_MSG* pMsg,
+    unsigned long* pMsgID,
+    unsigned long TimeInterval);
+using PassThruStopPeriodicMsgFn = long(WINAPI*)(
+    unsigned long ChannelID,
+    unsigned long MsgID);
 using PassThruStartMsgFilterFn = long(WINAPI*)(
     unsigned long ChannelID,
     unsigned long FilterType,
@@ -108,6 +116,9 @@ constexpr long ERR_FAILED = 0x07;
 constexpr long ERR_DEVICE_NOT_CONNECTED = 0x08;
 constexpr long ERR_TIMEOUT = 0x09;
 constexpr long ERR_INVALID_MSG = 0x0A;
+constexpr long ERR_INVALID_TIME_INTERVAL = 0x0B;
+constexpr long ERR_EXCEEDED_LIMIT = 0x0C;
+constexpr long ERR_INVALID_MSG_ID = 0x0D;
 constexpr long ERR_INVALID_IOCTL_ID = 0x0F;
 constexpr long ERR_INVALID_FILTER_ID = 0x16;
 constexpr long ERR_INVALID_BAUDRATE = 0x19;
