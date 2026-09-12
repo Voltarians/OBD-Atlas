@@ -29,3 +29,34 @@ The machine-readable source of truth is `assets/signals/chevrolet_volt_gen1.json
 - Hazard-flash candidate: channel 2, ID `0x1E3`, byte 6. Normally `0x28`, usually alternating `0x2A`/`0x2B` during hazards. It is correlated but not yet proven as a steady hazard-enable field.
 
 `0x1040A080` is intentionally not labeled as a driver-door signal: later testing did not prove it was driver-specific. The brief hatch-latch event at `0x0C6B4040` is also omitted from the confirmed catalog.
+
+## Startup and high-voltage signals
+
+The 2026-09-12 controlled startup capture adds the following evidence-backed definitions. These were checked against community GM Global-A/OpenDBC work and against Gen-1 Volt service information rather than being labeled from timing correlation alone.
+
+| Signal | Channel | CAN ID | Decode | Confidence |
+| --- | ---: | --- | --- | --- |
+| System power mode | 2 / can1 | `0x1F1` | byte 0 low 2 bits: 0 off, 1 accessory, 2 run, 3 crank/start request | confirmed |
+| HV battery voltage | 2 / can1 | `0x2C7` | DBC `31|12@0+`, 0.125 V/count | confirmed |
+| Pack voltage | 3 / can2 | `0x210` | DBC `7|12@0+`, 0.125 V/count | confirmed |
+| HV battery current | 2 / can1 | `0x2C7` | DBC `12|13@0-`, 0.15 A/count | candidate |
+| Pack current | 3 / can2 | `0x210` | DBC `23|8@0-`, 0.1 A/count, -0.1 A offset | candidate |
+
+### Startup evidence
+
+In `atlas_capture_20260912_030630.log`, `0x1F1` transitions from power mode 0 to 3 at the start request, then to 2 when the vehicle reaches RUN. This matches the GM Global-A `SystemPowerMode` definition and the Volt service description of the BCM as the power-mode master.
+
+The same capture contains `0x210#BE44...`; `0xBE4 * 0.125 = 380.5 V`. The independently defined `0x2C7` battery-voltage field agrees at approximately the same pack voltage, which is why both voltage signals are promoted to confirmed. Current fields remain candidates until sign and scale are checked during a controlled charge or load event.
+
+### Service-information anchor for future precharge diagnostics
+
+Gen-1 Volt service information for P0C77/P0C78 states that HPCM2 controls the contactor/precharge sequence. For the diagnostic to run, the propulsion bus is below 40 V before precharge. A rise above 80% of battery voltage in under 50 ms is classified as too fast; failure to reach 95% within 700 ms is classified as too slow and opens the contactors.
+
+These thresholds are diagnostic context, not CAN signal definitions. Atlas must not infer individual positive/negative/multifunction contactor state until a specific bus signal is independently identified.
+
+References:
+
+- GM Global-A community/OpenDBC powertrain definitions: `gm_global_a_powertrain_volt.dbc`
+- GM Global-A community/OpenDBC high-voltage definitions: `gm_global_a_high_voltage_management.dbc`
+- 2012 Chevrolet Volt service information, P0C77/P0C78 Battery System Precharge: https://charm.li/Chevrolet/2012/Volt%20L4-1.4L%20Elect/Repair%20and%20Diagnosis/A%20L%20L%20%20Diagnostic%20Trouble%20Codes%20%28%20DTC%20%29/Testing%20and%20Inspection/P%20Code%20Charts/P0C78/
+- 2012 Chevrolet Volt service information, Body Control System Description and Operation / Power Mode Master.
