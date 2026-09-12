@@ -79,6 +79,12 @@ if(BUILD_TESTING)
   target_include_directories(j2534_proxy_programming_voltage_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_compile_definitions(j2534_proxy_programming_voltage_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 
+  add_executable(j2534_proxy_stress_test
+    tests/proxy_stress_test.cpp
+  )
+  target_include_directories(j2534_proxy_stress_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_compile_definitions(j2534_proxy_stress_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+
   add_test(
     NAME j2534_proxy_lifecycle_transparency
     COMMAND j2534_proxy_lifecycle_test
@@ -143,4 +149,11 @@ if(BUILD_TESTING)
       $<TARGET_FILE:obd_atlas_j2534_proxy>
       $<TARGET_FILE:fake_j2534_provider>
   )
+  add_test(
+    NAME j2534_proxy_100k_stress_transparency
+    COMMAND j2534_proxy_stress_test
+      $<TARGET_FILE:obd_atlas_j2534_proxy>
+      $<TARGET_FILE:fake_j2534_provider>
+  )
+  set_tests_properties(j2534_proxy_100k_stress_transparency PROPERTIES TIMEOUT 1800)
 endif()
