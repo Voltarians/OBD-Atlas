@@ -136,6 +136,16 @@ std::string BoundedCString(const char* value, size_t max_length = 255) {
   return std::string(value, length);
 }
 
+bool IsLowerHexSha256(const std::wstring& value) {
+  if (value.size() != 64) return false;
+  for (const wchar_t ch : value) {
+    if (!((ch >= L'0' && ch <= L'9') || (ch >= L'a' && ch <= L'f'))) {
+      return false;
+    }
+  }
+  return true;
+}
+
 class TraceWriter {
  public:
   bool Open(const std::wstring& path) {
@@ -144,8 +154,6 @@ class TraceWriter {
                           CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
     return handle_ != INVALID_HANDLE_VALUE;
   }
-
-  bool IsOpen() const { return handle_ != INVALID_HANDLE_VALUE; }
 
   bool WriteLine(const std::string& line) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -207,14 +215,10 @@ bool WriteSession(const std::wstring& real_dll) {
       << ",\"sourceApplication\":"
       << JsonString(source_app.empty() ? L"unknown" : source_app)
       << ",\"sourceApplicationVersion\":";
-  if (source_version.empty()) {
-    out << "null";
-  } else {
-    out << JsonString(source_version);
-  }
+  if (source_version.empty()) out << "null";
+  else out << JsonString(source_version);
   out << ",\"processId\":" << GetCurrentProcessId()
-      << ",\"provider\":{"
-      << "\"registryPath\":";
+      << ",\"provider\":{\"registryPath\":";
   if (provider_registry_path.empty()) out << "null";
   else out << JsonString(provider_registry_path);
   out << ",\"registrySubkey\":";
@@ -228,10 +232,8 @@ bool WriteSession(const std::wstring& real_dll) {
   else out << JsonString(provider_vendor);
   out << ",\"functionLibrary\":{\"path\":" << JsonString(real_dll)
       << "}}"
-      << ",\"providerFingerprintSha256\":";
-  if (provider_fingerprint.empty()) out << "null";
-  else out << JsonString(provider_fingerprint);
-  out << ",\"sensitivePayloadPolicy\":\"redact-security-access-and-transfer-data\"}";
+      << ",\"providerFingerprintSha256\":" << JsonString(provider_fingerprint)
+      << ",\"sensitivePayloadPolicy\":\"redact-security-access-and-transfer-data\"}";
   return g_trace.WriteLine(out.str());
 }
 
@@ -279,7 +281,12 @@ T Resolve(const char* name) {
 void Initialize() {
   const std::wstring real_dll = GetEnvW(L"OBD_ATLAS_J2534_REAL_DLL");
   const std::wstring trace_path = GetEnvW(L"OBD_ATLAS_J2534_TRACE_PATH");
-  if (real_dll.empty() || trace_path.empty()) return;
+  const std::wstring provider_fingerprint =
+      GetEnvW(L"OBD_ATLAS_J2534_PROVIDER_FINGERPRINT");
+  if (real_dll.empty() || trace_path.empty() ||
+      !IsLowerHexSha256(provider_fingerprint)) {
+    return;
+  }
 
   const std::wstring provider_path = CanonicalPath(real_dll);
   const std::wstring self_path = SelfModulePath();
@@ -362,8 +369,7 @@ extern "C" __declspec(dllexport) long WINAPI PassThruGetLastError(
   const long result = g_get_last_error(pErrorDescription);
   const std::string description = BoundedCString(pErrorDescription);
   EndCall(call, "PassThruGetLastError", result,
-          std::string("{\"errorDescription\":") +
-              JsonString(description) + "}");
+          std::string("{\"errorDescription\":") + JsonString(description) + "}");
   return result;
 }
 
