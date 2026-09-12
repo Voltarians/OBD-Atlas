@@ -61,6 +61,34 @@ void main() {
     expect(output.finishCalls, 1);
   });
 
+  test('annotations share the evidence stream without changing frame count', () async {
+    await session.start();
+    session.writeLine('(1.000000) can0 123#01');
+    session.writeAnnotation('# ATLAS_EVENT (1.100000) marker');
+    session.writeLine('(1.200000) can0 123#02');
+    expect(output.lines, [
+      '(1.000000) can0 123#01',
+      '# ATLAS_EVENT (1.100000) marker',
+      '(1.200000) can0 123#02',
+    ]);
+    expect(session.recordedFrames, 2);
+    final stopping = session.stop();
+    output.closeGate.complete();
+    await stopping;
+    expect(session.lastCompletedFrames, 2);
+  });
+
+  test('annotations are ignored outside the recording phase', () async {
+    session.writeAnnotation('# ATLAS_EVENT before');
+    expect(output.lines, isEmpty);
+    await session.start();
+    final stopping = session.stop();
+    session.writeAnnotation('# ATLAS_EVENT after-stop');
+    output.closeGate.complete();
+    await stopping;
+    expect(output.lines, isEmpty);
+  });
+
   test('recording flushes periodically before final close', () async {
     await session.start();
     session.writeLine('frame');
