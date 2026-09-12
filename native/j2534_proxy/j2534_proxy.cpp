@@ -29,6 +29,8 @@ PassThruOpenFn g_open = nullptr;
 PassThruCloseFn g_close = nullptr;
 PassThruConnectFn g_connect = nullptr;
 PassThruDisconnectFn g_disconnect = nullptr;
+PassThruStartPeriodicMsgFn g_start_periodic = nullptr;
+PassThruStopPeriodicMsgFn g_stop_periodic = nullptr;
 PassThruStartMsgFilterFn g_start_filter = nullptr;
 PassThruStopMsgFilterFn g_stop_filter = nullptr;
 PassThruReadMsgsFn g_read_msgs = nullptr;
@@ -588,6 +590,8 @@ void Initialize() {
   g_close = Resolve<PassThruCloseFn>("PassThruClose");
   g_connect = Resolve<PassThruConnectFn>("PassThruConnect");
   g_disconnect = Resolve<PassThruDisconnectFn>("PassThruDisconnect");
+  g_start_periodic = Resolve<PassThruStartPeriodicMsgFn>("PassThruStartPeriodicMsg");
+  g_stop_periodic = Resolve<PassThruStopPeriodicMsgFn>("PassThruStopPeriodicMsg");
   g_start_filter = Resolve<PassThruStartMsgFilterFn>("PassThruStartMsgFilter");
   g_stop_filter = Resolve<PassThruStopMsgFilterFn>("PassThruStopMsgFilter");
   g_read_msgs = Resolve<PassThruReadMsgsFn>("PassThruReadMsgs");
@@ -598,7 +602,8 @@ void Initialize() {
   g_read_version = Resolve<PassThruReadVersionFn>("PassThruReadVersion");
   g_get_last_error = Resolve<PassThruGetLastErrorFn>("PassThruGetLastError");
   if (g_open == nullptr || g_close == nullptr || g_connect == nullptr ||
-      g_disconnect == nullptr || g_start_filter == nullptr ||
+      g_disconnect == nullptr || g_start_periodic == nullptr ||
+      g_stop_periodic == nullptr || g_start_filter == nullptr ||
       g_stop_filter == nullptr || g_read_msgs == nullptr ||
       g_write_msgs == nullptr || g_ioctl == nullptr ||
       g_read_version == nullptr || g_get_last_error == nullptr) {
@@ -678,6 +683,45 @@ extern "C" __declspec(dllexport) long WINAPI PassThruDisconnect(
       BeginCall("PassThruDisconnect", std::nullopt, "{}", ChannelID);
   const long result = g_disconnect(ChannelID);
   EndCall(call, "PassThruDisconnect", result, "{}");
+  return result;
+}
+
+extern "C" __declspec(dllexport) long WINAPI PassThruStartPeriodicMsg(
+    unsigned long ChannelID, atlas_j2534::PASSTHRU_MSG* pMsg,
+    unsigned long* pMsgID, unsigned long TimeInterval) {
+  if (!EnsureInitialized()) return atlas_j2534::ERR_FAILED;
+  std::ostringstream arguments;
+  arguments << "{\"timeIntervalMs\":" << TimeInterval
+            << ",\"messageIdPointerPresent\":"
+            << (pMsgID == nullptr ? "false" : "true") << "}";
+  std::optional<std::string> messages;
+  if (pMsg != nullptr) messages = "[" + TraceMessageJson(pMsg) + "]";
+  else messages = "[]";
+  const auto call = BeginCall(
+      "PassThruStartPeriodicMsg", std::nullopt, arguments.str(), ChannelID,
+      messages);
+  const long result = g_start_periodic(ChannelID, pMsg, pMsgID, TimeInterval);
+  std::ostringstream outputs;
+  outputs << "{\"messageId\":";
+  if (result == atlas_j2534::STATUS_NOERROR && pMsgID != nullptr) {
+    outputs << *pMsgID;
+  } else {
+    outputs << "null";
+  }
+  outputs << "}";
+  EndCall(call, "PassThruStartPeriodicMsg", result, outputs.str());
+  return result;
+}
+
+extern "C" __declspec(dllexport) long WINAPI PassThruStopPeriodicMsg(
+    unsigned long ChannelID, unsigned long MsgID) {
+  if (!EnsureInitialized()) return atlas_j2534::ERR_FAILED;
+  std::ostringstream arguments;
+  arguments << "{\"messageId\":" << MsgID << "}";
+  const auto call = BeginCall(
+      "PassThruStopPeriodicMsg", std::nullopt, arguments.str(), ChannelID);
+  const long result = g_stop_periodic(ChannelID, MsgID);
+  EndCall(call, "PassThruStopPeriodicMsg", result, "{}");
   return result;
 }
 
