@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'adapters/atlas_adapter.dart';
 import 'core/atlas_runtime.dart';
 import 'core/capture_session.dart';
+import 'core/gm_live_diagnostic_monitor.dart';
 import 'core/local_store.dart';
 import 'core/signal_discovery.dart';
 
@@ -352,6 +353,63 @@ class _CapturePageState extends State<CapturePage> {
     );
   }
 
+  Widget _gmDiagnosticPanel(GmLiveDiagnosticSnapshot snapshot) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.manage_search),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Live GM Diagnostic Traffic',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+                Chip(label: Text('${snapshot.endpointFrameCount} endpoint frames')),
+                const SizedBox(width: 8),
+                Chip(label: Text('${snapshot.streamFrameCount} stream frames')),
+              ],
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Observation only. Module labels retain Atlas evidence confidence; legacyReference and communityCandidate are not vehicle-confirmed mappings.',
+            ),
+            const SizedBox(height: 8),
+            if (!snapshot.hasTraffic)
+              const ListTile(
+                dense: true,
+                leading: Icon(Icons.hourglass_empty),
+                title: Text('Waiting for known GM diagnostic endpoints'),
+                subtitle: Text('Watching HPCM2 7E4/7EC/5EC plus known GM legacy endpoint families in the recent raw frame window.'),
+              )
+            else
+              ...snapshot.events.take(12).map((event) => ListTile(
+                    dense: true,
+                    leading: SizedBox(
+                      width: 48,
+                      child: Text('CH${event.channel}\n${event.addressRole}'),
+                    ),
+                    title: Text(event.summary),
+                    subtitle: Text(
+                      '0x${event.canIdHex} • ${event.confidence} • ${event.source}'
+                      '${event.payloadHex == null ? '' : '\n${event.payloadHex}'}',
+                    ),
+                    trailing: event.latencyMs == null
+                        ? null
+                        : Text('${event.latencyMs!.toStringAsFixed(1)} ms'),
+                  )),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: AtlasRuntime.instance,
@@ -362,6 +420,7 @@ class _CapturePageState extends State<CapturePage> {
       final isStarting = phase == CapturePhase.starting;
       final isRecording = phase == CapturePhase.recording;
       final isStopping = phase == CapturePhase.stopping;
+      final gmLive = GmLiveDiagnosticMonitor.analyze(runtime.recentFrames);
       return PageShell(
         title: 'GM Tool / Passive Capture',
         subtitle: 'Record raw CAN beside GDS2, SPS2 or DPS and write timestamped Atlas event markers into the same evidence stream.',
@@ -381,6 +440,8 @@ class _CapturePageState extends State<CapturePage> {
                             : 'No adapter connected'),
             const SizedBox(height: 6),
             Text('${runtime.totalFrames} total frames • ${runtime.framesPerSecond} frames/s'),
+            const SizedBox(height: 16),
+            _gmDiagnosticPanel(gmLive),
             const SizedBox(height: 12),
             if (phase == CapturePhase.idle)
               SizedBox(
