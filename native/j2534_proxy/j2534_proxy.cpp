@@ -5,7 +5,9 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <iomanip>
+#include <iterator>
 #include <mutex>
 #include <optional>
 #include <sstream>
@@ -229,8 +231,7 @@ bool WriteSession(const std::wstring& real_dll) {
       << ",\"providerFingerprintSha256\":";
   if (provider_fingerprint.empty()) out << "null";
   else out << JsonString(provider_fingerprint);
-  out << ",\"sensitivePayloadPolicy\":\"redact-security-access-and-transfer-data\"}"
-      ;
+  out << ",\"sensitivePayloadPolicy\":\"redact-security-access-and-transfer-data\"}";
   return g_trace.WriteLine(out.str());
 }
 
