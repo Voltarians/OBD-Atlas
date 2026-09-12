@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "j2534_api.h"
+#include "programming_voltage_policy.h"
 
 namespace {
 
@@ -33,6 +34,7 @@ PassThruStopMsgFilterFn g_stop_filter = nullptr;
 PassThruReadMsgsFn g_read_msgs = nullptr;
 PassThruWriteMsgsFn g_write_msgs = nullptr;
 PassThruIoctlFn g_ioctl = nullptr;
+ProgrammingVoltageProviderFn g_set_programming_voltage = nullptr;
 PassThruReadVersionFn g_read_version = nullptr;
 PassThruGetLastErrorFn g_get_last_error = nullptr;
 std::once_flag g_init_once;
@@ -591,6 +593,8 @@ void Initialize() {
   g_read_msgs = Resolve<PassThruReadMsgsFn>("PassThruReadMsgs");
   g_write_msgs = Resolve<PassThruWriteMsgsFn>("PassThruWriteMsgs");
   g_ioctl = Resolve<PassThruIoctlFn>("PassThruIoctl");
+  g_set_programming_voltage = Resolve<ProgrammingVoltageProviderFn>(
+      "PassThruSetProgrammingVoltage");
   g_read_version = Resolve<PassThruReadVersionFn>("PassThruReadVersion");
   g_get_last_error = Resolve<PassThruGetLastErrorFn>("PassThruGetLastError");
   if (g_open == nullptr || g_close == nullptr || g_connect == nullptr ||
@@ -802,6 +806,31 @@ extern "C" __declspec(dllexport) long WINAPI PassThruIoctl(
   const long result = g_ioctl(ChannelID, IoctlID, pInput, pOutput);
   EndCall(call, "PassThruIoctl", result,
           IoctlOutputsJson(IoctlID, pInput, pOutput));
+  return result;
+}
+
+extern "C" __declspec(dllexport) long WINAPI PassThruSetProgrammingVoltage(
+    unsigned long DeviceID, unsigned long PinNumber, unsigned long Voltage) {
+  if (!EnsureInitialized()) return atlas_j2534::ERR_FAILED;
+  const bool policy_enabled = ProgrammingVoltageExplicitlyEnabled();
+  std::ostringstream arguments;
+  arguments << "{\"pinNumber\":" << PinNumber
+            << ",\"voltage\":" << Voltage
+            << ",\"policyEnabled\":"
+            << (policy_enabled ? "true" : "false")
+            << ",\"providerFunctionPresent\":"
+            << (g_set_programming_voltage != nullptr ? "true" : "false")
+            << "}";
+  const auto call = BeginCall(
+      "PassThruSetProgrammingVoltage", DeviceID, arguments.str());
+  bool provider_called = false;
+  const long result = ForwardProgrammingVoltageWithPolicy(
+      policy_enabled, g_set_programming_voltage, DeviceID, PinNumber, Voltage,
+      &provider_called);
+  std::ostringstream outputs;
+  outputs << "{\"providerCalled\":"
+          << (provider_called ? "true" : "false") << "}";
+  EndCall(call, "PassThruSetProgrammingVoltage", result, outputs.str());
   return result;
 }
 
