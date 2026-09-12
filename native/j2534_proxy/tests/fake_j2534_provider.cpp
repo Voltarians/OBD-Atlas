@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include <algorithm>
 #include <cstring>
 
 #include "../j2534_api.h"
@@ -21,6 +22,21 @@ bool MessageMatches(const atlas_j2534::PASSTHRU_MSG* message,
     return false;
   }
   return std::memcmp(message->Data, expected, 4) == 0;
+}
+
+void FillReadMessage(atlas_j2534::PASSTHRU_MSG* message,
+                     unsigned long rx_status,
+                     unsigned long timestamp,
+                     const unsigned char* data,
+                     unsigned long data_size) {
+  std::memset(message, 0, sizeof(*message));
+  message->ProtocolID = atlas_j2534::PROTOCOL_ISO15765;
+  message->RxStatus = rx_status;
+  message->TxFlags = 0;
+  message->Timestamp = timestamp;
+  message->DataSize = data_size;
+  message->ExtraDataIndex = data_size;
+  std::memcpy(message->Data, data, data_size);
 }
 }
 
@@ -87,6 +103,35 @@ extern "C" __declspec(dllexport) long WINAPI PassThruStopMsgFilter(
   if (ChannelID != kChannelId) return atlas_j2534::ERR_INVALID_CHANNEL_ID;
   return FilterID == kFilterId ? atlas_j2534::STATUS_NOERROR
                                : atlas_j2534::ERR_INVALID_FILTER_ID;
+}
+
+extern "C" __declspec(dllexport) long WINAPI PassThruReadMsgs(
+    unsigned long ChannelID, atlas_j2534::PASSTHRU_MSG* pMsg,
+    unsigned long* pNumMsgs, unsigned long Timeout) {
+  if (ChannelID != kChannelId) return atlas_j2534::ERR_INVALID_CHANNEL_ID;
+  if (pMsg == nullptr || pNumMsgs == nullptr || *pNumMsgs == 0) {
+    return atlas_j2534::ERR_NULL_PARAMETER;
+  }
+  if (Timeout == 0) {
+    *pNumMsgs = 0;
+    return atlas_j2534::ERR_TIMEOUT;
+  }
+
+  constexpr unsigned char kMessage0[] = {
+      0x00, 0x00, 0x07, 0xE8, 0x03, 0x62, 0x43, 0x56};
+  constexpr unsigned char kMessage1[] = {
+      0x00, 0x00, 0x07, 0xE8, 0x04, 0x62, 0x43, 0xAF, 0x80};
+  const unsigned long count = std::min<unsigned long>(*pNumMsgs, 2);
+  if (count >= 1) {
+    FillReadMessage(&pMsg[0], 0x00000001, 1000, kMessage0,
+                    static_cast<unsigned long>(sizeof(kMessage0)));
+  }
+  if (count >= 2) {
+    FillReadMessage(&pMsg[1], 0x00000002, 1010, kMessage1,
+                    static_cast<unsigned long>(sizeof(kMessage1)));
+  }
+  *pNumMsgs = count;
+  return atlas_j2534::STATUS_NOERROR;
 }
 
 extern "C" __declspec(dllexport) long WINAPI PassThruReadVersion(
