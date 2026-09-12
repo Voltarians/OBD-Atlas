@@ -24,7 +24,22 @@ Run the generic session extractor against an Atlas/candump capture:
 python3 tool/extract_gm_tool_session.py capture.log --json-out gm-session.json
 ```
 
-The parser currently recognizes classic ISO-TP plus common GM/UDS services including:
+The generic extractor recognizes both classic ISO-TP diagnostic traffic and legacy unframed GM request/response families when they match a provenance-preserving address reference. By default it loads:
+
+- `assets/diagnostics/gm_legacy_simulation_address_reference.json` as `legacyReference` evidence; and
+- `assets/diagnostics/chevrolet_volt_gen1_hpcm2_did_candidates.json` for the Gen-1 HPCM2 `0x7E4 / 0x7EC / 0x5EC` family as `communityCandidate` evidence.
+
+Additional reference catalogs can be supplied by repeating `--address-reference`. Use `--no-address-reference` to run service extraction without ECU/address-family matching.
+
+The JSON output now separates three related layers:
+
+- `events` — decoded request/response service events, including transport type and likely module when the address evidence is unique;
+- `endpointTraffic` — raw counts for matched request, response and data-stream CAN IDs, including unframed `0x5xx` streams that Atlas does not falsely decode as UDS; and
+- `transactions` — uniquely addressed request/response pairs with initial and final response latency. A `0x7F .. 0x78` response-pending event is retained as the initial response while pairing continues to the terminal response.
+
+Address-family labels retain the confidence of their source catalog. A `legacyReference` match is not upgraded to a vehicle-confirmed ECU mapping merely because traffic appeared on that CAN ID.
+
+The parser recognizes common GM/UDS services including:
 
 - `0x04` legacy clear diagnostic information
 - `0x09` vehicle information
@@ -50,7 +65,7 @@ The parser currently recognizes classic ISO-TP plus common GM/UDS services inclu
 
 `TransferData` block bytes are redacted from the normal JSON output unless `--include-transfer-data` is explicitly requested. Counts, block sequence numbers and programming-phase evidence remain available without retaining firmware payload contents.
 
-For HPCM2 Data Display work, `tool/extract_gds2_dids.py` remains the more specialized mapper for the known Gen-1 Volt `0x7E4 -> 0x7EC` physical path and GM dynamic `0x2C` / `0xAA` data on `0x5EC`.
+For HPCM2 Data Display work, `tool/extract_gds2_dids.py` remains the more specialized mapper for the known Gen-1 Volt `0x7E4 -> 0x7EC` physical path and GM dynamic `0x2C` / `0xAA` data on `0x5EC`. The generic session extractor now recognizes that same address family so its transaction timing and module attribution can be compared directly with the specialized DID output.
 
 ## Capture metadata
 
@@ -79,6 +94,7 @@ Atlas keeps these categories separate:
 2. **communityCorroborated** — at least three qualifying independent source families agree.
 3. **candidate** — plausible or correlated but not yet proven.
 4. **gmServiceDocumented** — GM documents the parameter name, role or expected range but Atlas has not yet mapped its transport identifier.
+5. **legacyReference** — an older GM diagnostic transcript/reference provides useful addressing or protocol evidence, but Atlas has not established that the mapping belongs to this specific vehicle/module configuration.
 
 A service-manual parameter name must not be turned into a DID by assumption. A captured DID must not be assigned a parameter name solely because they appeared in the same broad screen.
 
