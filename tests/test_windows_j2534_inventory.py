@@ -48,6 +48,40 @@ class WindowsJ2534InventoryTests(unittest.TestCase):
             self.assertTrue(metadata["exists"])
             self.assertEqual(metadata["sizeBytes"], 3)
 
+    def test_select_provider_requires_one_exact_match(self):
+        providers = [
+            {
+                "registryPath": r"SOFTWARE\PassThruSupport.04.04",
+                "registrySubkey": "VCX Nano",
+                "name": "VCX Nano J2534",
+                "vendor": "VXDIAG",
+                "functionLibrary": {"path": r"C:\vcx\passthru.dll", "exists": True},
+            },
+            {
+                "registryPath": r"SOFTWARE\PassThruSupport.04.04",
+                "registrySubkey": "Other",
+                "name": "Other J2534",
+                "vendor": "Other",
+                "functionLibrary": {"path": r"C:\other\passthru.dll", "exists": True},
+            },
+        ]
+        selected = module.select_provider(providers, exact_name="VCX Nano J2534")
+        self.assertEqual(selected["registrySubkey"], "VCX Nano")
+        self.assertTrue(selected["selectionReadOnly"])
+        self.assertEqual(len(selected["providerFingerprintSha256"]), 64)
+
+    def test_select_provider_fails_closed_on_ambiguity_or_no_match(self):
+        providers = [
+            {"registrySubkey": "A", "name": "Same", "functionLibrary": {}},
+            {"registrySubkey": "B", "name": "Same", "functionLibrary": {}},
+        ]
+        with self.assertRaisesRegex(ValueError, "matched 2 providers"):
+            module.select_provider(providers, exact_name="Same")
+        with self.assertRaisesRegex(ValueError, "matched 0 providers"):
+            module.select_provider(providers, registry_subkey="Missing")
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            module.select_provider(providers, exact_name="Same", registry_subkey="A")
+
 
 if __name__ == "__main__":
     unittest.main()
