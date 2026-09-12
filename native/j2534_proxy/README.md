@@ -64,6 +64,24 @@ For all other IOCTL IDs, Atlas records only the IOCTL ID and pointer presence. I
 
 Important distinction: `READ_PROG_VOLTAGE` is a read-only IOCTL. `PassThruSetProgrammingVoltage` can request a provider to drive voltage and is therefore guarded by the additional opt-in policy documented in `docs/J2534_PROGRAMMING_VOLTAGE_POLICY.md`.
 
+## Trace durability and group commit
+
+Trace records are still written synchronously and in sequence, but the proxy no longer calls the physical `FlushFileBuffers()` operation for every individual JSONL record.
+
+The bounded group-commit policy physically commits the file when any of these conditions is met:
+
+- the session record is written;
+- 256 records have accumulated since the previous physical commit;
+- 100 ms has elapsed since the previous physical commit and another trace record is written;
+- a `PassThruClose` call completes;
+- a `PassThruDisconnect` call completes;
+- a `PassThruStopPeriodicMsg` call completes; or
+- a `PassThruSetProgrammingVoltage` call completes.
+
+This preserves ordered append-only evidence while bounding the abnormal-termination exposure to the most recent uncommitted group. A normal Close/Disconnect path forces a final durable boundary. The policy does not alter J2534 buffers, provider calls, return codes, or call ordering.
+
+The policy has its own Windows acceptance test proving immediate session/lifecycle commits, ordinary-record batching, the 256-record count boundary, and the 100 ms age boundary.
+
 ## Off-vehicle transparency tests
 
 Windows CTest compares direct-provider and proxied behavior for:
@@ -76,20 +94,28 @@ Windows CTest compares direct-provider and proxied behavior for:
 - WriteMsgs ordinary DID requests, sensitive payload redaction, and timeout behavior;
 - IOCTL `SET_CONFIG`, `GET_CONFIG`, `READ_VBATT`, and an invalid opaque IOCTL;
 - programming-voltage policy behavior and end-to-end guarded forwarding;
-- fail-closed invalid provider identity; and
-- concurrent trace sequence ordering.
+- fail-closed invalid provider identity;
+- concurrent trace sequence ordering;
+- bounded trace group-commit behavior; and
+- a 100,000-operation, four-thread sustained-load transparency run.
 
 The programming-voltage integration test proves that a default-blocked call never reaches the fake provider, an explicitly enabled call reaches it with exact device/pin/voltage arguments, provider errors are preserved, and both policy decisions are visible in the trace.
+
+The 100,000-operation gate mixes successful reads/writes, read/write timeouts, `GetLastError`, `READ_VBATT`, SecurityAccess, TransferData, an active flow-control filter, and an active periodic message. It requires zero direct-vs-proxy result mismatches, contiguous trace sequence numbers, correctly paired begin/end records, and no sensitive payload leakage.
+
+### CI performance result
+
+With physical `FlushFileBuffers()` on every trace record, the Windows native CTest step took **944 seconds** on the measured GitHub Actions run. With bounded group commit, the same native suite including the same 100,000-operation gate took **12 seconds** on the next measured Windows run, about a **79x reduction in complete native-suite wall time**. Runner-to-runner timing varies, so this is evidence of the order-of-magnitude improvement rather than a permanent fixed latency guarantee.
 
 ## Acceptance boundary
 
 Passing these off-vehicle tests does **not** authorize vehicle or programming use. Remaining gates include:
 
-- any additional J2534 calls required by the selected GM tool/provider;
-- sustained-load ordering/timeout equivalence;
-- bounded trace overhead;
-- provider-specific testing against real vendor DLLs; and
-- fail-safe bench-interface validation before any in-vehicle session.
+- any additional J2534 calls actually required by the selected GM tool/provider;
+- provider-specific testing against real vendor DLLs;
+- sustained-load and latency characterization with those real vendor DLLs;
+- fail-safe bench-interface validation; and
+- a deliberately staged first GDS2/SPS2/DPS session before any production/programming use.
 
 Programming voltage must remain disabled during ordinary diagnostic observation. Enabling it is reserved for a later, explicitly approved bench or programming workflow.
 
