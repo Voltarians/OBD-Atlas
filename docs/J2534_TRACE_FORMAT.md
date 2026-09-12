@@ -8,9 +8,9 @@ The format is **JSON Lines**: one complete JSON object per line. It is append-on
 
 The standalone Python trace writer/parser does not load a J2534 DLL, open an interface, transmit CAN, change filters, set programming voltage, or synthesize vehicle messages.
 
-The native Windows proxy uses the same trace semantics while forwarding the currently accepted device, channel, filter, message, and IOCTL APIs to a selected provider. Atlas never generates an extra request or IOCTL merely because tracing is enabled.
+The native Windows proxy uses the same trace semantics while forwarding the currently accepted device, channel, filter, message, IOCTL, and guarded programming-voltage APIs to a selected provider. Atlas never generates an extra request, IOCTL, or programming-voltage command merely because tracing is enabled.
 
-`PassThruSetProgrammingVoltage` remains unimplemented and unexported. The native proxy is still restricted to off-vehicle acceptance testing until the remaining API and bench-safety gates pass.
+`PassThruSetProgrammingVoltage` is exported but blocked by default. It reaches the selected provider only when `OBD_ATLAS_J2534_ALLOW_PROGRAMMING_VOLTAGE=1` is present exactly. The native proxy is still restricted to off-vehicle acceptance testing until the remaining API and bench-safety gates pass.
 
 ## Record ordering
 
@@ -22,7 +22,7 @@ Every record contains:
 - `utc`: wall-clock UTC timestamp
 - `monotonicNs`: monotonic timestamp used for latency/order correlation
 
-The first record is always `session`. Each PassThru invocation produces a `callBegin` before forwarding and a matching `callEnd` after the vendor DLL returns. Both share one `callId`.
+The first record is always `session`. Each PassThru invocation produces a `callBegin` before forwarding and a matching `callEnd` after the provider/policy result is known. Both share one `callId`.
 
 ## Session record
 
@@ -37,9 +37,9 @@ A `callBegin` can record:
 - structured arguments
 - normalized message snapshots when applicable
 
-A matching `callEnd` records the provider return code, duration, and structured outputs.
+A matching `callEnd` records the provider/policy return code, duration, and structured outputs.
 
-Return codes and caller buffers always remain the vendor DLL's results. Tracing is observational.
+Return codes and caller buffers remain the provider's results for forwarded calls. Calls blocked by Atlas's programming-voltage policy return the documented policy result without invoking the provider.
 
 ## Message representation
 
@@ -62,7 +62,26 @@ For all other IOCTL IDs, Atlas records only the IOCTL ID and whether input/outpu
 
 Known snapshots are read using `ReadProcessMemory(GetCurrentProcess(), ...)` rather than ordinary pointer dereferences. This keeps evidence collection from adding a normal invalid-pointer access before the vendor DLL sees the original pointer.
 
-`READ_PROG_VOLTAGE` is distinct from the voltage-setting API. `PassThruSetProgrammingVoltage` is still absent.
+## Programming-voltage representation
+
+`PassThruSetProgrammingVoltage(DeviceID, PinNumber, Voltage)` has an additional fail-closed safety layer.
+
+The `callBegin` record includes:
+
+- `deviceId` through the standard call metadata;
+- `pinNumber`;
+- raw `voltage`;
+- `policyEnabled`; and
+- `providerFunctionPresent`.
+
+The matching `callEnd` includes:
+
+- the final J2534 return code; and
+- `providerCalled`.
+
+When policy is disabled, `providerCalled` must be `false` and the proxy returns `ERR_NOT_SUPPORTED`. When policy is explicitly enabled, Atlas forwards the exact caller-supplied device ID, pin, and voltage unchanged. If the provider lacks the function, the call still fails closed with `ERR_NOT_SUPPORTED`.
+
+`READ_PROG_VOLTAGE` remains distinct: it is a read-only IOCTL and does not use this write-safety policy.
 
 ## Current native API surface
 
@@ -77,6 +96,7 @@ The native proxy currently forwards and traces:
 - `PassThruReadMsgs`
 - `PassThruWriteMsgs`
 - `PassThruIoctl`
+- `PassThruSetProgrammingVoltage` — default blocked, explicit opt-in required
 - `PassThruReadVersion`
 - `PassThruGetLastError`
 
@@ -90,20 +110,20 @@ Windows CI compares direct fake-provider behavior with proxied behavior for:
 - successful and timeout WriteMsgs;
 - SecurityAccess/TransferData redaction while forwarding the original bytes;
 - IOCTL `SET_CONFIG`, `GET_CONFIG`, `READ_VBATT`, and an invalid opaque IOCTL;
+- programming-voltage policy plus end-to-end default-blocked/explicitly-enabled forwarding;
 - fail-closed provider identity; and
 - concurrent trace sequence ordering.
 
-The IOCTL test requires identical return codes, `SCONFIG` memory, battery-voltage output, and untouched sentinel buffers on the rejected IOCTL path.
+The programming-voltage proxy test verifies that the blocked call never reaches the provider, the enabled call reaches it with exact arguments, provider error codes remain unchanged, and both decisions are represented in the trace.
 
 ## Proxy acceptance gate
 
 Before use with SPS/SPS2, DPS, or other real vehicle/programming sessions, remaining gates include:
 
-1. `PassThruSetProgrammingVoltage` behavior and safety policy;
-2. periodic-message APIs and any remaining calls required by the chosen GM tool/provider;
-3. sustained-load ordering and timeout equivalence;
-4. bounded trace overhead;
-5. provider-specific behavior against real vendor DLLs; and
-6. fail-safe bench-interface validation before any in-vehicle session.
+1. periodic-message APIs and any remaining calls required by the chosen GM tool/provider;
+2. sustained-load ordering and timeout equivalence;
+3. bounded trace overhead;
+4. provider-specific behavior against real vendor DLLs; and
+5. fail-safe bench-interface validation before any in-vehicle session.
 
-Until those gates pass, Windows Atlas raw-bus capture through independent passive adapters remains the approved vehicle-observation method.
+Programming voltage must remain disabled during ordinary diagnostic observation. Until all remaining gates pass, Windows Atlas raw-bus capture through independent passive adapters remains the approved vehicle-observation method.
