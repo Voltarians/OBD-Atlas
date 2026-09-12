@@ -10,7 +10,12 @@
   "conventions": {
     "byteIndexing": "zero-based",
     "bitIndexing": "zero-based, least-significant bit is bit 0",
-    "channelNames": {"2": "can1", "4": "can3", "5": "can4"}
+    "channelNames": {
+      "2": "can1",
+      "3": "can2",
+      "4": "can3",
+      "5": "can4"
+    }
   },
   "signals": [
     {"name":"brakeSwitch","status":"confirmed","channel":4,"canId":"0x17D","extended":false,"decode":{"type":"bit","byte":2,"bit":5,"false":"released","true":"applied"}},
@@ -29,6 +34,11 @@
     {"name":"hood","status":"confirmed","channel":5,"canId":"0x10728040","extended":true,"decode":{"type":"enum","byte":0,"values":{"0x00":"closed","0x02":"open"}}},
     {"name":"driverSeatBelt","status":"confirmed","channel":5,"canId":"0x10336058","extended":true,"decode":{"type":"bit","byte":0,"bit":0,"false":"unlatched","true":"latched"}},
     {"name":"frontPassengerSeatBelt","status":"confirmed","channel":5,"canId":"0x10336058","extended":true,"decode":{"type":"bit","byte":0,"bit":2,"false":"unlatched","true":"latched"}},
-    {"name":"exteriorLightMode","status":"confirmed","channel":4,"canId":"0x140","extended":false,"decode":{"type":"payloadEnum","values":{"000A01":"manualOff","001201":"parking","021A01":"lowBeam","821C01":"highBeam","120201":"auto"},"note":"Byte 0 bit 7 is the high-beam indicator"}}
+    {"name":"exteriorLightMode","status":"confirmed","channel":4,"canId":"0x140","extended":false,"decode":{"type":"payloadEnum","values":{"000A01":"manualOff","001201":"parking","021A01":"lowBeam","821C01":"highBeam","120201":"auto"},"note":"Byte 0 bit 7 is the high-beam indicator"}},
+    {"name":"systemPowerMode","status":"confirmed","channel":2,"canId":"0x1F1","extended":false,"decode":{"type":"bitfieldEnum","byte":0,"mask":"0x03","shift":0,"values":{"0x00":"off","0x01":"accessory","0x02":"run","0x03":"crankRequest"},"note":"BCM power-mode master. Startup capture transitioned 0 -> 3 -> 2 during OFF -> start request -> RUN."},"provenance":{"capture":"atlas_capture_20260912_030630.log","community":"GM Global A / OpenDBC","service":"Gen-1 Volt BCM power-mode description"}},
+    {"name":"hvBatteryVoltage","status":"confirmed","channel":2,"canId":"0x2C7","extended":false,"decode":{"type":"dbcSignal","startBit":31,"length":12,"endianness":"motorola","signed":false,"scale":0.125,"offset":0,"unit":"V","note":"Cross-validated in the startup capture against CH3 0x210 Pack_Voltage at approximately 380.5 V."},"provenance":{"capture":"atlas_capture_20260912_030630.log","community":"GM Global A powertrain OpenDBC"}},
+    {"name":"hvBatteryCurrentCandidate","status":"candidate","channel":2,"canId":"0x2C7","extended":false,"decode":{"type":"dbcSignal","startBit":12,"length":13,"endianness":"motorola","signed":true,"scale":0.15,"offset":0,"unit":"A","note":"Community decode matches a startup current excursion, but sign and scale still need controlled load/charge validation on the test vehicle."},"provenance":{"capture":"atlas_capture_20260912_030630.log","community":"GM Global A powertrain OpenDBC"}},
+    {"name":"packVoltage","status":"confirmed","channel":3,"canId":"0x210","extended":false,"decode":{"type":"dbcSignal","startBit":7,"length":12,"endianness":"motorola","signed":false,"scale":0.125,"offset":0,"unit":"V","note":"Observed payload BE44... decodes to 380.5 V and agrees with CH2 0x2C7 HVBatteryVoltage."},"provenance":{"capture":"atlas_capture_20260912_030630.log","community":"GM Global A high-voltage-management OpenDBC"}},
+    {"name":"packCurrentCandidate","status":"candidate","channel":3,"canId":"0x210","extended":false,"decode":{"type":"dbcSignal","startBit":23,"length":8,"endianness":"motorola","signed":true,"scale":0.1,"offset":-0.1,"unit":"A","note":"Community definition retained as candidate until sign and scale are independently validated on the test vehicle."},"provenance":{"community":"GM Global A high-voltage-management OpenDBC"}}
   ]
 }
