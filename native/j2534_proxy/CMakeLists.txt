@@ -29,47 +29,37 @@ if(BUILD_TESTING)
   target_include_directories(fake_j2534_provider PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_compile_definitions(fake_j2534_provider PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 
-  add_executable(j2534_proxy_lifecycle_test
-    tests/proxy_lifecycle_test.cpp
-  )
+  add_executable(j2534_proxy_lifecycle_test tests/proxy_lifecycle_test.cpp)
   target_include_directories(j2534_proxy_lifecycle_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_compile_definitions(j2534_proxy_lifecycle_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 
-  add_executable(j2534_proxy_invalid_config_test
-    tests/proxy_invalid_config_test.cpp
-  )
+  add_executable(j2534_proxy_invalid_config_test tests/proxy_invalid_config_test.cpp)
   target_include_directories(j2534_proxy_invalid_config_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_compile_definitions(j2534_proxy_invalid_config_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 
-  add_executable(j2534_proxy_concurrency_test
-    tests/proxy_concurrency_test.cpp
-  )
+  add_executable(j2534_proxy_concurrency_test tests/proxy_concurrency_test.cpp)
   target_include_directories(j2534_proxy_concurrency_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_compile_definitions(j2534_proxy_concurrency_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 
-  add_executable(j2534_proxy_connection_test
-    tests/proxy_connection_test.cpp
-  )
+  add_executable(j2534_proxy_connection_test tests/proxy_connection_test.cpp)
   target_include_directories(j2534_proxy_connection_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_compile_definitions(j2534_proxy_connection_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 
-  add_executable(j2534_proxy_filter_test
-    tests/proxy_filter_test.cpp
-  )
+  add_executable(j2534_proxy_filter_test tests/proxy_filter_test.cpp)
   target_include_directories(j2534_proxy_filter_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_compile_definitions(j2534_proxy_filter_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 
-  add_executable(j2534_proxy_read_msgs_test
-    tests/proxy_read_msgs_test.cpp
-  )
+  add_executable(j2534_proxy_read_msgs_test tests/proxy_read_msgs_test.cpp)
   target_include_directories(j2534_proxy_read_msgs_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_compile_definitions(j2534_proxy_read_msgs_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 
-  add_executable(j2534_proxy_write_msgs_test
-    tests/proxy_write_msgs_test.cpp
-  )
+  add_executable(j2534_proxy_write_msgs_test tests/proxy_write_msgs_test.cpp)
   target_include_directories(j2534_proxy_write_msgs_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_compile_definitions(j2534_proxy_write_msgs_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+
+  add_executable(j2534_proxy_ioctl_test tests/proxy_ioctl_test.cpp)
+  target_include_directories(j2534_proxy_ioctl_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_compile_definitions(j2534_proxy_ioctl_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 
   add_test(
     NAME j2534_proxy_lifecycle_transparency
@@ -110,6 +100,12 @@ if(BUILD_TESTING)
   add_test(
     NAME j2534_proxy_write_msgs_transparency
     COMMAND j2534_proxy_write_msgs_test
+      $<TARGET_FILE:obd_atlas_j2534_proxy>
+      $<TARGET_FILE:fake_j2534_provider>
+  )
+  add_test(
+    NAME j2534_proxy_ioctl_transparency
+    COMMAND j2534_proxy_ioctl_test
       $<TARGET_FILE:obd_atlas_j2534_proxy>
       $<TARGET_FILE:fake_j2534_provider>
   )
