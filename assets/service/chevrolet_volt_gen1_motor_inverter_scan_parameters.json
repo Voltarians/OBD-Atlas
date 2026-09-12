@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "catalogId": "chevrolet-volt-gen1-motor-inverter-gm-scan-parameters",
+  "vehicle": {"make":"Chevrolet","model":"Volt","generation":1,"modelYearReference":2012},
+  "confidence": "gmServiceDocumented",
+  "mappingPolicy": {
+    "did": "unknownUntilCaptured",
+    "transport": "unknownUntilCaptured",
+    "note": "GM service information documents these scan-tool parameters and diagnostic relationships. Atlas must not invent diagnostic IDs, scaling, or transport mapping until captured or independently corroborated."
+  },
+  "sources": [
+    {"id":"gm2012-p0a33","title":"2012 Chevrolet Volt P0A2B-P0A2D/P0A31-P0A33 diagnostic","url":"https://charm.li/Chevrolet/2012/Volt%20L4-1.4L%20Elect/Repair%20and%20Diagnosis/A%20L%20L%20%20Diagnostic%20Trouble%20Codes%20%28%20DTC%20%29/Testing%20and%20Inspection/P%20Code%20Charts/P0A33/"},
+    {"id":"gm2013-index","title":"2013 Chevrolet Volt service-manual scan-tool index","url":"https://charm.li/Chevrolet/2013/Volt%20L4-1.4L%20Elect/Repair%20and%20Diagnosis/"}
+  ],
+  "parameters": [
+    {"name":"Motor 1 Temperature","module":"Motor Control Module 1 / T6 Power Inverter Module","group":"Motor/Inverter Temperature","valueType":"number","unit":"degC","expected":"-41 to 184 degC diagnostic range; after cold soak should be within 28 degC of Motor 2, transmission fluid and inverter-module temperatures","did":null,"transport":null,"source":"gm2012-p0a33"},
+    {"name":"Motor 2 Temperature","module":"Motor Control Module 2 / T6 Power Inverter Module","group":"Motor/Inverter Temperature","valueType":"number","unit":"degC","expected":"-41 to 184 degC diagnostic range; after cold soak should be within 28 degC of Motor 1, transmission fluid and inverter-module temperatures","did":null,"transport":null,"source":"gm2012-p0a33"},
+    {"name":"Transmission Fluid Temperature","module":"Powertrain/Transmission","group":"Motor/Inverter Temperature Cross-Check","valueType":"number","unit":"degC","expected":"Used by GM as a thermal plausibility reference against both motor temperatures and inverter-module temperature","did":null,"transport":null,"source":"gm2012-p0a33"},
+    {"name":"Power Inverter Module Temperature","module":"T6 Power Inverter Module","group":"Motor/Inverter Temperature","valueType":"number","unit":"degC","expected":"After cold soak should be within 28 degC of Motor 1, Motor 2 and transmission-fluid temperatures","did":null,"transport":null,"source":"gm2012-p0a33"}
+  ],
+  "moduleTargets": [
+    {"name":"Motor Control Module 1 Scan Tool Information","status":"servicePageConfirmed","source":"gm2013-index"},
+    {"name":"Motor Control Module 2 Scan Tool Information","status":"servicePageConfirmed","source":"gm2013-index"},
+    {"name":"Hybrid Powertrain Control Module Scan Tool Information","status":"servicePageConfirmed","source":"gm2013-index"}
+  ]
+}
