@@ -11,6 +11,9 @@ constexpr unsigned long kDeviceId = 0x1234;
 constexpr unsigned long kChannelId = 0x2345;
 constexpr unsigned long kFilterId = 0x3456;
 constexpr unsigned long kBaudRate = 500000;
+constexpr unsigned long kBatteryMillivolts = 12340;
+unsigned long g_data_rate = kBaudRate;
+unsigned long g_loopback = 0;
 
 bool MessageMatches(const atlas_j2534::PASSTHRU_MSG* message,
                     const unsigned char (&expected)[4]) {
@@ -52,7 +55,39 @@ void FillReadMessage(atlas_j2534::PASSTHRU_MSG* message,
   message->ExtraDataIndex = data_size;
   std::memcpy(message->Data, data, data_size);
 }
+
+long HandleConfig(unsigned long IoctlID, void* pInput, void* pOutput) {
+  if (pInput == nullptr || pOutput != nullptr) {
+    return atlas_j2534::ERR_NULL_PARAMETER;
+  }
+  auto* list = static_cast<atlas_j2534::SCONFIG_LIST*>(pInput);
+  if (list->NumOfParams == 0 || list->ConfigPtr == nullptr) {
+    return atlas_j2534::ERR_NULL_PARAMETER;
+  }
+
+  for (unsigned long index = 0; index < list->NumOfParams; ++index) {
+    auto& config = list->ConfigPtr[index];
+    if (config.Parameter == atlas_j2534::CONFIG_DATA_RATE) {
+      if (IoctlID == atlas_j2534::IOCTL_GET_CONFIG) {
+        config.Value = g_data_rate;
+      } else {
+        if (config.Value != kBaudRate) return atlas_j2534::ERR_INVALID_IOCTL_VALUE;
+        g_data_rate = config.Value;
+      }
+    } else if (config.Parameter == atlas_j2534::CONFIG_LOOPBACK) {
+      if (IoctlID == atlas_j2534::IOCTL_GET_CONFIG) {
+        config.Value = g_loopback;
+      } else {
+        if (config.Value > 1) return atlas_j2534::ERR_INVALID_IOCTL_VALUE;
+        g_loopback = config.Value;
+      }
+    } else {
+      return atlas_j2534::ERR_INVALID_IOCTL_VALUE;
+    }
+  }
+  return atlas_j2534::STATUS_NOERROR;
 }
+}  // namespace
 
 extern "C" __declspec(dllexport) long WINAPI PassThruOpen(
     void*, unsigned long* pDeviceID) {
@@ -196,6 +231,24 @@ extern "C" __declspec(dllexport) long WINAPI PassThruWriteMsgs(
   }
 
   return atlas_j2534::ERR_TIMEOUT;
+}
+
+extern "C" __declspec(dllexport) long WINAPI PassThruIoctl(
+    unsigned long ChannelID, unsigned long IoctlID,
+    void* pInput, void* pOutput) {
+  if (ChannelID != kChannelId) return atlas_j2534::ERR_INVALID_CHANNEL_ID;
+  if (IoctlID == atlas_j2534::IOCTL_GET_CONFIG ||
+      IoctlID == atlas_j2534::IOCTL_SET_CONFIG) {
+    return HandleConfig(IoctlID, pInput, pOutput);
+  }
+  if (IoctlID == atlas_j2534::IOCTL_READ_VBATT) {
+    if (pInput != nullptr || pOutput == nullptr) {
+      return atlas_j2534::ERR_NULL_PARAMETER;
+    }
+    *static_cast<unsigned long*>(pOutput) = kBatteryMillivolts;
+    return atlas_j2534::STATUS_NOERROR;
+  }
+  return atlas_j2534::ERR_INVALID_IOCTL_ID;
 }
 
 extern "C" __declspec(dllexport) long WINAPI PassThruReadVersion(
