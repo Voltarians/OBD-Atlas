@@ -2,5 +2,7 @@ LIBRARY "obd_atlas_j2534_proxy"
 EXPORTS
     PassThruOpen
     PassThruClose
+    PassThruConnect
+    PassThruDisconnect
     PassThruReadVersion
     PassThruGetLastError
