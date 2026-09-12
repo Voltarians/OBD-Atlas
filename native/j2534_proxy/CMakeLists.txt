@@ -34,9 +34,21 @@ if(BUILD_TESTING)
   target_include_directories(j2534_proxy_lifecycle_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_compile_definitions(j2534_proxy_lifecycle_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 
+  add_executable(j2534_proxy_invalid_config_test
+    tests/proxy_invalid_config_test.cpp
+  )
+  target_include_directories(j2534_proxy_invalid_config_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_compile_definitions(j2534_proxy_invalid_config_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+
   add_test(
     NAME j2534_proxy_lifecycle_transparency
     COMMAND j2534_proxy_lifecycle_test
+      $<TARGET_FILE:obd_atlas_j2534_proxy>
+      $<TARGET_FILE:fake_j2534_provider>
+  )
+  add_test(
+    NAME j2534_proxy_invalid_provider_identity
+    COMMAND j2534_proxy_invalid_config_test
       $<TARGET_FILE:obd_atlas_j2534_proxy>
       $<TARGET_FILE:fake_j2534_provider>
   )
