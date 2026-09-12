@@ -15,6 +15,7 @@ add_library(obd_atlas_j2534_proxy SHARED
 )
 target_include_directories(obd_atlas_j2534_proxy PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(obd_atlas_j2534_proxy PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(obd_atlas_j2534_proxy PRIVATE bcrypt)
 if(MSVC)
   target_compile_options(obd_atlas_j2534_proxy PRIVATE /W4 /permissive-)
 endif()
@@ -64,6 +65,12 @@ if(BUILD_TESTING)
   target_include_directories(j2534_proxy_read_msgs_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_compile_definitions(j2534_proxy_read_msgs_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 
+  add_executable(j2534_proxy_write_msgs_test
+    tests/proxy_write_msgs_test.cpp
+  )
+  target_include_directories(j2534_proxy_write_msgs_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_compile_definitions(j2534_proxy_write_msgs_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+
   add_test(
     NAME j2534_proxy_lifecycle_transparency
     COMMAND j2534_proxy_lifecycle_test
@@ -97,6 +104,12 @@ if(BUILD_TESTING)
   add_test(
     NAME j2534_proxy_read_msgs_transparency
     COMMAND j2534_proxy_read_msgs_test
+      $<TARGET_FILE:obd_atlas_j2534_proxy>
+      $<TARGET_FILE:fake_j2534_provider>
+  )
+  add_test(
+    NAME j2534_proxy_write_msgs_transparency
+    COMMAND j2534_proxy_write_msgs_test
       $<TARGET_FILE:obd_atlas_j2534_proxy>
       $<TARGET_FILE:fake_j2534_provider>
   )
