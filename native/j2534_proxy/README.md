@@ -1,6 +1,6 @@
 # OBD Atlas J2534 message-forwarding proxy
 
-This directory contains the **off-vehicle connection, filter, message, IOCTL, and guarded programming-voltage** foundation for the planned Windows J2534 observer/forwarder.
+This directory contains the **off-vehicle connection, periodic-message, filter, message, IOCTL, and guarded programming-voltage** foundation for the planned Windows J2534 observer/forwarder.
 
 ## Current exported API
 
@@ -10,6 +10,8 @@ The proxy currently forwards:
 - `PassThruClose`
 - `PassThruConnect`
 - `PassThruDisconnect`
+- `PassThruStartPeriodicMsg`
+- `PassThruStopPeriodicMsg`
 - `PassThruStartMsgFilter`
 - `PassThruStopMsgFilter`
 - `PassThruReadMsgs`
@@ -19,9 +21,9 @@ The proxy currently forwards:
 - `PassThruReadVersion`
 - `PassThruGetLastError`
 
-Periodic-message APIs and the remaining J2534 surface are not implemented yet.
+The remaining J2534 surface is not implemented yet.
 
-This DLL is still **not authorized for GDS2/SPS2/DPS vehicle use**. It only forwards calls made by the source application; Atlas never synthesizes an extra diagnostic request, IOCTL, or programming-voltage request. The current gates prove forwarding against an off-vehicle fake provider.
+This DLL is still **not authorized for GDS2/SPS2/DPS vehicle use**. It only forwards calls made by the source application; Atlas never synthesizes an extra diagnostic request, periodic message, IOCTL, or programming-voltage request. The current gates prove forwarding against an off-vehicle fake provider.
 
 ## Configuration
 
@@ -46,7 +48,9 @@ Programming-voltage forwarding is separately fail-closed. Only the exact value `
 
 The DLL emits `obd-atlas.j2534-trace.v1` JSONL records with one session record and paired `callBegin` / `callEnd` records.
 
-`PassThruConnect`, filters, ReadMsgs, and WriteMsgs retain the transparency behavior documented in `docs/J2534_TRACE_FORMAT.md`. SecurityAccess (`0x27`) and TransferData (`0x36`) write payloads are redacted in the trace by default while their original bytes are still forwarded unchanged to the provider.
+`PassThruConnect`, periodic messages, filters, ReadMsgs, and WriteMsgs retain the transparency behavior documented in `docs/J2534_TRACE_FORMAT.md`. SecurityAccess (`0x27`) and TransferData (`0x36`) write payloads are redacted in the trace by default while their original bytes are still forwarded unchanged to the provider.
+
+`PassThruStartPeriodicMsg` records the exact caller-supplied message snapshot and interval before forwarding. A provider-assigned message ID is recorded only on successful return. `PassThruStopPeriodicMsg` records the exact caller-supplied periodic message ID. Atlas does not create, alter, reschedule, or stop any periodic message on its own.
 
 `PassThruIoctl` passes the caller's **original `pInput` and `pOutput` pointers unchanged** to the provider. Atlas only interprets structures whose J2534 shape is known:
 
@@ -66,6 +70,7 @@ Windows CTest compares direct-provider and proxied behavior for:
 
 - device lifecycle and version/error text;
 - Connect/Disconnect;
+- StartPeriodicMsg/StopPeriodicMsg, including exact message/interval forwarding and rejected-interval output preservation;
 - ISO15765 flow-control filters;
 - ReadMsgs success and timeout paths;
 - WriteMsgs ordinary DID requests, sensitive payload redaction, and timeout behavior;
@@ -80,7 +85,7 @@ The programming-voltage integration test proves that a default-blocked call neve
 
 Passing these off-vehicle tests does **not** authorize vehicle or programming use. Remaining gates include:
 
-- periodic-message APIs and any additional J2534 calls required by the selected GM tool/provider;
+- any additional J2534 calls required by the selected GM tool/provider;
 - sustained-load ordering/timeout equivalence;
 - bounded trace overhead;
 - provider-specific testing against real vendor DLLs; and
