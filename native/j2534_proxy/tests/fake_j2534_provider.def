@@ -4,5 +4,7 @@ EXPORTS
     PassThruClose
     PassThruConnect
     PassThruDisconnect
+    PassThruStartMsgFilter
+    PassThruStopMsgFilter
     PassThruReadVersion
     PassThruGetLastError
