@@ -1,8 +1,6 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-#include <string>
-
 #include "j2534_api.h"
 #include "programming_voltage_policy.h"
 
@@ -16,7 +14,8 @@ constexpr wchar_t kEnableVariable[] =
 bool ProgrammingVoltageExplicitlyEnabled() {
   wchar_t buffer[8]{};
   const DWORD written = GetEnvironmentVariableW(
-      kEnableVariable, buffer, static_cast<DWORD>(std::size(buffer)));
+      kEnableVariable, buffer,
+      static_cast<DWORD>(sizeof(buffer) / sizeof(buffer[0])));
   return written == 1 && buffer[0] == L'1' && buffer[1] == L'\0';
 }
 
