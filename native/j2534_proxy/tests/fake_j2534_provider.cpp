@@ -24,6 +24,20 @@ bool MessageMatches(const atlas_j2534::PASSTHRU_MSG* message,
   return std::memcmp(message->Data, expected, 4) == 0;
 }
 
+bool WriteMessageMatches(const atlas_j2534::PASSTHRU_MSG* message,
+                         const unsigned char* expected,
+                         unsigned long expected_size,
+                         unsigned long expected_tx_flags = 0) {
+  if (message == nullptr) return false;
+  if (message->ProtocolID != atlas_j2534::PROTOCOL_ISO15765 ||
+      message->RxStatus != 0 || message->TxFlags != expected_tx_flags ||
+      message->Timestamp != 0 || message->DataSize != expected_size ||
+      message->ExtraDataIndex != 0) {
+    return false;
+  }
+  return std::memcmp(message->Data, expected, expected_size) == 0;
+}
+
 void FillReadMessage(atlas_j2534::PASSTHRU_MSG* message,
                      unsigned long rx_status,
                      unsigned long timestamp,
@@ -132,6 +146,56 @@ extern "C" __declspec(dllexport) long WINAPI PassThruReadMsgs(
   }
   *pNumMsgs = count;
   return atlas_j2534::STATUS_NOERROR;
+}
+
+extern "C" __declspec(dllexport) long WINAPI PassThruWriteMsgs(
+    unsigned long ChannelID, atlas_j2534::PASSTHRU_MSG* pMsg,
+    unsigned long* pNumMsgs, unsigned long Timeout) {
+  if (ChannelID != kChannelId) return atlas_j2534::ERR_INVALID_CHANNEL_ID;
+  if (pMsg == nullptr || pNumMsgs == nullptr || *pNumMsgs == 0) {
+    return atlas_j2534::ERR_NULL_PARAMETER;
+  }
+  if (Timeout == 0) {
+    *pNumMsgs = 0;
+    return atlas_j2534::ERR_TIMEOUT;
+  }
+
+  constexpr unsigned char kDid0[] = {
+      0x00, 0x00, 0x07, 0xE4, 0x03, 0x22, 0x43, 0x56};
+  constexpr unsigned char kDid1[] = {
+      0x00, 0x00, 0x07, 0xE4, 0x03, 0x22, 0x43, 0xAF};
+  constexpr unsigned char kSecurity[] = {
+      0x00, 0x00, 0x07, 0xE4, 0x04, 0x27, 0x01, 0xA5, 0x5A};
+  constexpr unsigned char kTransfer[] = {
+      0x00, 0x00, 0x07, 0xE4, 0x04, 0x36, 0x01, 0xC3, 0x3C};
+
+  if (Timeout == 50) {
+    if (*pNumMsgs != 2 ||
+        !WriteMessageMatches(&pMsg[0], kDid0, sizeof(kDid0)) ||
+        !WriteMessageMatches(&pMsg[1], kDid1, sizeof(kDid1))) {
+      return atlas_j2534::ERR_INVALID_MSG;
+    }
+    *pNumMsgs = 2;
+    return atlas_j2534::STATUS_NOERROR;
+  }
+  if (Timeout == 60) {
+    if (*pNumMsgs != 1 ||
+        !WriteMessageMatches(&pMsg[0], kSecurity, sizeof(kSecurity))) {
+      return atlas_j2534::ERR_INVALID_MSG;
+    }
+    *pNumMsgs = 1;
+    return atlas_j2534::STATUS_NOERROR;
+  }
+  if (Timeout == 70) {
+    if (*pNumMsgs != 1 ||
+        !WriteMessageMatches(&pMsg[0], kTransfer, sizeof(kTransfer))) {
+      return atlas_j2534::ERR_INVALID_MSG;
+    }
+    *pNumMsgs = 1;
+    return atlas_j2534::STATUS_NOERROR;
+  }
+
+  return atlas_j2534::ERR_TIMEOUT;
 }
 
 extern "C" __declspec(dllexport) long WINAPI PassThruReadVersion(
