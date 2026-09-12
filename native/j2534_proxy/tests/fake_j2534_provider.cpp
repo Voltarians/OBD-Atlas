@@ -12,6 +12,8 @@ constexpr unsigned long kChannelId = 0x2345;
 constexpr unsigned long kFilterId = 0x3456;
 constexpr unsigned long kBaudRate = 500000;
 constexpr unsigned long kBatteryMillivolts = 12340;
+constexpr unsigned long kProgrammingPin = 13;
+constexpr unsigned long kProgrammingVoltage = 12000;
 unsigned long g_data_rate = kBaudRate;
 unsigned long g_loopback = 0;
 
@@ -249,6 +251,16 @@ extern "C" __declspec(dllexport) long WINAPI PassThruIoctl(
     return atlas_j2534::STATUS_NOERROR;
   }
   return atlas_j2534::ERR_INVALID_IOCTL_ID;
+}
+
+extern "C" __declspec(dllexport) long WINAPI PassThruSetProgrammingVoltage(
+    unsigned long DeviceID, unsigned long PinNumber, unsigned long Voltage) {
+  SetEnvironmentVariableW(L"OBD_ATLAS_FAKE_PROGRAMMING_VOLTAGE_CALLED", L"1");
+  if (DeviceID != kDeviceId) return atlas_j2534::ERR_INVALID_DEVICE_ID;
+  if (PinNumber != kProgrammingPin || Voltage != kProgrammingVoltage) {
+    return atlas_j2534::ERR_INVALID_IOCTL_VALUE;
+  }
+  return atlas_j2534::STATUS_NOERROR;
 }
 
 extern "C" __declspec(dllexport) long WINAPI PassThruReadVersion(
