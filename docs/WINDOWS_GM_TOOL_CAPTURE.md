@@ -31,6 +31,24 @@ For Gen-1 Volt research the preferred mapping is:
 
 This lets one Windows laptop run GDS2 while Atlas independently records every populated CAN-family vehicle network available through the X84/X84B breakout harness.
 
+### Live GM diagnostic-event panel
+
+The Windows Capture page includes an observation-only live GM diagnostic panel. It analyzes the existing recent-frame window and does not insert traffic or alter the raw capture stream.
+
+The panel currently recognizes:
+
+- K114B HPCM2 `0x7E4` request / `0x7EC` response / `0x5EC` dynamic stream
+- ECM `0x7E0` / `0x7E8` / `0x5E8`
+- TCM `0x7E2` / `0x7EA` / `0x5EA`
+- Fuel Pump Module `0x7E3` / `0x7EB` / `0x5EB`
+- legacy GM BCM, EBCM, EPS, immobilizer, IPC, keyless-entry, radio and SDM request/response/data-stream families from the Simulation.txt reference catalog
+
+For recognized diagnostic payloads Atlas shows the likely module, address role, service, DID when present, response latency, raw payload, source catalog and evidence confidence. Classic ISO-TP single- and multi-frame payloads are reassembled in the live view. `0x7F xx 0x78` response-pending events retain the original request until a final response arrives.
+
+Raw `0x5xx` data streams are displayed as streams rather than being forced through UDS decoding.
+
+The live display preserves evidence boundaries. HPCM2 remains `communityCandidate` until directly confirmed; Simulation.txt endpoint families remain `legacyReference` until vehicle-specific evidence supports promotion.
+
 ### Why Atlas should not initially share the VCX device
 
 A J2534 interface and its vendor driver may not support two independent applications opening and controlling the same physical device at the same time. Even when multiple channels are technically supported, competing applications can alter filters, protocol settings, bus selection, programming voltage or connection state.
@@ -95,11 +113,12 @@ The offline pipeline can then answer three separate questions:
 3. Open Windows Atlas and verify all expected channels are receiving.
 4. Start Atlas capture before opening the target GDS2 Data Display group.
 5. Record a marker for the exact module/page/group or parameter being displayed.
-6. Leave the selected parameter/group active for several seconds.
-7. Change only one small group at a time when practical.
-8. Stop Atlas capture only after leaving the Data Display page.
-9. Run `extract_gds2_dids.py` and `extract_gm_tool_session.py` offline.
-10. Promote a DID/signal mapping only when repeated traffic and displayed values agree.
+6. Watch the live GM diagnostic panel for endpoint/service/DID and latency evidence.
+7. Leave the selected parameter/group active for several seconds.
+8. Change only one small group at a time when practical.
+9. Stop Atlas capture only after leaving the Data Display page.
+10. Run `extract_gds2_dids.py` and `extract_gm_tool_session.py` offline.
+11. Promote a DID/signal mapping only when repeated traffic and displayed values agree.
 
 ## First Gen-1 Volt targets
 
@@ -132,7 +151,8 @@ Priority BECM mappings:
 
 1. Treat the current Windows five-channel Atlas frontend as the raw-bus recorder rather than creating another application.
 2. Restore/add timestamped free-text capture markers to the cross-platform capture session.
-3. Add Windows J2534 installation discovery and vendor-DLL inventory.
-4. Define the J2534 trace file schema and tests.
-5. Build the forwarding proxy and prove transparent behavior off-vehicle.
-6. Add a `GM Tool Capture` mode that correlates raw buses, markers and J2534 trace events on a common monotonic timeline.
+3. Add the observation-only live GM diagnostic endpoint/service/DID panel.
+4. Add Windows J2534 installation discovery and vendor-DLL inventory.
+5. Define the J2534 trace file schema and tests.
+6. Build the forwarding proxy and prove transparent behavior off-vehicle.
+7. Extend `GM Tool Capture` mode to correlate raw buses, markers and J2534 trace events on a common monotonic timeline.
