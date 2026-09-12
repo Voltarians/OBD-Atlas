@@ -4,9 +4,9 @@
 The parser is observation-only. It never transmits vehicle traffic.
 
 It understands classic ISO-TP framing and labels common UDS/GM services used by
-GDS2, SPS/SPS2 and DPS. When a provenance-preserving GM address reference is
+GDS2, SPS/SPS2 and DPS. When provenance-preserving GM address references are
 available, it also recognizes legacy unframed request/response families and
-reports matching 0x5xx data-stream traffic without pretending the reference is
+reports matching data-stream traffic without pretending weaker references are
 vehicle-confirmed.
 
 Output is intentionally evidence-oriented: raw payloads are retained and fields
@@ -29,11 +29,15 @@ CANDUMP_RE = re.compile(
     r"(?P<canid>[0-9A-Fa-f]+)#(?P<data>[0-9A-Fa-f]*)\s*$"
 )
 
-DEFAULT_ADDRESS_REFERENCE = (
+DEFAULT_ADDRESS_REFERENCES = (
     Path(__file__).resolve().parents[1]
     / "assets"
     / "diagnostics"
-    / "gm_legacy_simulation_address_reference.json"
+    / "gm_legacy_simulation_address_reference.json",
+    Path(__file__).resolve().parents[1]
+    / "assets"
+    / "diagnostics"
+    / "chevrolet_volt_gen1_hpcm2_did_candidates.json",
 )
 
 SERVICES = {
@@ -336,46 +340,69 @@ def load_address_reference(path: Path | None) -> dict[str, object] | None:
     root = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(root, dict) or root.get("schemaVersion") != 1:
         raise ValueError(f"Unsupported address reference: {path}")
-    if not isinstance(root.get("modules"), list):
-        raise ValueError(f"Address reference has no modules: {path}")
+    if not isinstance(root.get("modules"), list) and not (
+        isinstance(root.get("module"), str) and isinstance(root.get("transport"), dict)
+    ):
+        raise ValueError(f"Address reference has no supported module addressing: {path}")
     return root
 
 
-def build_address_index(reference: dict[str, object] | None) -> dict[int, list[dict[str, str]]]:
+def _reference_modules(reference: dict[str, object]) -> list[dict[str, object]]:
+    modules = reference.get("modules")
+    if isinstance(modules, list):
+        return [row for row in modules if isinstance(row, dict)]
+
+    module = reference.get("module")
+    transport = reference.get("transport")
+    if not isinstance(module, str) or not isinstance(transport, dict):
+        return []
+    return [
+        {
+            "module": module,
+            "requestCanIds": [transport.get("requestCanId")],
+            "normalResponseCanIds": [transport.get("responseCanId")],
+            "dataCanIds": [transport.get("dynamicResponseCanId")],
+        }
+    ]
+
+
+def build_address_index(
+    reference: dict[str, object] | Iterable[dict[str, object]] | None,
+) -> dict[int, list[dict[str, str]]]:
     index: dict[int, list[dict[str, str]]] = defaultdict(list)
     if reference is None:
         return {}
 
-    confidence = str(reference.get("confidence", "unknown"))
-    catalog_id = str(reference.get("catalogId", "unknown"))
+    references = [reference] if isinstance(reference, dict) else list(reference)
     role_fields = {
         "requestCanIds": "request",
         "normalResponseCanIds": "normalResponse",
         "dataCanIds": "dataStream",
         "functionalRequestCanIds": "functionalRequest",
     }
-    modules = reference.get("modules", [])
-    assert isinstance(modules, list)
-    for raw_module in modules:
-        if not isinstance(raw_module, dict) or not isinstance(raw_module.get("module"), str):
-            continue
-        module = str(raw_module["module"])
-        for field, role in role_fields.items():
-            values = raw_module.get(field, [])
-            if not isinstance(values, list):
+    for source in references:
+        confidence = str(source.get("confidence", "unknown"))
+        catalog_id = str(source.get("catalogId", "unknown"))
+        for raw_module in _reference_modules(source):
+            if not isinstance(raw_module.get("module"), str):
                 continue
-            for raw_can_id in values:
-                can_id = _parse_can_id(raw_can_id)
-                if can_id is None:
+            module = str(raw_module["module"])
+            for field, role in role_fields.items():
+                values = raw_module.get(field, [])
+                if not isinstance(values, list):
                     continue
-                candidate = {
-                    "module": module,
-                    "role": role,
-                    "confidence": confidence,
-                    "catalogId": catalog_id,
-                }
-                if candidate not in index[can_id]:
-                    index[can_id].append(candidate)
+                for raw_can_id in values:
+                    can_id = _parse_can_id(raw_can_id)
+                    if can_id is None:
+                        continue
+                    candidate = {
+                        "module": module,
+                        "role": role,
+                        "confidence": confidence,
+                        "catalogId": catalog_id,
+                    }
+                    if candidate not in index[can_id]:
+                        index[can_id].append(candidate)
     return dict(index)
 
 
@@ -405,8 +432,8 @@ def extract_legacy_reference_events(
 ) -> list[dict[str, object]]:
     """Classify unframed legacy GM request/response records on known endpoint IDs.
 
-    0x5xx data-stream IDs are intentionally not treated as diagnostic services;
-    they are reported by endpoint traffic aggregation instead.
+    Data-stream IDs are intentionally not treated as diagnostic services; they
+    are reported by endpoint traffic aggregation instead.
     """
     events: list[dict[str, object]] = []
     iso_origins = {
@@ -667,8 +694,12 @@ def main() -> int:
     parser.add_argument(
         "--address-reference",
         type=Path,
-        default=DEFAULT_ADDRESS_REFERENCE,
-        help="provenance-preserving GM address reference JSON",
+        action="append",
+        help=(
+            "provenance-preserving GM address reference JSON; repeat to load "
+            "multiple catalogs. Defaults to the legacy GM reference plus the "
+            "Gen-1 HPCM2 candidate transport catalog."
+        ),
     )
     parser.add_argument(
         "--no-address-reference",
@@ -680,11 +711,18 @@ def main() -> int:
     with args.capture.open("r", encoding="utf-8", errors="replace") as handle:
         frames = list(parse_frames(handle))
 
-    address_reference = None
+    address_references: list[dict[str, object]] = []
+    address_reference_paths: list[Path] = []
     address_index: dict[int, list[dict[str, str]]] = {}
     if not args.no_address_reference:
-        address_reference = load_address_reference(args.address_reference)
-        address_index = build_address_index(address_reference)
+        address_reference_paths = list(
+            args.address_reference or DEFAULT_ADDRESS_REFERENCES
+        )
+        for path in address_reference_paths:
+            reference = load_address_reference(path)
+            if reference is not None:
+                address_references.append(reference)
+        address_index = build_address_index(address_references)
 
     messages = list(reassemble_isotp(frames))
     iso_events = extract_diagnostic_events(messages)
@@ -705,15 +743,14 @@ def main() -> int:
         "capture": str(args.capture),
         "frameCount": len(frames),
         "isoTpMessageCount": len(messages),
-        "addressReference": (
+        "addressReferences": [
             {
-                "catalogId": address_reference.get("catalogId"),
-                "confidence": address_reference.get("confidence"),
-                "path": str(args.address_reference),
+                "catalogId": reference.get("catalogId"),
+                "confidence": reference.get("confidence"),
+                "path": str(path),
             }
-            if address_reference is not None
-            else None
-        ),
+            for reference, path in zip(address_references, address_reference_paths)
+        ],
         "summary": build_summary(events, endpoint_traffic, transactions),
         "endpointTraffic": endpoint_traffic,
         "transactions": transactions,
