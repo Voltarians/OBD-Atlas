@@ -10,7 +10,7 @@ void main() {
     final catalog = VehicleSignalCatalog.fromJson(source);
 
     expect(catalog.catalogId, 'chevrolet-volt-gen1');
-    expect(catalog.signals, hasLength(17));
+    expect(catalog.signals, hasLength(22));
     expect(
       catalog.signals
           .where((signal) => signal['status'] == 'candidate')
@@ -19,6 +19,18 @@ void main() {
         'brakePressureCandidate',
         'acceleratorPositionCandidate',
         'hazardFlashCandidate',
+        'hvBatteryCurrentCandidate',
+        'packCurrentCandidate',
+      ]),
+    );
+    expect(
+      catalog.signals
+          .where((signal) => signal['status'] == 'confirmed')
+          .map((signal) => signal['name']),
+      containsAll(<String>[
+        'systemPowerMode',
+        'hvBatteryVoltage',
+        'packVoltage',
       ]),
     );
   });
