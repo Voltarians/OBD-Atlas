@@ -2,6 +2,7 @@
 #define NOMINMAX
 #include <windows.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
@@ -27,6 +28,7 @@ PassThruConnectFn g_connect = nullptr;
 PassThruDisconnectFn g_disconnect = nullptr;
 PassThruStartMsgFilterFn g_start_filter = nullptr;
 PassThruStopMsgFilterFn g_stop_filter = nullptr;
+PassThruReadMsgsFn g_read_msgs = nullptr;
 PassThruReadVersionFn g_read_version = nullptr;
 PassThruGetLastErrorFn g_get_last_error = nullptr;
 std::once_flag g_init_once;
@@ -175,6 +177,19 @@ std::string MessageJson(const PASSTHRU_MSG* message) {
       << ",\"payloadHex\":" << JsonString(HexBytes(message->Data, captured))
       << ",\"payloadTruncated\":" << (captured != requested ? "true" : "false")
       << "}";
+  return out.str();
+}
+
+std::string MessageArrayJson(const PASSTHRU_MSG* messages,
+                             unsigned long count) {
+  if (messages == nullptr || count == 0) return "[]";
+  std::ostringstream out;
+  out << "[";
+  for (unsigned long index = 0; index < count; ++index) {
+    if (index != 0) out << ",";
+    out << MessageJson(&messages[index]);
+  }
+  out << "]";
   return out.str();
 }
 
@@ -342,12 +357,13 @@ void Initialize() {
   g_disconnect = Resolve<PassThruDisconnectFn>("PassThruDisconnect");
   g_start_filter = Resolve<PassThruStartMsgFilterFn>("PassThruStartMsgFilter");
   g_stop_filter = Resolve<PassThruStopMsgFilterFn>("PassThruStopMsgFilter");
+  g_read_msgs = Resolve<PassThruReadMsgsFn>("PassThruReadMsgs");
   g_read_version = Resolve<PassThruReadVersionFn>("PassThruReadVersion");
   g_get_last_error = Resolve<PassThruGetLastErrorFn>("PassThruGetLastError");
   if (g_open == nullptr || g_close == nullptr || g_connect == nullptr ||
       g_disconnect == nullptr || g_start_filter == nullptr ||
-      g_stop_filter == nullptr || g_read_version == nullptr ||
-      g_get_last_error == nullptr) {
+      g_stop_filter == nullptr || g_read_msgs == nullptr ||
+      g_read_version == nullptr || g_get_last_error == nullptr) {
     return;
   }
 
@@ -464,6 +480,47 @@ extern "C" __declspec(dllexport) long WINAPI PassThruStopMsgFilter(
       "PassThruStopMsgFilter", std::nullopt, arguments.str(), ChannelID);
   const long result = g_stop_filter(ChannelID, FilterID);
   EndCall(call, "PassThruStopMsgFilter", result, "{}");
+  return result;
+}
+
+extern "C" __declspec(dllexport) long WINAPI PassThruReadMsgs(
+    unsigned long ChannelID, atlas_j2534::PASSTHRU_MSG* pMsg,
+    unsigned long* pNumMsgs, unsigned long Timeout) {
+  if (!EnsureInitialized()) return atlas_j2534::ERR_FAILED;
+
+  const bool count_pointer_present = pNumMsgs != nullptr;
+  const unsigned long requested_count =
+      count_pointer_present ? *pNumMsgs : 0;
+  std::ostringstream arguments;
+  arguments << "{\"messageBufferPresent\":"
+            << (pMsg == nullptr ? "false" : "true")
+            << ",\"numMsgsPointerPresent\":"
+            << (count_pointer_present ? "true" : "false")
+            << ",\"requestedMessageCount\":";
+  if (count_pointer_present) arguments << requested_count;
+  else arguments << "null";
+  arguments << ",\"timeoutMs\":" << Timeout << "}";
+
+  const auto call = BeginCall(
+      "PassThruReadMsgs", std::nullopt, arguments.str(), ChannelID);
+  const long result = g_read_msgs(ChannelID, pMsg, pNumMsgs, Timeout);
+
+  const unsigned long returned_count =
+      count_pointer_present ? *pNumMsgs : 0;
+  const unsigned long captured_count =
+      (pMsg != nullptr && count_pointer_present)
+          ? std::min(returned_count, requested_count)
+          : 0;
+  std::ostringstream outputs;
+  outputs << "{\"returnedMessageCount\":";
+  if (count_pointer_present) outputs << returned_count;
+  else outputs << "null";
+  outputs << ",\"capturedMessageCount\":" << captured_count
+          << ",\"messagesTruncated\":"
+          << (returned_count > captured_count ? "true" : "false")
+          << ",\"messages\":" << MessageArrayJson(pMsg, captured_count)
+          << "}";
+  EndCall(call, "PassThruReadMsgs", result, outputs.str());
   return result;
 }
 
