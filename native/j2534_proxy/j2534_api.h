@@ -63,6 +63,10 @@ using PassThruIoctlFn = long(WINAPI*)(
     unsigned long IoctlID,
     void* pInput,
     void* pOutput);
+using PassThruSetProgrammingVoltageFn = long(WINAPI*)(
+    unsigned long DeviceID,
+    unsigned long PinNumber,
+    unsigned long Voltage);
 using PassThruReadVersionFn = long(WINAPI*)(
     unsigned long DeviceID,
     char* pFirmwareVersion,
