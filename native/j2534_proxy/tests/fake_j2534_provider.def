@@ -1,0 +1,6 @@
+LIBRARY "fake_j2534_provider"
+EXPORTS
+    PassThruOpen
+    PassThruClose
+    PassThruReadVersion
+    PassThruGetLastError
