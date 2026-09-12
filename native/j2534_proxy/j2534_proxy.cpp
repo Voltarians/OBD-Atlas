@@ -367,14 +367,16 @@ extern "C" __declspec(dllexport) long WINAPI PassThruConnect(
             << ",\"baudRate\":" << BaudRate
             << ",\"channelIdPointerPresent\":"
             << (pChannelID == nullptr ? "false" : "true") << "}";
-  const auto call = BeginCall(
-      "PassThruConnect", DeviceID, arguments.str());
+  const auto call = BeginCall("PassThruConnect", DeviceID, arguments.str());
   const long result =
       g_connect(DeviceID, ProtocolID, Flags, BaudRate, pChannelID);
   std::ostringstream outputs;
   outputs << "{\"channelId\":";
-  if (pChannelID != nullptr) outputs << *pChannelID;
-  else outputs << "null";
+  if (result == atlas_j2534::STATUS_NOERROR && pChannelID != nullptr) {
+    outputs << *pChannelID;
+  } else {
+    outputs << "null";
+  }
   outputs << "}";
   EndCall(call, "PassThruConnect", result, outputs.str());
   return result;
