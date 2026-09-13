@@ -1,0 +1,285 @@
+name: Refine voice marker runtime lifecycle
+
+on:
+  push:
+    branches:
+      - feat/voice-event-markers
+
+permissions:
+  contents: write
+
+jobs:
+  patch-runtime:
+    if: ${{ !contains(github.event.head_commit.message, '[voice-runtime-patch]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/voice-event-markers
+      - name: Move voice lifecycle into Atlas runtime
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          runtime_path = Path('lib/core/atlas_runtime.dart')
+          runtime = runtime_path.read_text(encoding='utf-8')
+
+          old = "import 'signal_discovery.dart';\n"
+          new = "import 'signal_discovery.dart';\nimport 'voice_annotation_capture.dart';\n"
+          if "import 'voice_annotation_capture.dart';" not in runtime:
+              if old not in runtime:
+                  raise SystemExit('runtime import anchor not found')
+              runtime = runtime.replace(old, new, 1)
+
+          old = """    capture.addListener(notifyListeners);
+  }
+"""
+          new = """    capture.addListener(notifyListeners);
+    voiceAnnotations.addListener(notifyListeners);
+  }
+"""
+          if 'voiceAnnotations.addListener(notifyListeners);' not in runtime:
+              if old not in runtime:
+                  raise SystemExit('runtime constructor anchor not found')
+              runtime = runtime.replace(old, new, 1)
+
+          old = """  final SignalDiscoverySession discovery = SignalDiscoverySession();
+
+  int totalFrames = 0;
+"""
+          new = """  final SignalDiscoverySession discovery = SignalDiscoverySession();
+  final VoiceAnnotationCapture voiceAnnotations = VoiceAnnotationCapture();
+  EventMarkerMode eventMarkerMode = EventMarkerMode.click;
+
+  int totalFrames = 0;
+"""
+          if 'final VoiceAnnotationCapture voiceAnnotations' not in runtime:
+              if old not in runtime:
+                  raise SystemExit('runtime field anchor not found')
+              runtime = runtime.replace(old, new, 1)
+
+          old = """  Future<File> startCapture({String eventLabel = 'Event'}) async {
+    if (!anyConnected) {
+      throw StateError('Connect at least one Atlas channel before starting a capture.');
+    }
+    discovery.start(label: eventLabel);
+    notifyListeners();
+    try {
+      final file = await capture.start();
+      markCaptureEvent('Capture start: ${discovery.eventLabel}', source: 'atlas');
+      return file;
+    } catch (_) {
+      discovery.finish();
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  void markDiscoveryEventStart() {
+"""
+          new = """  Future<File> startCapture({
+    String eventLabel = 'Event',
+    EventMarkerMode markerMode = EventMarkerMode.click,
+  }) async {
+    if (!anyConnected) {
+      throw StateError('Connect at least one Atlas channel before starting a capture.');
+    }
+    eventMarkerMode = markerMode;
+    discovery.start(label: eventLabel);
+    notifyListeners();
+    try {
+      final file = await capture.start();
+      markCaptureEvent('Capture start: ${discovery.eventLabel}', source: 'atlas');
+      markCaptureEvent(
+        'Marker mode: ${markerMode.name}',
+        source: 'atlas_marker_mode',
+      );
+      if (markerMode.usesVoice) {
+        try {
+          final audio = await voiceAnnotations.start(file);
+          markCaptureEvent(
+            'Voice annotation start: ${audio.uri.pathSegments.last}',
+            source: 'voice',
+          );
+        } catch (_) {
+          markCaptureEvent('Voice annotation unavailable', source: 'voice_error');
+        }
+      }
+      notifyListeners();
+      return file;
+    } catch (_) {
+      if (voiceAnnotations.isRecording || voiceAnnotations.isStopping) {
+        await voiceAnnotations.stop();
+      }
+      discovery.finish();
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  void markDiscoveryEventStart() {
+"""
+          if 'EventMarkerMode markerMode' not in runtime:
+              if old not in runtime:
+                  raise SystemExit('runtime startCapture block not found')
+              runtime = runtime.replace(old, new, 1)
+
+          old = """  Future<File?> stopCapture() {
+    if (capture.isRecording) {
+      markCaptureEvent('Capture stop', source: 'atlas');
+    }
+    if (discovery.isRunning) discovery.finish();
+    notifyListeners();
+    return capture.stop();
+  }
+"""
+          new = """  Future<File?> stopCapture() async {
+    if (voiceAnnotations.isRecording || voiceAnnotations.isStopping) {
+      if (capture.isRecording) {
+        markCaptureEvent('Voice annotation stop', source: 'voice');
+      }
+      await voiceAnnotations.stop();
+    }
+    if (capture.isRecording) {
+      markCaptureEvent('Capture stop', source: 'atlas');
+    }
+    if (discovery.isRunning) discovery.finish();
+    notifyListeners();
+    return capture.stop();
+  }
+"""
+          if 'Future<File?> stopCapture() async' not in runtime:
+              if old not in runtime:
+                  raise SystemExit('runtime stopCapture block not found')
+              runtime = runtime.replace(old, new, 1)
+
+          runtime_path.write_text(runtime, encoding='utf-8')
+
+          ui_path = Path('lib/linux_capture_page.dart')
+          ui = ui_path.read_text(encoding='utf-8')
+          ui = ui.replace("import 'dart:async';\n\n", '', 1)
+
+          old = """class _VoiceCapableCapturePageState extends State<VoiceCapableCapturePage> {
+  final _eventLabel = TextEditingController(text: 'Brake');
+  final VoiceAnnotationCapture _voice = VoiceAnnotationCapture();
+  EventMarkerMode _markerMode = EventMarkerMode.click;
+  bool _starting = false;
+  bool _stopping = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _voice.addListener(_voiceChanged);
+  }
+
+  void _voiceChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _voice.removeListener(_voiceChanged);
+    if (_voice.isRecording) unawaited(_voice.stop());
+    _eventLabel.dispose();
+    _voice.dispose();
+    super.dispose();
+  }
+"""
+          new = """class _VoiceCapableCapturePageState extends State<VoiceCapableCapturePage> {
+  final _eventLabel = TextEditingController(text: 'Brake');
+  EventMarkerMode _markerMode = EventMarkerMode.click;
+  bool _starting = false;
+  bool _stopping = false;
+
+  @override
+  void dispose() {
+    _eventLabel.dispose();
+    super.dispose();
+  }
+"""
+          if old in ui:
+              ui = ui.replace(old, new, 1)
+          elif 'final VoiceAnnotationCapture _voice' in ui:
+              raise SystemExit('voice page ownership block changed unexpectedly')
+
+          start = ui.index('  Future<void> _startCapture() async {')
+          stop = ui.index('  Future<void> _stopCapture() async {', start)
+          new_start = """  Future<void> _startCapture() async {
+    final runtime = AtlasRuntime.instance;
+    setState(() => _starting = true);
+    try {
+      await runtime.startCapture(
+        eventLabel: _eventLabel.text,
+        markerMode: _markerMode,
+      );
+      if (_markerMode.usesVoice && runtime.voiceAnnotations.lastError != null) {
+        _showMessage(
+          'CAN capture is still running. Voice could not start: '
+          '${runtime.voiceAnnotations.lastError}',
+        );
+      }
+    } catch (error) {
+      _showMessage(error.toString());
+    } finally {
+      if (mounted) setState(() => _starting = false);
+    }
+  }
+
+"""
+          ui = ui[:start] + new_start + ui[stop:]
+
+          stop = ui.index('  Future<void> _stopCapture() async {')
+          show = ui.index('  void _showMessage(String message) {', stop)
+          new_stop = """  Future<void> _stopCapture() async {
+    final runtime = AtlasRuntime.instance;
+    setState(() => _stopping = true);
+    try {
+      await runtime.stopCapture();
+    } catch (error) {
+      _showMessage(error.toString());
+    } finally {
+      if (mounted) setState(() => _stopping = false);
+    }
+  }
+
+"""
+          ui = ui[:stop] + new_stop + ui[show:]
+
+          old = """        final runtime = AtlasRuntime.instance;
+        final phase = runtime.capture.phase;
+"""
+          new = """        final runtime = AtlasRuntime.instance;
+        final voice = runtime.voiceAnnotations;
+        final phase = runtime.capture.phase;
+"""
+          if old not in ui:
+              raise SystemExit('UI runtime/phase anchor not found')
+          ui = ui.replace(old, new, 1)
+
+          ui = ui.replace('_voice.isRecording', 'voice.isRecording')
+          ui = ui.replace('_voice.lastError', 'voice.lastError')
+          ui = ui.replace('_voice.lastCompletedAudioFile', 'voice.lastCompletedAudioFile')
+          ui = ui.replace('_voice.lastCompletedMetadataFile', 'voice.lastCompletedMetadataFile')
+          ui = ui.replace('_voiceStatusCard()', '_voiceStatusCard(voice)')
+          ui = ui.replace(
+              'Widget _voiceStatusCard() {',
+              'Widget _voiceStatusCard(VoiceAnnotationCapture voice) {',
+              1,
+          )
+          ui = ui.replace('_voice.', 'voice.')
+
+          if '_voice' in ui:
+              raise SystemExit('local _voice reference remains after runtime migration')
+          ui_path.write_text(ui, encoding='utf-8')
+          PY
+      - name: Commit runtime lifecycle refinement
+        run: |
+          if git diff --quiet -- lib/core/atlas_runtime.dart lib/linux_capture_page.dart; then
+            echo "Runtime lifecycle already refined"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/core/atlas_runtime.dart lib/linux_capture_page.dart
+          git commit -m "Move voice capture lifecycle into Atlas runtime [voice-runtime-patch]"
+          git push origin HEAD:feat/voice-event-markers
