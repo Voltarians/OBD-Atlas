@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 1,
+  "evidenceId": "chevrolet-volt-gen1-startup-20260912-030630",
+  "vehicle": {
+    "make": "Chevrolet",
+    "model": "Volt",
+    "generation": 1,
+    "modelYearReference": 2013,
+    "vinExported": false
+  },
+  "capture": {
+    "file": "atlas_capture_20260912_030630.log",
+    "sha256": "9f6ace96622d40e146bee0ce422103d9cca3c2669df5954693d352355a4d3cfa",
+    "frameCount": 297929,
+    "durationSeconds": 82.367565,
+    "timeOriginUnixSeconds": 1789196836.793268,
+    "operatorSequence": "brake pedal applied, then Start button pressed",
+    "channelCoverage": {
+      "can0": {"firstSeconds": 0.184535, "lastSeconds": 82.367556, "frames": 48321},
+      "can1": {"firstSeconds": 0.073841, "lastSeconds": 82.367565, "frames": 232967},
+      "can2": {"firstSeconds": 0.155747, "lastSeconds": 1.238890, "frames": 823},
+      "can3": {"firstSeconds": 0.138902, "lastSeconds": 1.244791, "frames": 1199},
+      "can4": {"firstSeconds": 0.000000, "lastSeconds": 82.364154, "frames": 14619}
+    }
+  },
+  "timeline": [
+    {
+      "seconds": 16.364849,
+      "event": "brakePedalMovementBegins",
+      "canId": "0x0F1",
+      "channel": "can1",
+      "evidence": "raw brake pedal position changes from zero"
+    },
+    {
+      "seconds": 16.529852,
+      "event": "brakeApplied",
+      "canId": "0x1E9",
+      "channel": "can1",
+      "evidence": "EBCMVehicleDynamic BrakePedalPressed changes 0 to 1"
+    },
+    {
+      "seconds": 16.614841,
+      "event": "brakeApplied",
+      "canId": "0x0F1",
+      "channel": "can1",
+      "evidence": "EBCMBrakePedalPosition BrakePressed changes 0 to 1"
+    },
+    {
+      "seconds": 16.640092,
+      "event": "brakeApplied",
+      "canId": "0x0C9",
+      "channel": "can1",
+      "evidence": "ECMEngineStatus BrakePressed changes 0 to 1"
+    },
+    {
+      "seconds": 18.046747,
+      "event": "startRequest",
+      "canId": "0x1F1",
+      "channel": "can1",
+      "decoded": {"systemPowerMode": "crankRequest", "raw": 3}
+    },
+    {
+      "seconds": 18.485750,
+      "event": "hvCurrentTransient",
+      "canId": "0x2C7",
+      "channel": "can1",
+      "decoded": {"hvBatteryCurrentCandidateAmps": -8.1, "hvBatteryVoltageVolts": 379.0},
+      "note": "current sign/scale remains candidate; voltage decode is confirmed"
+    },
+    {
+      "seconds": 18.584528,
+      "event": "hvCurrentReturnsNearZero",
+      "canId": "0x2C7",
+      "channel": "can1",
+      "decoded": {"hvBatteryVoltageVolts": 380.5}
+    },
+    {
+      "seconds": 18.997842,
+      "event": "systemRun",
+      "canId": "0x1F1",
+      "channel": "can1",
+      "decoded": {"systemPowerMode": "run", "raw": 2}
+    },
+    {
+      "seconds": 64.752764,
+      "event": "brakeReleased",
+      "canId": "0x0F1",
+      "channel": "can1"
+    },
+    {
+      "seconds": 64.771908,
+      "event": "brakeReleased",
+      "canId": "0x0C9",
+      "channel": "can1"
+    },
+    {
+      "seconds": 64.817684,
+      "event": "brakeReleased",
+      "canId": "0x1E9",
+      "channel": "can1"
+    },
+    {
+      "seconds": 64.822925,
+      "event": "brakePedalPositionReturnsZero",
+      "canId": "0x0F1",
+      "channel": "can1"
+    }
+  ],
+  "derivedIntervalsMs": {
+    "brakeMovementToStartRequest": 1681.898,
+    "startRequestToHvCurrentTransient": 439.003,
+    "startRequestToRun": 951.095,
+    "hvCurrentTransientToRun": 512.092
+  },
+  "additionalControlledCorrelations": [
+    {
+      "canId": "0x0D1",
+      "signal": "BrakeNormalized1",
+      "status": "directlyCorrelated",
+      "note": "tracks 0x0F1 brake pedal position through application and release; nearest-sample correlation approximately 0.996"
+    },
+    {
+      "canId": "0x214",
+      "signal": "UserBrakePressure",
+      "status": "directlyCorrelated",
+      "note": "rises from zero with brake application and returns to zero on release"
+    },
+    {
+      "canId": "0x2F9",
+      "signal": "UserBrakePressure2",
+      "status": "directlyCorrelated",
+      "note": "matched 0x214 raw pressure across aligned event samples"
+    },
+    {
+      "canId": "0x0C9",
+      "signal": "BrakePressed",
+      "status": "controlledStateConfirmed"
+    },
+    {
+      "canId": "0x1E9",
+      "signal": "BrakePedalPressed",
+      "status": "controlledStateConfirmed"
+    }
+  ],
+  "evidenceBoundary": {
+    "supports": [
+      "brake application and release timing",
+      "BCM crank/start request to RUN timing",
+      "gatewayed HV battery voltage response during startup",
+      "candidate HV current transient timing",
+      "additional brake signal correlations"
+    ],
+    "doesNotSupport": [
+      "individual positive contactor command or state",
+      "individual negative contactor command or state",
+      "precharge transistor command or state",
+      "multifunction contactor command or state"
+    ],
+    "reason": "can2 and can3 direct high-voltage-network capture channels stopped receiving at approximately 1.24 seconds, well before the Start request at 18.046747 seconds; contactor-state claims would therefore exceed the captured evidence"
+  }
+}

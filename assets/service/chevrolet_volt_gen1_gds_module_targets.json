@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "catalogId": "chevrolet-volt-gen1-gds-module-targets",
+  "vehicle": {"make":"Chevrolet","model":"Volt","generation":1,"modelYearReference":2013},
+  "confidence": "gmServiceDocumented",
+  "source": {
+    "title":"2013 Chevrolet Volt service-manual scan-tool index",
+    "url":"https://charm.li/Chevrolet/2013/Volt%20L4-1.4L%20Elect/Repair%20and%20Diagnosis/"
+  },
+  "targets": [
+    {"module":"K16 Battery Energy Control Module","scanToolPage":"Battery Energy Control Module Scan Tool Information","priority":1,"reason":"96 cell voltages, current, terminal voltage and battery health"},
+    {"module":"K114B Hybrid Powertrain Control Module 2","scanToolPage":"Hybrid Powertrain Control Module 2 Scan Tool Information","priority":1,"reason":"contactors, precharge, SOC, isolation, charging and thermal control"},
+    {"module":"Hybrid Powertrain Control Module","scanToolPage":"Hybrid Powertrain Control Module Scan Tool Information","priority":1,"reason":"hybrid operating mode, hosted diagnostics and propulsion coordination"},
+    {"module":"Motor Control Module 1","scanToolPage":"Motor Control Module 1 Scan Tool Information","priority":2,"reason":"Motor 1/generator temperature, speed, resolver and inverter diagnostics"},
+    {"module":"Motor Control Module 2","scanToolPage":"Motor Control Module 2 Scan Tool Information","priority":2,"reason":"Motor 2/traction-motor temperature, speed, resolver and inverter diagnostics"},
+    {"module":"Engine Control Module","scanToolPage":"Engine Control Module Scan Tool Information","priority":3,"reason":"engine, throttle, fuel, emissions and engine-run state"},
+    {"module":"Transmission Control Module","scanToolPage":"Transmission Control Module Scan Tool Information","priority":2,"reason":"4ET50 range, clutch, shaft speed, pressure and temperature data"},
+    {"module":"Automatic Transmission Auxiliary Fluid Pump Control Module","scanToolPage":"Automatic Transmission Auxiliary Fluid Pump Control Module Scan Tool Information","priority":3,"reason":"electric-drive lubrication/pressure support"},
+    {"module":"Power Steering Control Module","scanToolPage":"Power Steering Control Module Scan Tool Information","priority":3,"reason":"steering torque, assist and steering-system diagnostics"},
+    {"module":"Steering Column Lock Control Module","scanToolPage":"Steering Column Lock Control Module Scan Tool Information","priority":4,"reason":"power-mode/park/security behavior"},
+    {"module":"Accessory DC Power Control Module","scanToolPage":"Accessory DC Power Control Module Scan Tool Information","priority":2,"reason":"14-V DC/DC converter voltage, current, power and state"},
+    {"module":"Communication Interface Module","scanToolPage":"Communication Interface Module Scan Tool Information","priority":5,"reason":"telematics/network inventory"}
+  ],
+  "mappingGoal":"Capture GDS2 traffic while one module/data group is selected, then map request/response IDs, service, PID/DID, scaling and enums without active output control."
+}

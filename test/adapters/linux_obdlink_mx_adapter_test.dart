@@ -2,6 +2,47 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:obd_atlas/adapters/linux_obdlink_mx_adapter.dart';
 
 void main() {
+  group('OBDLink MX+ CAN bus presets', () {
+    test('selects documented raw protocols for HS-CAN and SWCAN', () {
+      expect(ObdlinkMxCanBus.highSpeedCan.protocolNumber, 31);
+      expect(ObdlinkMxCanBus.singleWireCan.protocolNumber, 61);
+      expect(ObdlinkMxCanBus.singleWireCan.displayName, contains('pin 1'));
+      expect(ObdlinkMxCanBus.singleWireCan.displayName, contains('33.3'));
+      expect(
+        LinuxObdlinkMxAdapter.monitorSetupCommands(
+          ObdlinkMxCanBus.highSpeedCan,
+        ).take(2),
+        <String>['STP 31', 'STCMM 0'],
+      );
+      expect(
+        LinuxObdlinkMxAdapter.monitorSetupCommands(
+          ObdlinkMxCanBus.singleWireCan,
+        ).take(3),
+        <String>['STP 61', 'STCSWM 3', 'STCMM 0'],
+      );
+    });
+
+    test('identifies the selected physical bus in the adapter name', () {
+      final adapter = LinuxObdlinkMxAdapter(
+        '/dev/rfcomm0',
+        channel: 5,
+        canBus: ObdlinkMxCanBus.singleWireCan,
+      );
+
+      expect(adapter.displayName, contains('CH5'));
+      expect(adapter.displayName, contains('SWCAN'));
+    });
+
+    test('discovers paired MX+ as a direct RFCOMM target', () {
+      final targets = LinuxObdlinkMxAdapter.parsePairedDeviceLines('''
+Device 00:04:3E:84:41:C1 OBDLink MX+ 92248
+Device C4:B7:57:0D:1C:EC TOYOTA Corolla
+''');
+
+      expect(targets, <String>['rfcomm://00:04:3E:84:41:C1:1']);
+    });
+  });
+
   group('LinuxObdlinkMxAdapter monitor parser', () {
     test('parses an 11-bit CAN frame with displayed DLC', () {
       final frame = LinuxObdlinkMxAdapter.parseMonitorLine(
@@ -39,7 +80,7 @@ void main() {
       expect(frame.extended, isTrue);
     });
 
-    test('parses an STMA fast-mode 11-bit frame without spaces or DLC', () {
+    test('parses an compact STM 11-bit frame without spaces or DLC', () {
       final frame = LinuxObdlinkMxAdapter.parseMonitorLine(
         '0C1AABBCCDDEEFF0011',
         channel: 2,
@@ -55,7 +96,7 @@ void main() {
       );
     });
 
-    test('parses an STMA fast-mode 29-bit frame without spaces or DLC', () {
+    test('parses an compact STM 29-bit frame without spaces or DLC', () {
       final frame = LinuxObdlinkMxAdapter.parseMonitorLine(
         '18DAF110023E00',
       );
@@ -64,6 +105,25 @@ void main() {
       expect(frame!.id, 0x18DAF110);
       expect(frame.extended, isTrue);
       expect(frame.data, <int>[0x02, 0x3E, 0x00]);
+    });
+
+    test('identifies terminal monitor conditions', () {
+      expect(
+        LinuxObdlinkMxAdapter.monitorTerminalError('BUFFER FULL'),
+        contains('buffer full'),
+      );
+      expect(
+        LinuxObdlinkMxAdapter.monitorTerminalError('STOPPED'),
+        contains('stopped'),
+      );
+      expect(
+        LinuxObdlinkMxAdapter.monitorTerminalError('UART RX OVERFLOW'),
+        contains('overflow'),
+      );
+      expect(
+        LinuxObdlinkMxAdapter.monitorTerminalError('0C1AABB'),
+        isNull,
+      );
     });
 
     test('rejects status, truncated, and invalid channel lines', () {

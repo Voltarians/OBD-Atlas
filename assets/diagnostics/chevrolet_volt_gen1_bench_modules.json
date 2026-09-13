@@ -1,0 +1,249 @@
+{
+  "schemaVersion": 1,
+  "catalogId": "chevrolet-volt-gen1-bench-modules",
+  "vehicle": {
+    "make": "Chevrolet",
+    "model": "Volt",
+    "generation": 1,
+    "modelYearReference": 2013
+  },
+  "purpose": "Registry for Atlas isolated-bench ECU simulation and GDS2 discovery. Only modules with simulationStatus=implemented may transmit responses.",
+  "safety": {
+    "vehicleDisconnectedRequiredForSimulation": true,
+    "unknownModulesFailClosed": true,
+    "securityProgrammingActuatorWritesBlockedByDefault": true
+  },
+  "functionalDiscoveryCanIds": [
+    "0x7DF",
+    "0x18DB33F1",
+    "0x14DA45F1"
+  ],
+  "modules": [
+    {
+      "key": "hpcm2",
+      "module": "K114B Hybrid Powertrain Control Module 2",
+      "requestCanId": "0x7E4",
+      "normalResponseCanId": "0x7EC",
+      "uudtResponseCanId": "0x5EC",
+      "bitrate": 500000,
+      "confidence": "confirmedBench",
+      "simulationStatus": "implemented",
+      "evidence": [
+        "GDS2 TesterPresent 0x7E4 -> Atlas 0x7EC accepted",
+        "GDS2 A9 81 1A -> Atlas 0x5EC no-DTC completion accepted",
+        "GDS2 1A 90/B4/CB/CC/C1/C2 identification responses accepted and displayed"
+      ],
+      "supportedReadOnlyServices": [
+        "0x10",
+        "0x19",
+        "0x1A",
+        "0x22",
+        "0x3E",
+        "0xA9/0x81"
+      ]
+    },
+    {
+      "key": "observed-0x241",
+      "module": null,
+      "requestCanId": "0x241",
+      "normalResponseCanId": null,
+      "uudtResponseCanId": null,
+      "bitrate": 500000,
+      "confidence": "observedRequestOnly",
+      "simulationStatus": "discoveryOnly"
+    },
+    {
+      "key": "observed-0x242",
+      "module": null,
+      "requestCanId": "0x242",
+      "normalResponseCanId": null,
+      "uudtResponseCanId": null,
+      "bitrate": 500000,
+      "confidence": "observedRequestOnly",
+      "simulationStatus": "discoveryOnly"
+    },
+    {
+      "key": "observed-0x244",
+      "module": null,
+      "requestCanId": "0x244",
+      "normalResponseCanId": null,
+      "uudtResponseCanId": null,
+      "bitrate": 500000,
+      "confidence": "observedRequestOnly",
+      "simulationStatus": "discoveryOnly",
+      "legacyReference": {
+        "module": "BCM",
+        "normalResponseCanId": "0x644",
+        "uudtResponseCanId": "0x544",
+        "confidence": "legacyReference"
+      }
+    },
+    {
+      "key": "observed-0x247",
+      "module": null,
+      "requestCanId": "0x247",
+      "normalResponseCanId": null,
+      "uudtResponseCanId": null,
+      "bitrate": 500000,
+      "confidence": "observedRequestOnly",
+      "simulationStatus": "discoveryOnly",
+      "legacyReference": {
+        "module": "Inflatable Restraint Sensing and Diagnostic Module",
+        "normalResponseCanId": "0x647",
+        "uudtResponseCanId": "0x547",
+        "confidence": "legacyReference"
+      }
+    },
+    {
+      "key": "observed-0x24D",
+      "module": null,
+      "requestCanId": "0x24D",
+      "normalResponseCanId": null,
+      "uudtResponseCanId": null,
+      "bitrate": 500000,
+      "confidence": "observedRequestOnly",
+      "simulationStatus": "discoveryOnly"
+    },
+    {
+      "key": "observed-0x254",
+      "module": null,
+      "requestCanId": "0x254",
+      "normalResponseCanId": null,
+      "uudtResponseCanId": null,
+      "bitrate": 500000,
+      "confidence": "observedRequestOnly",
+      "simulationStatus": "discoveryOnly"
+    },
+    {
+      "key": "observed-0x257",
+      "module": null,
+      "requestCanId": "0x257",
+      "normalResponseCanId": null,
+      "uudtResponseCanId": null,
+      "bitrate": 500000,
+      "confidence": "observedRequestOnly",
+      "simulationStatus": "discoveryOnly"
+    },
+    {
+      "key": "observed-0x258",
+      "module": null,
+      "requestCanId": "0x258",
+      "normalResponseCanId": null,
+      "uudtResponseCanId": null,
+      "bitrate": 500000,
+      "confidence": "observedRequestOnly",
+      "simulationStatus": "discoveryOnly",
+      "legacyReference": {
+        "module": "Keyless Entry Control Module",
+        "normalResponseCanId": "0x658",
+        "uudtResponseCanId": "0x558",
+        "confidence": "legacyReference"
+      }
+    },
+    {
+      "key": "observed-0x259",
+      "module": null,
+      "requestCanId": "0x259",
+      "normalResponseCanId": null,
+      "uudtResponseCanId": null,
+      "bitrate": 500000,
+      "confidence": "observedRequestOnly",
+      "simulationStatus": "discoveryOnly",
+      "observedRequests": [
+        "0x3E",
+        "0x27 0x01",
+        "0xA2"
+      ],
+      "note": "Two isolated-bench response experiments failed to demonstrate GDS2 acceptance. Do not infer a response ID, seed behavior, or module identity. SecurityAccess remains blocked.",
+      "experimentalEvidence": "assets/diagnostics/chevrolet_volt_gen1_observed_0x259_experiments.json"
+    },
+    {
+      "key": "observed-0x25C",
+      "module": null,
+      "requestCanId": "0x25C",
+      "normalResponseCanId": null,
+      "uudtResponseCanId": null,
+      "bitrate": 500000,
+      "confidence": "observedRequestOnly",
+      "simulationStatus": "discoveryOnly"
+    },
+    {
+      "key": "observed-0x7E0",
+      "module": null,
+      "requestCanId": "0x7E0",
+      "normalResponseCanId": null,
+      "uudtResponseCanId": null,
+      "bitrate": 500000,
+      "confidence": "observedRequestOnly",
+      "simulationStatus": "discoveryOnly",
+      "legacyReference": {
+        "module": "ECM",
+        "normalResponseCanId": "0x7E8",
+        "uudtResponseCanId": "0x5E8",
+        "confidence": "legacyReference"
+      }
+    },
+    {
+      "key": "observed-0x7E1",
+      "module": null,
+      "requestCanId": "0x7E1",
+      "normalResponseCanId": null,
+      "uudtResponseCanId": null,
+      "bitrate": 500000,
+      "confidence": "observedRequestOnly",
+      "simulationStatus": "discoveryOnly"
+    },
+    {
+      "key": "observed-0x7E2",
+      "module": null,
+      "requestCanId": "0x7E2",
+      "normalResponseCanId": null,
+      "uudtResponseCanId": null,
+      "bitrate": 500000,
+      "confidence": "observedRequestOnly",
+      "simulationStatus": "discoveryOnly",
+      "legacyReference": {
+        "module": "TCM",
+        "normalResponseCanId": "0x7EA",
+        "uudtResponseCanId": "0x5EA",
+        "confidence": "legacyReference"
+      }
+    },
+    {
+      "key": "observed-0x7E3",
+      "module": null,
+      "requestCanId": "0x7E3",
+      "normalResponseCanId": null,
+      "uudtResponseCanId": null,
+      "bitrate": 500000,
+      "confidence": "observedRequestOnly",
+      "simulationStatus": "discoveryOnly",
+      "legacyReference": {
+        "module": "Fuel Pump Module",
+        "normalResponseCanId": "0x7EB",
+        "uudtResponseCanId": "0x5EB",
+        "confidence": "legacyReference"
+      }
+    },
+    {
+      "key": "observed-0x7E5",
+      "module": null,
+      "requestCanId": "0x7E5",
+      "normalResponseCanId": null,
+      "uudtResponseCanId": null,
+      "bitrate": 500000,
+      "confidence": "observedRequestOnly",
+      "simulationStatus": "discoveryOnly"
+    },
+    {
+      "key": "observed-0x7E7",
+      "module": null,
+      "requestCanId": "0x7E7",
+      "normalResponseCanId": null,
+      "uudtResponseCanId": null,
+      "bitrate": 500000,
+      "confidence": "observedRequestOnly",
+      "simulationStatus": "discoveryOnly"
+    }
+  ]
+}

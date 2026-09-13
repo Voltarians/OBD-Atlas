@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "catalogId": "gm-legacy-simulation-address-reference",
+  "confidence": "legacyReference",
+  "source": {
+    "name": "Simulation.txt",
+    "type": "annotated GM diagnostic simulation/reference transcript",
+    "note": "This source is not treated as a controlled Gen-1 Volt capture. Addresses become vehicle-confirmed only after direct observation or stronger vehicle-specific provenance."
+  },
+  "addressingPatterns": {
+    "physicalIso15765Examples": "0x7Ex request, 0x7Ex+8 response, 0x5Ex dynamic/data stream",
+    "legacyModuleExamples": "0x2xx request, 0x6xx response, 0x5xx DTC/data stream",
+    "functionalRequestObserved": "0x7DF"
+  },
+  "modules": [
+    {
+      "module": "ECM",
+      "requestCanIds": ["0x7E0"],
+      "normalResponseCanIds": ["0x7E8"],
+      "dataCanIds": ["0x5E8"],
+      "functionalRequestCanIds": ["0x7DF"],
+      "observedServices": ["0x04","0x09","0x10","0x11","0x12","0x18","0x22","0x27","0x2C","0x2E","0x31","0x32","0x33","0x34","0x36","0x37","0x3E","0xA0","0xA1","0xA9","0xAA"],
+      "notes": [
+        "Transcript includes dynamic packet setup and data on 0x5E8.",
+        "Transcript includes programming-flow examples, SecurityAccess metadata, RequestDownload/TransferData/TransferExit, and responsePending; these are reference observations only."
+      ]
+    },
+    {
+      "module": "TCM",
+      "requestCanIds": ["0x7E2"],
+      "normalResponseCanIds": ["0x7EA"],
+      "dataCanIds": ["0x5EA"],
+      "functionalRequestCanIds": ["0x7DF"],
+      "observedServices": ["0x04","0x3E","0xA9"]
+    },
+    {
+      "module": "Fuel Pump Module",
+      "requestCanIds": ["0x7E3"],
+      "normalResponseCanIds": ["0x7EB"],
+      "dataCanIds": ["0x5EB"],
+      "observedServices": ["0x2C","0x3E","0xAA"],
+      "note": "Dynamic packet example defines data through 0x2C and streams on 0x5EB after 0xAA control."
+    },
+    {
+      "module": "BCM",
+      "requestCanIds": ["0x244"],
+      "normalResponseCanIds": ["0x644"],
+      "dataCanIds": ["0x544"],
+      "observedServices": ["0x04","0x3E","0xA9","0xAA"]
+    },
+    {
+      "module": "Electronic Brake Control Module",
+      "requestCanIds": ["0x243"],
+      "normalResponseCanIds": ["0x643"],
+      "dataCanIds": ["0x543"],
+      "observedServices": ["0x04","0x3E","0xA9"]
+    },
+    {
+      "module": "Electronic Power Steering Control Module",
+      "requestCanIds": ["0x24A"],
+      "normalResponseCanIds": ["0x64A"],
+      "dataCanIds": ["0x54A"],
+      "observedServices": ["0x04","0x3E","0xA9"]
+    },
+    {
+      "module": "Immobilizer Control Module",
+      "requestCanIds": ["0x248"],
+      "normalResponseCanIds": ["0x648"],
+      "dataCanIds": ["0x548"],
+      "observedServices": ["0x04","0x3E","0xA9"]
+    },
+    {
+      "module": "Instrument Cluster",
+      "requestCanIds": ["0x245"],
+      "normalResponseCanIds": ["0x645"],
+      "dataCanIds": ["0x545"],
+      "observedServices": ["0x04","0x3E","0xA9"]
+    },
+    {
+      "module": "Keyless Entry Control Module",
+      "requestCanIds": ["0x258"],
+      "normalResponseCanIds": ["0x658"],
+      "dataCanIds": ["0x558"],
+      "observedServices": ["0x04","0x3E","0xA9"]
+    },
+    {
+      "module": "Radio",
+      "requestCanIds": ["0x249"],
+      "normalResponseCanIds": ["0x649"],
+      "dataCanIds": ["0x549"],
+      "observedServices": ["0x04","0x3E","0xA9"],
+      "note": "The transcript includes a 0x60 response on 0x649 after legacy DTC traffic; the parser preserves the module response ID without forcing modern UDS semantics onto that byte."
+    },
+    {
+      "module": "Inflatable Restraint Sensing and Diagnostic Module",
+      "requestCanIds": ["0x247"],
+      "normalResponseCanIds": ["0x647"],
+      "dataCanIds": ["0x547"],
+      "observedServices": ["0x04","0x3E","0xA9"],
+      "note": "Legacy DTC examples include negative response 0x7F A9 78 before stream data."
+    }
+  ],
+  "serviceEvidence": [
+    {"request":"0x3E","positive":"0x7E","name":"TesterPresent / start communication"},
+    {"request":"0x04","positive":"0x44","name":"legacy clear DTC information"},
+    {"request":"0x09","positive":"0x49","name":"vehicle information / VIN example"},
+    {"request":"0x10","positive":"0x50","name":"DiagnosticSessionControl"},
+    {"request":"0x11","positive":"0x51","name":"ECUReset"},
+    {"request":"0x12","positive":"0x52","name":"GM failure/freeze-frame record service"},
+    {"request":"0x18","positive":"0x58","name":"legacy ReadDTCInformation"},
+    {"request":"0x22","positive":"0x62","name":"ReadDataByIdentifier"},
+    {"request":"0x27","positive":"0x67","name":"SecurityAccess"},
+    {"request":"0x2C","positive":"0x6C","name":"DynamicallyDefineDataIdentifier"},
+    {"request":"0x2E","positive":"0x6E","name":"WriteDataByIdentifier"},
+    {"request":"0x31","positive":"0x71","name":"RoutineControl"},
+    {"request":"0x34","positive":"0x74","name":"RequestDownload"},
+    {"request":"0x36","positive":"0x76","name":"TransferData"},
+    {"request":"0x37","positive":"0x77","name":"RequestTransferExit"},
+    {"request":"0xAA","positive":null,"name":"GM dynamic data packet control; data may arrive on 0x5xx UUDT-style stream IDs"},
+    {"request":"0xA9","positive":null,"name":"legacy GM DTC service; transcript shows 0x5xx records and module-specific completion behavior"}
+  ],
+  "negativeResponseExample": {
+    "payload": "7F 36 78",
+    "meaning": "TransferData responsePending",
+    "boundary": "Recorded as protocol behavior only; no timing or programming authorization is inferred for a specific Volt ECU."
+  }
+}

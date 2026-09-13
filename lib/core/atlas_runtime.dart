@@ -70,7 +70,8 @@ class AtlasRuntime extends ChangeNotifier {
   bool get isCapturing => capture.hasOpenCapture;
 
   List<String> scanSlcanPorts() => SlcanAdapter.availablePorts();
-  List<String> scanLinuxObdlinkPorts() => LinuxObdlinkMxAdapter.availablePorts();
+  Future<List<String>> scanLinuxObdlinkPorts() =>
+      LinuxObdlinkMxAdapter.availablePorts();
   Future<List<String>> scanSocketCanInterfaces() => SocketCanAdapter.availableInterfaces();
   Future<List<int>> scanLinuxUc2Devices() => LinuxUc2Adapter.availableDeviceIndices();
   String? get linuxUc2LibraryPath => LinuxUc2Adapter.findLibraryPath();
@@ -128,12 +129,14 @@ class AtlasRuntime extends ChangeNotifier {
     String portName, {
     int channel = 1,
     int protocol = 6,
+    ObdlinkMxCanBus canBus = ObdlinkMxCanBus.highSpeedCan,
   }) async {
     await _connectAdapter(
       LinuxObdlinkMxAdapter(
         portName,
         channel: channel,
         protocol: protocol,
+        canBus: canBus,
       ),
       channel,
     );
@@ -399,6 +402,21 @@ class AtlasRuntime extends ChangeNotifier {
     });
   }
 
+  String markCaptureEvent(String label, {String source = 'operator'}) {
+    if (!capture.isRecording) {
+      throw StateError('A capture must be recording before an event can be marked.');
+    }
+    final cleanLabel = label.trim().replaceAll(RegExp(r'[\r\n]+'), ' ');
+    final cleanSource = source.trim().replaceAll(RegExp(r'[^A-Za-z0-9_.-]+'), '_');
+    final now = DateTime.now().toUtc();
+    final seconds = now.microsecondsSinceEpoch / 1000000.0;
+    final line = '# ATLAS_EVENT (${seconds.toStringAsFixed(6)}) '
+        '${now.toIso8601String()} source=${cleanSource.isEmpty ? 'operator' : cleanSource} '
+        'label=${cleanLabel.isEmpty ? 'Event' : cleanLabel}';
+    capture.writeAnnotation(line);
+    return line;
+  }
+
   Future<File> startCapture({String eventLabel = 'Event'}) async {
     if (!anyConnected) {
       throw StateError('Connect at least one Atlas channel before starting a capture.');
@@ -406,7 +424,9 @@ class AtlasRuntime extends ChangeNotifier {
     discovery.start(label: eventLabel);
     notifyListeners();
     try {
-      return await capture.start();
+      final file = await capture.start();
+      markCaptureEvent('Capture start: ${discovery.eventLabel}', source: 'atlas');
+      return file;
     } catch (_) {
       discovery.finish();
       notifyListeners();
@@ -416,15 +436,20 @@ class AtlasRuntime extends ChangeNotifier {
 
   void markDiscoveryEventStart() {
     discovery.markEventStart();
+    markCaptureEvent('${discovery.eventLabel} start', source: 'discovery');
     notifyListeners();
   }
 
   void markDiscoveryEventEnd() {
     discovery.markEventEnd();
+    markCaptureEvent('${discovery.eventLabel} end', source: 'discovery');
     notifyListeners();
   }
 
   Future<File?> stopCapture() {
+    if (capture.isRecording) {
+      markCaptureEvent('Capture stop', source: 'atlas');
+    }
     if (discovery.isRunning) discovery.finish();
     notifyListeners();
     return capture.stop();

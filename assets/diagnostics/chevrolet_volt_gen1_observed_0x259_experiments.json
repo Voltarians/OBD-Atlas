@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "scope": "isolated GDS2 bench experiment",
+  "vehicleConnected": false,
+  "bitrate": 500000,
+  "requestCanId": "0x259",
+  "experimentalResponseCanId": "0x659",
+  "moduleIdentity": null,
+  "confidence": "experimentalBenchOnly",
+  "safeRuntimePolicy": "discoveryOnlyNoTransmit",
+  "observedRequests": ["0x3E", "0x27 0x01", "0xA2"],
+  "experiments": [
+    {
+      "timestampUtc": "2026-09-13T07:10:22Z",
+      "responses": {"0x3E": "0x7E", "0x27 0x01": "0x67 0x01 0x00 0x00", "0xA2": "0xE2 0x00"},
+      "result": "GDS2 continued alternating 0xA2 and 0x27 0x01 requests; acceptance was not demonstrated."
+    },
+    {
+      "timestampUtc": "2026-09-13T07:21:26Z",
+      "responses": {"0x3E": "0x7E", "0x27 0x01": "0x67 0x01 0x12 0x34", "0xA2": "0xE2 0x00"},
+      "result": "GDS2 continued alternating 0xA2 and 0x27 0x01 requests; acceptance was not demonstrated."
+    }
+  ],
+  "conclusions": [
+    "The 0x259 request address was directly observed from GDS2.",
+    "Traffic transmitted on 0x659 proves only the experimental Atlas response path, not the stock module identity or response address.",
+    "Neither seed response may be described as correct or accepted.",
+    "SecurityAccess and all other responses remain disabled in the production simulator until independent evidence identifies the module and protocol."
+  ]
+}
