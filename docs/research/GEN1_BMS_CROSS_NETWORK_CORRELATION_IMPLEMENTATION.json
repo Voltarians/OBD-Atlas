@@ -1,0 +1,17 @@
+{
+  "status": "implemented",
+  "scope": "software-only passive correlation",
+  "networks": [
+    {"name": "internal_becm_bicm", "bitrateKbps": 125},
+    {"name": "hv_energy_management", "bitrateKbps": 500}
+  ],
+  "features": [
+    "registry-driven 125 kbit/s Cell_01-Cell_96 and Temp_01-Temp_16 decode",
+    "dual SocketCAN common-clock passive capture",
+    "96x96 cell-to-slot correlation with one-to-one assignment",
+    "deterministic scrambled-map simulator fixture",
+    "three-session repeatability evidence gate"
+  ],
+  "evidenceBoundary": "No single-session or automated result is promoted to confirmed. Physical 125 kbit/s access remains a separately verified vehicle task.",
+  "secondaryDlcBoundary": "Observed secondary DLC traffic is 500 kbit/s and is not treated as the internal BECM/BICM bus."
+}
