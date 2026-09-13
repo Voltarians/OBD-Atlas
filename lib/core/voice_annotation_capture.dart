@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import 'capture_session.dart';
+
 enum EventMarkerMode {
   click,
   voice,
@@ -33,10 +35,18 @@ extension EventMarkerModeInfo on EventMarkerMode {
 /// The sidecar metadata preserves the application start/stop anchors so later
 /// offline transcription can correlate spoken observations with the raw CAN log.
 class VoiceAnnotationCapture extends ChangeNotifier {
+  /// Shared application-lifetime recorder. Capture pages may come and go while
+  /// a CAN session remains active, so the microphone must not belong to a tab.
+  static final VoiceAnnotationCapture shared = VoiceAnnotationCapture();
+
   Process? _process;
   bool _stopping = false;
+  Future<File?>? _stopFuture;
   DateTime? _startRequestedUtc;
   DateTime? _stopRequestedUtc;
+  CaptureSession? _boundCapture;
+  String _device = 'default';
+  int _sampleRateHz = 16000;
 
   File? activeAudioFile;
   File? activeMetadataFile;
@@ -46,6 +56,26 @@ class VoiceAnnotationCapture extends ChangeNotifier {
 
   bool get isRecording => _process != null && !_stopping;
   bool get isStopping => _stopping;
+
+  /// Keeps voice lifecycle coupled to the CAN evidence session even if the
+  /// operator navigates away from the Capture tab. A CAN stop from any source
+  /// automatically closes the audio sidecar as well.
+  void bindToCapture(CaptureSession capture) {
+    if (identical(_boundCapture, capture)) return;
+    _boundCapture?.removeListener(_captureChanged);
+    _boundCapture = capture;
+    capture.addListener(_captureChanged);
+    _captureChanged();
+  }
+
+  void _captureChanged() {
+    final capture = _boundCapture;
+    if (capture == null || _process == null || _stopping) return;
+    if (capture.phase == CapturePhase.stopping ||
+        capture.phase == CapturePhase.idle) {
+      unawaited(stop());
+    }
+  }
 
   static String _withoutExtension(String path) {
     final slash = path.lastIndexOf(Platform.pathSeparator);
@@ -78,18 +108,25 @@ class VoiceAnnotationCapture extends ChangeNotifier {
     String device = 'default',
     int sampleRateHz = 16000,
   }) async {
+    if (_stopFuture != null) await _stopFuture;
     if (_process != null) return activeAudioFile!;
     if (!Platform.isLinux) {
-      throw UnsupportedError('Voice annotation capture currently requires Linux/ALSA.');
+      throw UnsupportedError(
+        'Voice annotation capture currently requires Linux/ALSA.',
+      );
     }
     if (!await isAvailable()) {
-      throw StateError('ALSA arecord was not found. Install alsa-utils to enable voice markers.');
+      throw StateError(
+        'ALSA arecord was not found. Install alsa-utils to enable voice markers.',
+      );
     }
 
     lastError = null;
     _stopping = false;
     _startRequestedUtc = DateTime.now().toUtc();
     _stopRequestedUtc = null;
+    _device = device;
+    _sampleRateHz = sampleRateHz;
 
     final audio = audioFileForCapture(canCaptureFile);
     final metadata = metadataFileForCapture(canCaptureFile);
@@ -121,7 +158,9 @@ class VoiceAnnotationCapture extends ChangeNotifier {
 
     unawaited(process.exitCode.then((code) {
       if (identical(_process, process) && !_stopping) {
-        lastError = StateError('Voice recorder exited unexpectedly with code $code.');
+        lastError = StateError(
+          'Voice recorder exited unexpectedly with code $code.',
+        );
         _process = null;
         notifyListeners();
       }
@@ -130,10 +169,18 @@ class VoiceAnnotationCapture extends ChangeNotifier {
     return audio;
   }
 
-  Future<File?> stop() async {
+  Future<File?> stop() {
+    final existing = _stopFuture;
+    if (existing != null) return existing;
     final process = _process;
-    if (process == null) return lastCompletedAudioFile;
+    if (process == null) return Future<File?>.value(lastCompletedAudioFile);
 
+    final task = _stopProcess(process);
+    _stopFuture = task;
+    return task;
+  }
+
+  Future<File?> _stopProcess(Process process) async {
     _stopping = true;
     _stopRequestedUtc = DateTime.now().toUtc();
     notifyListeners();
@@ -162,6 +209,7 @@ class VoiceAnnotationCapture extends ChangeNotifier {
     activeAudioFile = null;
     activeMetadataFile = null;
     _stopping = false;
+    _stopFuture = null;
     notifyListeners();
     return lastCompletedAudioFile;
   }
@@ -174,7 +222,9 @@ class VoiceAnnotationCapture extends ChangeNotifier {
       'role': 'synchronized_voice_annotation',
       'audio_file': audio.uri.pathSegments.last,
       'format': 'wav_pcm_s16le',
-      'sample_rate_hz': 16000,
+      'audio_backend': 'alsa_arecord',
+      'audio_device': _device,
+      'sample_rate_hz': _sampleRateHz,
       'channels': 1,
       'start_requested_utc': start?.toIso8601String(),
       'stop_requested_utc': stop.toIso8601String(),
