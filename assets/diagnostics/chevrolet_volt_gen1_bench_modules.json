@@ -154,7 +154,8 @@
         "0x27 0x01",
         "0xA2"
       ],
-      "note": "Do not infer a response ID or module identity until confirmed. SecurityAccess remains blocked."
+      "note": "Two isolated-bench response experiments failed to demonstrate GDS2 acceptance. Do not infer a response ID, seed behavior, or module identity. SecurityAccess remains blocked.",
+      "experimentalEvidence": "assets/diagnostics/chevrolet_volt_gen1_observed_0x259_experiments.json"
     },
     {
       "key": "observed-0x25C",
