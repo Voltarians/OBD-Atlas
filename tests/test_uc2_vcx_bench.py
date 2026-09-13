@@ -1,6 +1,7 @@
 import ctypes as C
 import importlib.util
 import pathlib
+import sys
 import unittest
 
 
@@ -8,6 +9,7 @@ MODULE_PATH = pathlib.Path(__file__).resolve().parents[1] / "tool" / "uc2_vcx_be
 SPEC = importlib.util.spec_from_file_location("uc2_vcx_bench", MODULE_PATH)
 bench = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
+sys.modules[SPEC.name] = bench
 SPEC.loader.exec_module(bench)
 
 
@@ -65,15 +67,9 @@ class Uc2VcxBenchTests(unittest.TestCase):
         self.assertFalse(args.confirm_isolated_bench)
 
     def test_bench_result_requires_both_directions(self):
-        self.assertFalse(
-            bench.BenchResult(True, False, 0.1).passed
-        )
-        self.assertFalse(
-            bench.BenchResult(False, True, 0.1).passed
-        )
-        self.assertTrue(
-            bench.BenchResult(True, True, 0.1).passed
-        )
+        self.assertFalse(bench.BenchResult(True, False, 0.1).passed)
+        self.assertFalse(bench.BenchResult(False, True, 0.1).passed)
+        self.assertTrue(bench.BenchResult(True, True, 0.1).passed)
 
 
 if __name__ == "__main__":
