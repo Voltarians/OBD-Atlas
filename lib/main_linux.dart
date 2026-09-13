@@ -7,6 +7,7 @@ import 'adapters/linux_obdlink_mx_adapter.dart';
 import 'core/atlas_runtime.dart';
 import 'core/capture_session.dart';
 import 'core/signal_discovery.dart';
+import 'linux_capture_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -57,7 +58,7 @@ class _LinuxHomePageState extends State<LinuxHomePage> {
 
   static const _pages = <Widget>[
     LinuxConnectPage(),
-    LinuxCapturePage(),
+    VoiceCapableCapturePage(),
     LinuxLivePage(),
     LinuxSystemPage(),
   ];
