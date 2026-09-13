@@ -12,6 +12,23 @@ import gds2_bench_simulator as sim
 
 
 class Gds2BenchSimulatorTests(unittest.TestCase):
+    def test_observed_259_experiments_remain_non_authoritative(self):
+        evidence_path = (
+            sim.REPO_ROOT
+            / "assets"
+            / "diagnostics"
+            / "chevrolet_volt_gen1_observed_0x259_experiments.json"
+        )
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+        self.assertEqual(evidence["requestCanId"], "0x259")
+        self.assertEqual(evidence["experimentalResponseCanId"], "0x659")
+        self.assertIsNone(evidence["moduleIdentity"])
+        self.assertEqual(evidence["safeRuntimePolicy"], "discoveryOnlyNoTransmit")
+        self.assertEqual(len(evidence["experiments"]), 2)
+        self.assertTrue(
+            all("acceptance was not demonstrated" in row["result"] for row in evidence["experiments"])
+        )
+
     def test_registry_hpcm2_is_confirmed_and_implemented(self):
         profile = sim.select_module("hpcm2")
         self.assertEqual(profile.request_id, 0x7E4)
