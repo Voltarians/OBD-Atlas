@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import 'core/atlas_runtime.dart';
@@ -18,7 +16,7 @@ class VoiceCapableCapturePage extends StatefulWidget {
 
 class _VoiceCapableCapturePageState extends State<VoiceCapableCapturePage> {
   final _eventLabel = TextEditingController(text: 'Brake');
-  final VoiceAnnotationCapture _voice = VoiceAnnotationCapture();
+  final VoiceAnnotationCapture _voice = VoiceAnnotationCapture.shared;
   EventMarkerMode _markerMode = EventMarkerMode.click;
   bool _starting = false;
   bool _stopping = false;
@@ -26,6 +24,7 @@ class _VoiceCapableCapturePageState extends State<VoiceCapableCapturePage> {
   @override
   void initState() {
     super.initState();
+    _voice.bindToCapture(AtlasRuntime.instance.capture);
     _voice.addListener(_voiceChanged);
   }
 
@@ -36,9 +35,7 @@ class _VoiceCapableCapturePageState extends State<VoiceCapableCapturePage> {
   @override
   void dispose() {
     _voice.removeListener(_voiceChanged);
-    if (_voice.isRecording) unawaited(_voice.stop());
     _eventLabel.dispose();
-    _voice.dispose();
     super.dispose();
   }
 
