@@ -20,7 +20,11 @@ class VehicleSignalCatalog {
     final signals = rawSignals.map((raw) {
       if (raw is! Map<String, dynamic> ||
           raw['name'] is! String ||
-          !const {'confirmed', 'candidate'}.contains(raw['status']) ||
+          !const {
+            'confirmed',
+            'communityCorroborated',
+            'candidate',
+          }.contains(raw['status']) ||
           raw['channel'] is! int ||
           raw['canId'] is! String ||
           raw['extended'] is! bool ||

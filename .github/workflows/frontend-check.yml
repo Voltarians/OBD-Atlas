@@ -12,6 +12,18 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Configure J2534 lifecycle proxy
+        run: cmake -S native/j2534_proxy -B build/j2534_proxy -A x64 -DBUILD_TESTING=ON
+      - name: Build J2534 lifecycle proxy
+        run: cmake --build build/j2534_proxy --config Release
+      - name: Test J2534 lifecycle transparency
+        run: ctest --test-dir build/j2534_proxy -C Release --output-on-failure
+      - name: Upload J2534 lifecycle proxy
+        uses: actions/upload-artifact@v4
+        with:
+          name: OBD-Atlas-J2534-lifecycle-proxy
+          path: build/j2534_proxy/Release/obd_atlas_j2534_proxy.dll
+          if-no-files-found: error
       - uses: subosito/flutter-action@v2
         with:
           channel: stable

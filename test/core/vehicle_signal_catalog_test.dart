@@ -10,7 +10,7 @@ void main() {
     final catalog = VehicleSignalCatalog.fromJson(source);
 
     expect(catalog.catalogId, 'chevrolet-volt-gen1');
-    expect(catalog.signals, hasLength(17));
+    expect(catalog.signals, hasLength(36));
     expect(
       catalog.signals
           .where((signal) => signal['status'] == 'candidate')
@@ -19,6 +19,39 @@ void main() {
         'brakePressureCandidate',
         'acceleratorPositionCandidate',
         'hazardFlashCandidate',
+        'hvBatteryCurrentCandidate',
+        'packCurrentCandidate',
+      ]),
+    );
+    expect(
+      catalog.signals
+          .where((signal) => signal['status'] == 'communityCorroborated')
+          .map((signal) => signal['name']),
+      containsAll(<String>[
+        'chargerHvCurrent',
+        'chargerHvVoltage',
+        'chargerLvCurrent',
+        'chargerLvVoltage',
+        'chargerRequestedCurrent',
+        'chargerRequestedVoltage',
+        'chargerMode',
+      ]),
+    );
+    expect(
+      catalog.signals
+          .where((signal) => signal['status'] == 'confirmed')
+          .map((signal) => signal['name']),
+      containsAll(<String>[
+        'brakePedalPressed',
+        'brakePedalPosition',
+        'brakePressedEcm',
+        'brakePedalPressedVehicleDynamic',
+        'brakeNormalized1',
+        'userBrakePressureRaw',
+        'userBrakePressureMirrorRaw',
+        'systemPowerMode',
+        'hvBatteryVoltage',
+        'packVoltage',
       ]),
     );
   });
