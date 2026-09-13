@@ -2,7 +2,7 @@ network,bitrate_kbps,target,source_or_reason,confidence,status
 hv_energy_management,500,positive_main_contactor_state,Gen-1 service-manual topology places A28 contactor assembly and K16 BECM on this network,candidate,needs controlled OFF-to-READY capture
 hv_energy_management,500,negative_main_contactor_state,Gen-1 service-manual topology places A28 contactor assembly and K16 BECM on this network,candidate,needs controlled OFF-to-READY capture
 hv_energy_management,500,precharge_relay_state,Gen-1 service-manual topology places A28 contactor assembly and K16 BECM on this network,candidate,needs controlled OFF-to-READY capture
-hv_energy_management,500,pack_voltage,BECM/HV diagnostics requirement,candidate,search community sources and correlate with capture
+hv_energy_management,500,pack_voltage,Atlas-confirmed 0x210 packVoltage cross-validated against gatewayed 0x2C7 HVBatteryVoltage,confirmed,available for controlled OFF-to-READY correlation
 hv_energy_management,500,dc_link_or_output_voltage,needed to prove precharge behavior,candidate,correlate against HPCM/inverter data
 hv_energy_management,500,battery_current,needed to separate contactor resistance/load effects,candidate,search community sources and correlate with capture
 hv_energy_management,500,hvil_or_interlock_state,can inhibit contactor command,candidate,search diagnostics and capture
