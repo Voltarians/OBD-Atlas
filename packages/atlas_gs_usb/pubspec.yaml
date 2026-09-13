@@ -1,0 +1,19 @@
+name: atlas_gs_usb
+version: 0.1.0
+publish_to: none
+
+description: Native Windows WinUSB transport for candleLight/gs_usb CAN adapters used by OBD Atlas.
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+  flutter: '>=3.22.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      windows:
+        pluginClass: AtlasGsUsbPluginCApi
