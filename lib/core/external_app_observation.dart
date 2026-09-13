@@ -55,9 +55,13 @@ class ObservationCandidate {
   final int? likelyResponseId;
 
   String get idHex => id.toRadixString(16).toUpperCase().padLeft(id > 0x7FF ? 8 : 3, '0');
-  String? get likelyResponseIdHex => likelyResponseId == null
-      ? null
-      : likelyResponseId!.toRadixString(16).toUpperCase().padLeft(likelyResponseId! > 0x7FF ? 8 : 3, '0');
+  String? get likelyResponseIdHex {
+    final responseId = likelyResponseId;
+    return responseId
+        ?.toRadixString(16)
+        .toUpperCase()
+        .padLeft(responseId > 0x7FF ? 8 : 3, '0');
+  }
 
   Map<String, Object?> toJson() => <String, Object?>{
         'marker': marker.label,
