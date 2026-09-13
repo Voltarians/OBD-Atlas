@@ -26,6 +26,7 @@ ATLAS_EVENT_RE = re.compile(
     r"^# ATLAS_EVENT \((?P<epoch>\d+(?:\.\d+)?)\)\s+"
     r"(?P<utc>\S+)\s+source=(?P<source>\S+)\s+label=(?P<label>.*)$"
 )
+SENSITIVE_GM_SERVICES = {"SecurityAccess", "TransferData"}
 
 
 def utc_now_iso() -> str:
@@ -104,6 +105,27 @@ def _default_address_references() -> tuple[list[dict[str, Any]], dict[int, list[
     return references, gm.build_address_index(references)
 
 
+def _redact_sensitive_bus_events(events: list[dict[str, Any]]) -> None:
+    """Redact sensitive bytes in the derived bundle, leaving raw input untouched."""
+    for event in events:
+        if event.get("service") not in SENSITIVE_GM_SERVICES:
+            continue
+        payload = event.get("payload")
+        if isinstance(payload, str) and payload and payload != "<redacted>":
+            try:
+                raw = bytes.fromhex(payload)
+            except ValueError:
+                raw = payload.encode("utf-8")
+            event["payloadSha256"] = hashlib.sha256(raw).hexdigest()
+            event["payloadLength"] = len(raw)
+            event["payload"] = "<redacted>"
+            event["sensitivePayloadRedacted"] = True
+        for field in ("securityData", "transferData"):
+            if field in event:
+                event[field] = "<redacted>"
+                event[f"{field}Redacted"] = True
+
+
 def analyze_capture(path: Path) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     markers = parse_atlas_markers(lines)
@@ -115,15 +137,9 @@ def analyze_capture(path: Path) -> tuple[dict[str, Any], dict[str, Any], list[di
     legacy_events = gm.extract_legacy_reference_events(frames, address_index, iso_events)
     events = gm.merge_events(iso_events, legacy_events)
     gm.annotate_events(events, address_index)
+    _redact_sensitive_bus_events(events)
     endpoint_traffic = gm.build_endpoint_traffic(frames, address_index)
     transactions = gm.build_transactions(events)
-
-    # Match extract_gm_tool_session.py's safe default: keep programming phase
-    # evidence while not duplicating TransferData firmware bytes in this bundle.
-    for event in events:
-        if event.get("service") == "TransferData" and "transferData" in event:
-            event["transferData"] = "<redacted>"
-            event["transferDataRedacted"] = True
 
     gm_result = {
         "frameCount": len(frames),
@@ -261,7 +277,7 @@ def correlate_j2534_to_bus(
         message = item["message"]
         candidates = _payload_candidates(message)
         service_id = item.get("serviceId")
-        ranked: list[tuple[int, float, dict[str, Any], bool, bool]] = []
+        ranked: list[tuple[bool, bool, float, dict[str, Any]]] = []
         for event in bus_events:
             if not _bus_direction_matches(str(item["direction"]), str(event.get("direction", ""))):
                 continue
@@ -269,12 +285,15 @@ def correlate_j2534_to_bus(
             if delta > max_delta_s:
                 continue
             bus_payload = str(event.get("payload", "")).upper()
-            exact_payload = bool(bus_payload and any(candidate.endswith(bus_payload) for candidate in candidates))
+            exact_payload = bool(
+                bus_payload
+                and bus_payload != "<REDACTED>"
+                and any(candidate.endswith(bus_payload) for candidate in candidates)
+            )
             bus_service = str(event.get("serviceId", "")) or None
             service_match = bool(service_id and bus_service == service_id)
-            score = (100 if exact_payload else 0) + (30 if service_match else 0) - int(delta * 1000)
-            ranked.append((score, delta, event, exact_payload, service_match))
-        ranked.sort(key=lambda row: (row[0], -row[1]), reverse=True)
+            ranked.append((exact_payload, service_match, delta, event))
+        ranked.sort(key=lambda row: (not row[0], not row[1], row[2]))
         if not ranked:
             correlations.append(
                 {
@@ -288,7 +307,7 @@ def correlate_j2534_to_bus(
                 }
             )
             continue
-        _, delta, event, exact_payload, service_match = ranked[0]
+        exact_payload, service_match, delta, event = ranked[0]
         if exact_payload:
             status = "exactPayloadAndTimeMatch"
         elif service_match:
@@ -305,7 +324,10 @@ def correlate_j2534_to_bus(
                 "serviceId": service_id,
                 "status": status,
                 "deltaMs": round(delta * 1000.0, 3),
-                "payloadCompared": not bool(message.get("payloadRedacted")),
+                "payloadCompared": (
+                    not bool(message.get("payloadRedacted"))
+                    and not bool(event.get("sensitivePayloadRedacted"))
+                ),
                 "busEvent": {
                     key: event.get(key)
                     for key in (
@@ -320,6 +342,7 @@ def correlate_j2534_to_bus(
                         "likelyModule",
                         "addressEvidence",
                         "transport",
+                        "sensitivePayloadRedacted",
                     )
                     if key in event
                 },
@@ -370,6 +393,7 @@ def correlate_markers_to_bus(
                                 "likelyModule",
                                 "addressEvidence",
                                 "transport",
+                                "sensitivePayloadRedacted",
                             )
                             if key in event
                         },
