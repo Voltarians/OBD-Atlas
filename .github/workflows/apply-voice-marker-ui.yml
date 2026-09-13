@@ -1,0 +1,54 @@
+name: Apply voice marker UI integration
+
+on:
+  push:
+    branches:
+      - feat/voice-event-markers
+
+permissions:
+  contents: write
+
+jobs:
+  patch-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/voice-event-markers
+      - name: Patch Linux capture page selection
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('lib/main_linux.dart')
+          text = path.read_text(encoding='utf-8')
+          import_anchor = "import 'core/signal_discovery.dart';\n"
+          import_line = "import 'linux_capture_page.dart';\n"
+          page_old = "    LinuxCapturePage(),\n"
+          page_new = "    VoiceCapableCapturePage(),\n"
+
+          changed = False
+          if import_line not in text:
+              if import_anchor not in text:
+                  raise SystemExit('main_linux.dart import anchor not found')
+              text = text.replace(import_anchor, import_anchor + import_line, 1)
+              changed = True
+          if page_new not in text:
+              if page_old not in text:
+                  raise SystemExit('main_linux.dart capture-page anchor not found')
+              text = text.replace(page_old, page_new, 1)
+              changed = True
+          if changed:
+              path.write_text(text, encoding='utf-8')
+          PY
+      - name: Commit UI integration
+        run: |
+          if git diff --quiet -- lib/main_linux.dart; then
+            echo "UI already integrated"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/main_linux.dart
+          git commit -m "Wire selectable voice markers into Linux capture UI [voice-ui-patch]"
+          git push origin HEAD:feat/voice-event-markers
