@@ -25,6 +25,8 @@ The simulator implements only identification and read-only diagnostic behavior. 
 
 Discovery-only registry entries are never answered. In particular, request ID `0x259` is recorded with observed GDS2 requests `3E`, `27 01`, and `A2`, but Atlas does not infer a response ID or SecurityAccess behavior for it.
 
+Two September 13, 2026 isolated-bench experiments transmitted candidate responses on `0x659`, using both an all-zero and a `0x1234` seed response. GDS2 continued cycling `A2` and `27 01` in both experiments, so neither candidate is treated as accepted behavior. The preserved experimental record is `assets/diagnostics/chevrolet_volt_gen1_observed_0x259_experiments.json`; production simulation remains fail-closed.
+
 This simulator is not for connection to a live vehicle network.
 
 ## Module registry
