@@ -110,6 +110,24 @@ Every received CAN frame, simulator decision, and transmitted response is append
 
 Unknown or unsupported diagnostic requests are summarized when the simulator stops. Use those logs to promote registry entries only after the addressing and semantics are supported by controlled evidence.
 
+
+### Passive unknown-module discovery
+
+While the simulator is running, use a second terminal to mark the exact GDS2 action or screen change:
+
+```bash
+python3 tool/gds2_discovery_report.py mark "$LOG" "BECM — Battery Data Display"
+```
+
+After stopping the simulator, produce a machine-readable report:
+
+```bash
+python3 tool/gds2_discovery_report.py report "$LOG" \
+  --output "${LOG%.jsonl}.discovery.json"
+```
+
+The report groups discovery-only or unregistered request addresses, services, timing, repetition counts, request order and nearby operator markers. For legacy `0x2xx` requests it may calculate the conventional `+0x400` response address as a `hypothesisOnly` lead. It never authorizes transmission or promotes a module identity.
+
 ## Development rule
 
 Do not guess missing GDS2 behavior merely to advance the UI. Capture the request first, identify the service/module semantics, then add a tested response. Keep programming/security/actuator paths fail-closed unless a separate explicitly scoped isolated-bench experiment requires them.
