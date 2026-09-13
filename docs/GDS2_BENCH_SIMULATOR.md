@@ -1,6 +1,8 @@
-# GDS2 isolated bench simulator
+# Atlas GDS2 isolated bench simulator
 
-OBD Atlas includes a first-stage Chevrolet Volt Gen-1 HPCM2 simulator for learning the exact request sequence GDS2 sends through a real J2534/VCX interface without connecting the simulator to a vehicle.
+OBD Atlas includes an isolated Chevrolet Volt Gen-1 ECU bench simulator for learning the exact request sequence GDS2 sends through a real J2534/VCX interface without connecting the simulator to a vehicle.
+
+The simulator is now registry-driven. Atlas keeps module addressing and confidence in `assets/diagnostics/chevrolet_volt_gen1_bench_modules.json`; only entries explicitly marked `simulationStatus: implemented` may transmit. Observed but unconfirmed modules stay discovery-only and fail closed.
 
 ## Bench topology
 
@@ -13,44 +15,62 @@ Windows GDS2
   -> PCG-1 / OBD Atlas gds2_bench_simulator.py
 ```
 
-The vehicle side of the harness must remain disconnected while this simulator is active.
+The vehicle side of the harness must remain disconnected while simulator mode is active.
 
 ## Safety boundary
 
-The simulator opens the UC2 controller in active CAN mode because a two-node VCX/UC2 bench requires an ACK. Active mode is gated by `--confirm-isolated-bench`.
+The simulator opens the UC2 controller in active CAN mode because a two-node VCX/UC2 bench requires an ACK. Active simulation is gated by `--confirm-isolated-bench`.
 
-The simulator implements only identification and read-only diagnostic behavior. It explicitly refuses SecurityAccess, writes, programming/download/upload/transfer services, RoutineControl, communication changes, DTC clearing, and DTC setting changes. Unknown services receive a negative response and are recorded for analysis.
+The simulator implements only identification and read-only diagnostic behavior. It refuses SecurityAccess, writes, programming/download/upload/transfer services, RoutineControl, communication changes, DTC clearing, and DTC setting changes. Unknown services are logged and fail closed.
+
+Discovery-only registry entries are never answered. In particular, request ID `0x259` is recorded with observed GDS2 requests `3E`, `27 01`, and `A2`, but Atlas does not infer a response ID or SecurityAccess behavior for it.
 
 This simulator is not for connection to a live vehicle network.
 
-## Current emulated module
+## Module registry
 
-Initial target: K114B Hybrid/EV Powertrain Control Module 2 (HPCM2).
+List the current registry:
 
+```bash
+python3 tool/gds2_bench_simulator.py --list-modules
+```
+
+Current implemented module:
+
+- key: `hpcm2`
+- module: K114B Hybrid Powertrain Control Module 2
 - request CAN ID: `0x7E4`
-- response CAN ID: `0x7EC`
+- normal/USDT response CAN ID: `0x7EC`
+- UUDT/data/DTC response CAN ID: `0x5EC`
 - bitrate: 500 kbit/s
-- UC2 default: device 0, CAN1
-- synthetic VIN: `1G1RA6E40DU100001`
+- confidence: `confirmedBench`
 
-The VIN is a simulator identity and is not intended to represent a real vehicle.
+The registry also records GDS2-observed request IDs as `discoveryOnly` until a module identity and response addressing are confirmed. Legacy GM address references are stored separately from controlled Volt evidence and do not by themselves authorize simulation.
 
-## Supported diagnostic behavior
+## HPCM2 behavior validated with GDS2
 
-Current safe services:
+The HPCM2 profile includes behavior that was accepted by GDS2 on the isolated bench:
 
-- `0x10` DiagnosticSessionControl: default and extended diagnostic sessions
-- `0x19` ReadDTCInformation: reports no DTCs for the initial supported subfunctions
-- `0x22` ReadDataByIdentifier: synthetic VIN DID `F190` and a small set of Atlas HPCM2 candidate DIDs
-- `0x3E` TesterPresent
+- legacy one-byte `3E` TesterPresent -> `7E`
+- `A9 81 1A` legacy GM DTC query -> no-DTC completion on `0x5EC`
+- legacy `1A` identification requests:
+  - `1A 90` VIN
+  - `1A B4` Manufacturer's Traceability Number
+  - `1A CB` End Model Part Number
+  - `1A CC` Base Model Part Number
+  - `1A C1` Software Module 1 Identifier
+  - `1A C2` Software Module 2 Identifier
+- `0x10` DiagnosticSessionControl
+- `0x19` ReadDTCInformation for retained UDS bench exploration
+- `0x22` ReadDataByIdentifier for synthetic VIN DID `F190` and Atlas HPCM2 candidate DIDs
 
-Read-only HPCM2 candidate DIDs currently include pack voltage, pack current, SOC, min/max module voltage, module index, charger input values, and temperature fixtures. The DID meanings remain subject to the confidence/evidence limits recorded in `assets/diagnostics/chevrolet_volt_gen1_hpcm2_did_candidates.json`.
+GDS2 successfully displayed the synthetic HPCM2 identity and reported `No DTCs Stored` with this behavior.
 
-VIN responses use ISO-TP multi-frame transmission and honor the VCX flow-control frame.
+Synthetic bench identity values are intentionally obvious and are not intended to represent a real vehicle or controller.
 
 ## Run on PCG-1
 
-Update the current development tree first, then set the UC2 native library path:
+Update the current development tree, then set the UC2 native library path:
 
 ```bash
 cd "$HOME/OBD-Atlas-current"
@@ -64,10 +84,16 @@ Run the self-check without opening hardware:
 python3 tool/gds2_bench_simulator.py --check
 ```
 
-With the vehicle disconnected from the bench harness, start the simulator:
+Inspect available modules:
 
 ```bash
-python3 tool/gds2_bench_simulator.py --confirm-isolated-bench
+python3 tool/gds2_bench_simulator.py --list-modules
+```
+
+With the vehicle disconnected from the bench harness, start the confirmed HPCM2 profile:
+
+```bash
+python3 tool/gds2_bench_simulator.py --module hpcm2 --confirm-isolated-bench
 ```
 
 Then start GDS2 on the Windows laptop with the real VXDIAG/VCX J2534 provider selected.
@@ -80,7 +106,7 @@ Every received CAN frame, simulator decision, and transmitted response is append
 ~/Documents/OBD Atlas/gds2_bench_YYYYMMDD_HHMMSS.jsonl
 ```
 
-Unknown or unsupported diagnostic requests are summarized when the simulator stops. That log is the evidence source for the next simulator revision: add only requests actually observed from GDS2, with the narrowest safe response needed to advance the session.
+Unknown or unsupported diagnostic requests are summarized when the simulator stops. Use those logs to promote registry entries only after the addressing and semantics are supported by controlled evidence.
 
 ## Development rule
 
