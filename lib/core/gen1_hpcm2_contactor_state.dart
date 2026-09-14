@@ -1,3 +1,5 @@
+import 'can_frame.dart';
+
 /// Vehicle-observed Gen-1 Chevrolet Volt HPCM2 contactor/precharge state.
 ///
 /// Controlled GDS2 + passive Atlas captures on 2026-09-14 established that
@@ -47,7 +49,9 @@ class Gen1Hpcm2ContactorStateDecoder {
     required int didContext,
     required List<int> payload,
   }) {
-    if (didContext != did || payload.length < 2 || payload[0] != dynamicPacketId) {
+    if (didContext != did ||
+        payload.length < 2 ||
+        payload[0] != dynamicPacketId) {
       return null;
     }
 
@@ -79,14 +83,10 @@ class Gen1Hpcm2ContactorStateDecoder {
     if (_equals(compressed, const <int>[0x6B, 0x6A, 0x68])) {
       return Gen1Hpcm2SequenceClassification.normalShutdown;
     }
-    if (compressed.isNotEmpty &&
-        compressed.first == 0x68 &&
-        compressed.last == 0x68) {
+    if (_equals(compressed, const <int>[0x68])) {
       return Gen1Hpcm2SequenceClassification.stableHvOff;
     }
-    if (compressed.isNotEmpty &&
-        compressed.first == 0x6B &&
-        compressed.last == 0x6B) {
+    if (_equals(compressed, const <int>[0x6B])) {
       return Gen1Hpcm2SequenceClassification.stableHvEstablished;
     }
     return Gen1Hpcm2SequenceClassification.unknownOrIncomplete;
@@ -99,4 +99,115 @@ class Gen1Hpcm2ContactorStateDecoder {
     }
     return true;
   }
+}
+
+/// Stateful live tracker for the HPCM2 dynamic packet definition and stream.
+///
+/// DPID 0xFE is reusable. The tracker therefore fails closed: a 0x5EC FE xx
+/// frame is decoded only after the same Atlas channel has shown a successful
+/// single-frame 0x2C definition of 0xFE -> 0x430E.
+class Gen1Hpcm2ContactorLiveTracker {
+  static const int requestCanId = 0x7E4;
+  static const int responseCanId = 0x7EC;
+
+  final Map<int, Map<int, int>> _definitionsByChannel = <int, Map<int, int>>{};
+  final Map<int, _PendingDynamicDefinition> _pendingByChannel =
+      <int, _PendingDynamicDefinition>{};
+  final List<int> _compressedHistory = <int>[];
+
+  Gen1Hpcm2ContactorSample? currentSample;
+  DateTime? lastSampleTimestamp;
+  int? activeChannel;
+
+  bool get hasConfirmedContactorContext => _definitionsByChannel.values.any(
+        (definitions) =>
+            definitions[Gen1Hpcm2ContactorStateDecoder.dynamicPacketId] ==
+            Gen1Hpcm2ContactorStateDecoder.did,
+      );
+
+  Gen1Hpcm2SequenceClassification get sequenceClassification =>
+      Gen1Hpcm2ContactorStateDecoder.classifyRawStates(_compressedHistory);
+
+  List<int> get compressedHistory => List<int>.unmodifiable(_compressedHistory);
+
+  void reset() {
+    _definitionsByChannel.clear();
+    _pendingByChannel.clear();
+    _compressedHistory.clear();
+    currentSample = null;
+    lastSampleTimestamp = null;
+    activeChannel = null;
+  }
+
+  void observe(CanFrame frame) {
+    if (frame.id == requestCanId) {
+      final payload = _singleFramePayload(frame.data);
+      if (payload != null && payload.length >= 4 && payload[0] == 0x2C) {
+        _pendingByChannel[frame.channel] = _PendingDynamicDefinition(
+          dpid: payload[1],
+          did: (payload[2] << 8) | payload[3],
+        );
+      }
+      return;
+    }
+
+    if (frame.id == responseCanId) {
+      final payload = _singleFramePayload(frame.data);
+      final pending = _pendingByChannel[frame.channel];
+      if (payload == null || pending == null) return;
+      if (payload.length >= 2 &&
+          payload[0] == 0x6C &&
+          payload[1] == pending.dpid) {
+        _definitionsByChannel
+            .putIfAbsent(frame.channel, () => <int, int>{})[pending.dpid] =
+            pending.did;
+        _pendingByChannel.remove(frame.channel);
+      } else if (payload.length >= 3 &&
+          payload[0] == 0x7F &&
+          payload[1] == 0x2C) {
+        _pendingByChannel.remove(frame.channel);
+      }
+      return;
+    }
+
+    if (frame.id != Gen1Hpcm2ContactorStateDecoder.dynamicResponseCanId ||
+        frame.data.length < 2) {
+      return;
+    }
+
+    final dpid = frame.data[0];
+    final didContext = _definitionsByChannel[frame.channel]?[dpid];
+    if (didContext != Gen1Hpcm2ContactorStateDecoder.did) return;
+
+    final sample = Gen1Hpcm2ContactorStateDecoder.decodeDynamicPayload(
+      didContext: didContext!,
+      payload: frame.data,
+    );
+    if (sample == null) return;
+
+    currentSample = sample;
+    lastSampleTimestamp = frame.timestamp;
+    activeChannel = frame.channel;
+    if (_compressedHistory.isEmpty ||
+        _compressedHistory.last != sample.rawState) {
+      _compressedHistory.add(sample.rawState);
+      if (_compressedHistory.length > 16) {
+        _compressedHistory.removeAt(0);
+      }
+    }
+  }
+
+  static List<int>? _singleFramePayload(List<int> data) {
+    if (data.isEmpty || (data[0] >> 4) != 0) return null;
+    final length = data[0] & 0x0F;
+    if (length == 0 || length > 7 || data.length < length + 1) return null;
+    return data.sublist(1, length + 1);
+  }
+}
+
+class _PendingDynamicDefinition {
+  const _PendingDynamicDefinition({required this.dpid, required this.did});
+
+  final int dpid;
+  final int did;
 }
