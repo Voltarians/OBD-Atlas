@@ -13,6 +13,7 @@ enum Gen1PrechargeDiagnosticResult {
 enum Gen1PrechargeVoltageResult {
   notEvaluated,
   insufficientData,
+  failedToRise,
   roseButDidNotConverge,
   converged,
 }
@@ -175,12 +176,14 @@ class Gen1PrechargeDiagnosticAnalyzer {
     if (!reachedPrecharge) return stateResult;
 
     switch (voltageAssessment.result) {
+      case Gen1PrechargeVoltageResult.failedToRise:
+        return Gen1PrechargeDiagnosticResult.prechargeVoltageFailedToRise;
+      case Gen1PrechargeVoltageResult.roseButDidNotConverge:
+        return Gen1PrechargeDiagnosticResult.prechargeVoltageDidNotConverge;
       case Gen1PrechargeVoltageResult.insufficientData:
       case Gen1PrechargeVoltageResult.notEvaluated:
       case Gen1PrechargeVoltageResult.converged:
         return stateResult;
-      case Gen1PrechargeVoltageResult.roseButDidNotConverge:
-        return Gen1PrechargeDiagnosticResult.prechargeVoltageDidNotConverge;
     }
   }
 
@@ -230,7 +233,7 @@ class Gen1PrechargeDiagnosticAnalyzer {
     final result = bestRatio >= convergenceRatio
         ? Gen1PrechargeVoltageResult.converged
         : rise < minimumRiseVolts
-            ? Gen1PrechargeVoltageResult.insufficientData
+            ? Gen1PrechargeVoltageResult.failedToRise
             : Gen1PrechargeVoltageResult.roseButDidNotConverge;
 
     return Gen1PrechargeVoltageAssessment(
