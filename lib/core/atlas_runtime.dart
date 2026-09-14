@@ -16,6 +16,7 @@ import '../adapters/slcan_adapter.dart';
 import '../adapters/socketcan_adapter.dart';
 import 'can_frame.dart';
 import 'capture_session.dart';
+import 'gm_live_diagnostic_monitor.dart';
 import 'local_store.dart';
 import 'signal_discovery.dart';
 
@@ -378,6 +379,7 @@ class AtlasRuntime extends ChangeNotifier {
       slot.framesThisSecond++;
       slot.seenIds.add(frame.id);
     }
+    GmLiveDiagnosticMonitor.observeFrame(frame);
     recentFrames.insert(0, frame);
     if (recentFrames.length > 500) recentFrames.removeLast();
     capture.writeLine(frame.toCandump());
@@ -511,6 +513,7 @@ class AtlasRuntime extends ChangeNotifier {
       _uiTimer = null;
       framesPerSecond = 0;
       framesThisSecond = 0;
+      GmLiveDiagnosticMonitor.resetLiveState();
     }
     notifyListeners();
   }
@@ -548,6 +551,7 @@ class AtlasRuntime extends ChangeNotifier {
       _uiTimer = null;
       framesPerSecond = 0;
       framesThisSecond = 0;
+      GmLiveDiagnosticMonitor.resetLiveState();
       notifyListeners();
     }
     if (captureFailure != null) {
