@@ -1,4 +1,5 @@
 import 'can_frame.dart';
+import 'gen1_hpcm2_contactor_state.dart';
 
 /// Observation-only live GM diagnostic decoder used by the Windows capture UI.
 ///
@@ -91,7 +92,8 @@ class GmLiveDiagnosticSnapshot {
   final int endpointFrameCount;
   final int streamFrameCount;
 
-  bool get hasTraffic => endpointFrameCount > 0 || streamFrameCount > 0;
+  bool get hasTraffic =>
+      events.isNotEmpty || endpointFrameCount > 0 || streamFrameCount > 0;
 }
 
 class GmLiveDiagnosticMonitor {
@@ -238,6 +240,12 @@ class GmLiveDiagnosticMonitor {
   };
 
   static final Map<int, int> _positiveToRequest = _buildPositiveMap();
+  static final Gen1Hpcm2ContactorLiveTracker _hpcm2LiveTracker =
+      Gen1Hpcm2ContactorLiveTracker();
+
+  static void observeFrame(CanFrame frame) => _hpcm2LiveTracker.observe(frame);
+
+  static void resetLiveState() => _hpcm2LiveTracker.reset();
 
   static Map<int, int> _buildPositiveMap() {
     final result = <int, int>{
@@ -301,7 +309,14 @@ class GmLiveDiagnosticMonitor {
       final useIsoTp = endpoint.requestId >= 0x700;
       final payloads = useIsoTp
           ? isoTp.push(frame)
-          : <_Payload>[_Payload(frame.timestamp, frame.channel, frame.id, List<int>.from(frame.data))];
+          : <_Payload>[
+              _Payload(
+                frame.timestamp,
+                frame.channel,
+                frame.id,
+                List<int>.from(frame.data),
+              ),
+            ];
 
       for (final payload in payloads) {
         if (payload.data.isEmpty) continue;
@@ -309,14 +324,24 @@ class GmLiveDiagnosticMonitor {
         if (decoded == null) continue;
 
         double? latencyMs;
-        final key = '${payload.channel}:${endpoint.requestId}:${decoded.serviceId}:${decoded.did ?? -1}';
+        final key =
+            '${payload.channel}:${endpoint.requestId}:${decoded.serviceId}:${decoded.did ?? -1}';
         if (role == 'request') {
-          pending[key] = _PendingRequest(payload.timestamp, decoded.serviceId, decoded.did);
+          pending[key] =
+              _PendingRequest(payload.timestamp, decoded.serviceId, decoded.did);
         } else {
           _PendingRequest? request = pending[key];
-          request ??= _mostRecentCompatible(pending, payload.channel, endpoint, decoded);
+          request ??= _mostRecentCompatible(
+            pending,
+            payload.channel,
+            endpoint,
+            decoded,
+          );
           if (request != null) {
-            latencyMs = payload.timestamp.difference(request.timestamp).inMicroseconds / 1000.0;
+            latencyMs = payload.timestamp
+                    .difference(request.timestamp)
+                    .inMicroseconds /
+                1000.0;
             if (decoded.negativeResponseCode != 0x78) {
               pending.removeWhere((_, value) => identical(value, request));
             }
@@ -343,9 +368,33 @@ class GmLiveDiagnosticMonitor {
       }
     }
 
+    final hpcm2Sample = _hpcm2LiveTracker.currentSample;
+    final hpcm2Timestamp = _hpcm2LiveTracker.lastSampleTimestamp;
+    final hpcm2Channel = _hpcm2LiveTracker.activeChannel;
+    if (hpcm2Sample != null && hpcm2Timestamp != null && hpcm2Channel != null) {
+      events.add(GmLiveDiagnosticEvent(
+        timestamp: hpcm2Timestamp,
+        channel: hpcm2Channel,
+        canId: Gen1Hpcm2ContactorStateDecoder.dynamicResponseCanId,
+        module: 'K114B HPCM2',
+        addressRole: 'decoded',
+        confidence: 'vehicleConfirmed',
+        source: 'Gen-1 HPCM2 0x430E controlled GDS2 evidence',
+        service: 'HV ${hpcm2Sample.phase.name}',
+        did: Gen1Hpcm2ContactorStateDecoder.did,
+        payloadHex: _hex(<int>[
+          Gen1Hpcm2ContactorStateDecoder.dynamicPacketId,
+          hpcm2Sample.rawState,
+        ]),
+      ));
+    }
+
     final recent = events.length <= maxEvents
         ? events.reversed.toList(growable: false)
-        : events.sublist(events.length - maxEvents).reversed.toList(growable: false);
+        : events
+            .sublist(events.length - maxEvents)
+            .reversed
+            .toList(growable: false);
     return GmLiveDiagnosticSnapshot(
       events: recent,
       endpointFrameCount: endpointFrameCount,
@@ -364,8 +413,14 @@ class GmLiveDiagnosticMonitor {
       if (!entry.key.startsWith('$channel:${endpoint.requestId}:')) continue;
       final candidate = entry.value;
       if (candidate.serviceId != decoded.serviceId) continue;
-      if (decoded.did != null && candidate.did != null && decoded.did != candidate.did) continue;
-      if (best == null || candidate.timestamp.isAfter(best.timestamp)) best = candidate;
+      if (decoded.did != null &&
+          candidate.did != null &&
+          decoded.did != candidate.did) {
+        continue;
+      }
+      if (best == null || candidate.timestamp.isAfter(best.timestamp)) {
+        best = candidate;
+      }
     }
     return best;
   }
@@ -378,9 +433,11 @@ class GmLiveDiagnosticMonitor {
       final nrc = payload[2];
       return _DecodedDiagnostic(
         serviceId: requested,
-        service: _services[requested] ?? 'Service0x${requested.toRadixString(16).toUpperCase()}',
+        service: _services[requested] ??
+            'Service0x${requested.toRadixString(16).toUpperCase()}',
         negativeResponseCode: nrc,
-        negativeResponseName: _nrcNames[nrc] ?? 'NRC 0x${nrc.toRadixString(16).toUpperCase()}',
+        negativeResponseName: _nrcNames[nrc] ??
+            'NRC 0x${nrc.toRadixString(16).toUpperCase()}',
       );
     }
 
@@ -405,7 +462,8 @@ class GmLiveDiagnosticMonitor {
   }
 
   static String _hex(Iterable<int> bytes) => bytes
-      .map((value) => value.toRadixString(16).toUpperCase().padLeft(2, '0'))
+      .map((value) =>
+          value.toRadixString(16).toUpperCase().padLeft(2, '0'))
       .join(' ');
 }
 
@@ -452,7 +510,9 @@ class _IsoTpLiveReassembler {
 
     if (pciType == 0) {
       final length = frame.data[0] & 0x0F;
-      if (length <= 0 || length > frame.data.length - 1) return const <_Payload>[];
+      if (length <= 0 || length > frame.data.length - 1) {
+        return const <_Payload>[];
+      }
       return <_Payload>[
         _Payload(
           frame.timestamp,
@@ -478,7 +538,12 @@ class _IsoTpLiveReassembler {
       if (state.data.length >= length) {
         _active.remove(key);
         return <_Payload>[
-          _Payload(state.timestamp, state.channel, state.canId, state.data.sublist(0, length)),
+          _Payload(
+            state.timestamp,
+            state.channel,
+            state.canId,
+            state.data.sublist(0, length),
+          ),
         ];
       }
       return const <_Payload>[];
