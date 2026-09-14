@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 1,
+  "evidenceId": "chevrolet-volt-gen1-hpcm2-contactor-state-20260914",
+  "vehicle": {
+    "modelYear": 2013,
+    "make": "Chevrolet",
+    "model": "Volt"
+  },
+  "method": "Windows GDS2 active diagnostic display with PCG-1 / OBD Atlas passive five-channel capture",
+  "diagnosticContext": {
+    "module": "K114B HPCM2",
+    "requestCanId": "0x7E4",
+    "responseCanId": "0x7EC",
+    "dynamicResponseCanId": "0x5EC",
+    "dynamicPacketId": "0xFE",
+    "did": "0x430E"
+  },
+  "definitionEvidence": {
+    "capture": "1726f872-7f33-4ac5-89c7-a427b20e4a73.log",
+    "sha256": "6cac064bc2facf588b24429ddc408f0ed31a8cdbfeb98797880ddc54586771ae",
+    "markerStartUtc": "2026-09-14T07:36:32.269548Z",
+    "markerEndUtc": "2026-09-14T07:36:52.153168Z",
+    "observed": [
+      {
+        "timestamp": 1789371400.293864,
+        "channel": "can1",
+        "canId": "0x7E4",
+        "data": "042CFE430E000000",
+        "meaning": "define DPID 0xFE from parameter 0x430E"
+      },
+      {
+        "timestamp": 1789371400.310229,
+        "channel": "can1",
+        "canId": "0x7EC",
+        "data": "026CFEAAAAAAAAAA",
+        "meaning": "definition accepted"
+      },
+      {
+        "timestamp": 1789371400.322428,
+        "channel": "can1",
+        "canId": "0x7E4",
+        "data": "03AA03FE00000000",
+        "meaning": "start/schedule DPID 0xFE"
+      },
+      {
+        "timestamp": 1789371400.345426,
+        "channel": "can1",
+        "canId": "0x5EC",
+        "data": "FE6B000000000000",
+        "meaning": "real-car dynamic state sample"
+      }
+    ]
+  },
+  "startupCapture": {
+    "capture": "atlas_capture_20260914_041250.log",
+    "transferredAs": "atlas_latest.log",
+    "sha256": "e87e1b85963f1788d7e66d9f5bb0448febe9554dd9d28a492271e8d21c2d03f1",
+    "markerStartUtc": "2026-09-14T08:13:38.191897Z",
+    "markerEndUtc": "2026-09-14T08:14:22.147695Z",
+    "totalDynamicSamples": 579,
+    "allCaptureStateCounts": {
+      "0x68": 243,
+      "0x6A": 1,
+      "0x6F": 1,
+      "0x6B": 334
+    },
+    "markerWindowStateCounts": {
+      "0x68": 6,
+      "0x6A": 1,
+      "0x6F": 1,
+      "0x6B": 211
+    },
+    "observedSequence": [
+      {
+        "timestamp": 1789373618.38362,
+        "state": "0x68"
+      },
+      {
+        "timestamp": 1789373619.591714,
+        "state": "0x6A"
+      },
+      {
+        "timestamp": 1789373619.791877,
+        "state": "0x6F"
+      },
+      {
+        "timestamp": 1789373619.991849,
+        "state": "0x6B"
+      }
+    ],
+    "dynamicCadenceMs": {
+      "median": 199.99,
+      "mean": 200.159
+    },
+    "classification": "successfulStartup"
+  },
+  "shutdownCapture": {
+    "capture": "atlas_capture_20260914_042718.log",
+    "transferredAs": "atlas_shutdown.log",
+    "sha256": "608a3723a8d92e7cd3182a9bc5016b420a65812737d7996908feb22f55391906",
+    "markerStartUtc": "2026-09-14T08:27:58.453343Z",
+    "markerEndUtc": "2026-09-14T08:28:41.270218Z",
+    "totalDynamicSamples": 669,
+    "allCaptureStateCounts": {
+      "0x6B": 230,
+      "0x6A": 1,
+      "0x68": 438
+    },
+    "markerWindowStateCounts": {
+      "0x6B": 30,
+      "0x6A": 1,
+      "0x68": 182
+    },
+    "observedSequence": [
+      {
+        "timestamp": 1789374478.634332,
+        "state": "0x6B"
+      },
+      {
+        "timestamp": 1789374484.634999,
+        "state": "0x6A"
+      },
+      {
+        "timestamp": 1789374484.834459,
+        "state": "0x68"
+      }
+    ],
+    "dynamicCadenceMs": {
+      "median": 199.992,
+      "mean": 200.17
+    },
+    "classification": "normalShutdown"
+  },
+  "stateMachine": {
+    "states": {
+      "0x68": "hvOff",
+      "0x6A": "firstMainContactorEngaged",
+      "0x6F": "prechargeActive",
+      "0x6B": "hvBusEstablished"
+    },
+    "successfulStartup": [
+      "0x68",
+      "0x6A",
+      "0x6F",
+      "0x6B"
+    ],
+    "normalShutdown": [
+      "0x6B",
+      "0x6A",
+      "0x68"
+    ],
+    "bitEvidence": {
+      "bit2": "transient during observed precharge state; clears in 0x6B",
+      "bits0And1": "two changing main-contactor bits observed in startup/shutdown sequencing",
+      "positiveVsNegativeAssignment": "not independently separated by this evidence",
+      "bits3_5_6": "stable across the four observed states and not mapped by this evidence"
+    }
+  },
+  "confidence": {
+    "dynamicDefinition0x430E": "vehicleConfirmed",
+    "stateSequence": "vehicleConfirmed",
+    "prechargeBit2": "highConfidenceVehicleObserved",
+    "positiveVsNegativeBitAssignment": "unresolved"
+  },
+  "notes": [
+    "Real-car 0xFE state samples were approximately 200 ms apart.",
+    "The earlier 300 ms periodic cadence belongs to the isolated simulator fixture and is not the real-car canonical cadence.",
+    "Raw captures are not duplicated into the repository because of size; SHA-256 values above identify the canonical source files exactly."
+  ]
+}

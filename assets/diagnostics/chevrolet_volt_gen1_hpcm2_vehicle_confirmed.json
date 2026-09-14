@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "catalogId": "chevrolet-volt-gen1-hpcm2-vehicle-confirmed",
+  "module": "K114B HPCM2",
+  "vehicleScope": "2013 Chevrolet Volt",
+  "transport": {
+    "protocol": "ISO15765 / GM enhanced diagnostics",
+    "bitrate": 500000,
+    "requestCanId": "0x7E4",
+    "responseCanId": "0x7EC",
+    "dynamicResponseCanId": "0x5EC"
+  },
+  "mappings": [
+    {
+      "did": "0x430E",
+      "dynamicPacketId": "0xFE",
+      "parameter": "GDS2 Contactor Data packed state byte",
+      "rawLength": 1,
+      "service": "0x2C/0xAA",
+      "status": "vehicleConfirmed",
+      "evidence": "assets/evidence/chevrolet_volt_gen1_hpcm2_contactor_20260914.json",
+      "observedStates": {
+        "0x68": "hvOff",
+        "0x6A": "firstMainContactorEngaged",
+        "0x6F": "prechargeActive",
+        "0x6B": "hvBusEstablished"
+      },
+      "observedSuccessfulStartup": [
+        "0x68",
+        "0x6A",
+        "0x6F",
+        "0x6B"
+      ],
+      "observedNormalShutdown": [
+        "0x6B",
+        "0x6A",
+        "0x68"
+      ],
+      "bitNotes": {
+        "bit2": "precharge-related transient bit; high-confidence vehicle-observed sequence",
+        "bits0And1": "main-contactor sequence bits; positive-vs-negative assignment intentionally unresolved",
+        "bits3_5_6": "not mapped by this evidence"
+      }
+    }
+  ]
+}
