@@ -4,7 +4,10 @@ import 'package:obd_atlas/core/gm_live_diagnostic_monitor.dart';
 
 CanFrame frame(double seconds, int id, List<int> data, {int channel = 2}) {
   return CanFrame(
-    timestamp: DateTime.fromMicrosecondsSinceEpoch((seconds * 1000000).round(), isUtc: true),
+    timestamp: DateTime.fromMicrosecondsSinceEpoch(
+      (seconds * 1000000).round(),
+      isUtc: true,
+    ),
     id: id,
     data: data,
     channel: channel,
@@ -12,6 +15,8 @@ CanFrame frame(double seconds, int id, List<int> data, {int channel = 2}) {
 }
 
 void main() {
+  setUp(GmLiveDiagnosticMonitor.resetLiveState);
+
   test('labels HPCM2 0x22 request response and latency', () {
     final snapshot = GmLiveDiagnosticMonitor.analyze(<CanFrame>[
       frame(1.000, 0x7E4, <int>[0x03, 0x22, 0x43, 0x56, 0, 0, 0, 0]),
@@ -49,6 +54,35 @@ void main() {
     expect(snapshot.events.single.addressRole, 'stream');
     expect(snapshot.events.single.module, 'K114B HPCM2');
     expect(snapshot.events.single.service, isNull);
+  });
+
+  test('surfaces vehicle-confirmed HPCM2 contactor state only after definition', () {
+    GmLiveDiagnosticMonitor.observeFrame(
+      frame(3.100, 0x5EC, <int>[0xFE, 0x6B, 0, 0, 0, 0, 0, 0]),
+    );
+    expect(
+      GmLiveDiagnosticMonitor.analyze(const <CanFrame>[]).events,
+      isEmpty,
+    );
+
+    GmLiveDiagnosticMonitor.observeFrame(
+      frame(3.200, 0x7E4, <int>[0x04, 0x2C, 0xFE, 0x43, 0x0E, 0, 0, 0]),
+    );
+    GmLiveDiagnosticMonitor.observeFrame(
+      frame(3.210, 0x7EC, <int>[0x02, 0x6C, 0xFE, 0, 0, 0, 0, 0]),
+    );
+    GmLiveDiagnosticMonitor.observeFrame(
+      frame(3.400, 0x5EC, <int>[0xFE, 0x6F, 0, 0, 0, 0, 0, 0]),
+    );
+
+    final snapshot = GmLiveDiagnosticMonitor.analyze(const <CanFrame>[]);
+    expect(snapshot.hasTraffic, isTrue);
+    final decoded = snapshot.events.single;
+    expect(decoded.addressRole, 'decoded');
+    expect(decoded.confidence, 'vehicleConfirmed');
+    expect(decoded.did, 0x430E);
+    expect(decoded.service, 'HV prechargeActive');
+    expect(decoded.payloadHex, 'FE 6F');
   });
 
   test('preserves responsePending until final response', () {
