@@ -17,6 +17,9 @@ Bit 2 is transient only during the observed precharge interval. Bits 0 and 1
 are the two changing main-contactor bits, but this decoder intentionally does
 not assign positive-vs-negative names until an independent controlled test
 separates them.
+
+DPID 0xFE is reusable. Samples are decoded only after the capture itself shows
+a successful 0x2C definition of 0xFE -> 0x430E on the same Atlas channel.
 """
 
 from __future__ import annotations
@@ -30,6 +33,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+HPCM2_REQUEST_ID = 0x7E4
+HPCM2_RESPONSE_ID = 0x7EC
 HPCM2_DYNAMIC_RESPONSE_ID = 0x5EC
 CONTACTOR_DID = 0x430E
 CONTACTOR_DPID = 0xFE
@@ -106,9 +111,21 @@ def decode_state(raw_state: int) -> dict[str, object]:
     return result
 
 
+def _single_frame_payload(data: bytes) -> bytes | None:
+    if not data or (data[0] >> 4) != 0:
+        return None
+    length = data[0] & 0x0F
+    if length == 0 or length > 7 or len(data) < length + 1:
+        return None
+    return data[1 : 1 + length]
+
+
 def parse(lines: Iterable[str]) -> tuple[list[Sample], list[Marker]]:
     samples: list[Sample] = []
     markers: list[Marker] = []
+    pending_definitions: dict[str, tuple[int, int]] = {}
+    confirmed_definitions: dict[str, dict[int, int]] = {}
+
     for line in lines:
         stripped = line.strip()
         marker = MARKER_RE.match(stripped)
@@ -124,24 +141,49 @@ def parse(lines: Iterable[str]) -> tuple[list[Sample], list[Marker]]:
         match = CANDUMP_RE.match(stripped)
         if not match:
             continue
-        if int(match.group("canid"), 16) != HPCM2_DYNAMIC_RESPONSE_ID:
-            continue
+        channel = match.group("channel")
+        can_id = int(match.group("canid"), 16)
         raw = match.group("data")
-        if len(raw) < 4:
+        if len(raw) % 2:
             continue
         try:
-            payload = bytes.fromhex(raw)
+            data = bytes.fromhex(raw)
         except ValueError:
             continue
-        if len(payload) < 2 or payload[0] != CONTACTOR_DPID:
+
+        if can_id == HPCM2_REQUEST_ID:
+            payload = _single_frame_payload(data)
+            if payload is not None and len(payload) >= 4 and payload[0] == 0x2C:
+                dpid = payload[1]
+                did = (payload[2] << 8) | payload[3]
+                pending_definitions[channel] = (dpid, did)
+            continue
+
+        if can_id == HPCM2_RESPONSE_ID:
+            payload = _single_frame_payload(data)
+            pending = pending_definitions.get(channel)
+            if payload is None or pending is None:
+                continue
+            if len(payload) >= 2 and payload[0] == 0x6C and payload[1] == pending[0]:
+                confirmed_definitions.setdefault(channel, {})[pending[0]] = pending[1]
+                pending_definitions.pop(channel, None)
+            elif len(payload) >= 3 and payload[0] == 0x7F and payload[1] == 0x2C:
+                pending_definitions.pop(channel, None)
+            continue
+
+        if can_id != HPCM2_DYNAMIC_RESPONSE_ID or len(data) < 2:
+            continue
+        dpid = data[0]
+        if confirmed_definitions.get(channel, {}).get(dpid) != CONTACTOR_DID:
             continue
         samples.append(
             Sample(
                 timestamp=float(match.group("ts")),
-                channel=match.group("channel"),
-                raw_state=payload[1],
+                channel=channel,
+                raw_state=data[1],
             )
         )
+
     samples.sort(key=lambda row: row.timestamp)
     markers.sort(key=lambda row: row.timestamp)
     return samples, markers
@@ -168,9 +210,9 @@ def classify_sequence(states: Iterable[int]) -> str:
         return "successfulStartup"
     if compressed == [0x6B, 0x6A, 0x68]:
         return "normalShutdown"
-    if compressed and compressed[-1] == 0x68 and compressed[0] == 0x68:
+    if compressed == [0x68]:
         return "stableHvOff"
-    if compressed and compressed[-1] == 0x6B and compressed[0] == 0x6B:
+    if compressed == [0x6B]:
         return "stableHvEstablished"
     return "unknownOrIncomplete"
 
@@ -218,6 +260,7 @@ def analyze(samples: list[Sample], markers: list[Marker]) -> dict[str, object]:
             "did": "0x430E",
             "dynamicPacketId": "0xFE",
             "dynamicResponseCanId": "0x5EC",
+            "contextRequirement": "confirmed 0x2C definition in same capture/channel",
         },
         "classification": classify_sequence(s.raw_state for s in transitions),
         "sampleCount": len(selected),
