@@ -7,6 +7,17 @@ Gen1TimedHpcm2State sample(int milliseconds, int raw) =>
       rawState: raw,
     );
 
+Gen1TimedPrechargeVoltage voltage(
+  int milliseconds,
+  double pack,
+  double dcLink,
+) =>
+    Gen1TimedPrechargeVoltage(
+      timestamp: Duration(milliseconds: milliseconds),
+      packVoltage: pack,
+      dcLinkVoltage: dcLink,
+    );
+
 void main() {
   group('Gen1PrechargeDiagnosticAnalyzer', () {
     test('classifies the vehicle-confirmed successful startup sequence', () {
@@ -29,6 +40,108 @@ void main() {
       expect(
         report.prechargeToHvBusEstablished,
         const Duration(milliseconds: 200),
+      );
+      expect(
+        report.voltageAssessment.result,
+        Gen1PrechargeVoltageResult.insufficientData,
+      );
+    });
+
+    test('confirms voltage convergence during successful precharge', () {
+      final report = Gen1PrechargeDiagnosticAnalyzer.analyze(
+        [
+          sample(0, 0x68),
+          sample(200, 0x6A),
+          sample(400, 0x6F),
+          sample(800, 0x6B),
+        ],
+        voltageSamples: [
+          voltage(400, 360.0, 10.0),
+          voltage(500, 360.0, 150.0),
+          voltage(650, 360.0, 300.0),
+          voltage(800, 360.0, 340.0),
+        ],
+      );
+
+      expect(
+        report.result,
+        Gen1PrechargeDiagnosticResult.successfulStartup,
+      );
+      expect(
+        report.voltageAssessment.result,
+        Gen1PrechargeVoltageResult.converged,
+      );
+      expect(report.voltageAssessment.bestConvergenceRatio, closeTo(340 / 360, 0.001));
+    });
+
+    test('detects commanded precharge with no meaningful DC-link rise', () {
+      final report = Gen1PrechargeDiagnosticAnalyzer.analyze(
+        [
+          sample(0, 0x68),
+          sample(200, 0x6A),
+          sample(400, 0x6F),
+          sample(1000, 0x6F),
+        ],
+        voltageSamples: [
+          voltage(400, 360.0, 8.0),
+          voltage(600, 360.0, 12.0),
+          voltage(900, 360.0, 15.0),
+        ],
+      );
+
+      expect(
+        report.result,
+        Gen1PrechargeDiagnosticResult.prechargeVoltageFailedToRise,
+      );
+      expect(
+        report.voltageAssessment.result,
+        Gen1PrechargeVoltageResult.failedToRise,
+      );
+    });
+
+    test('detects DC-link rise that never converges with pack voltage', () {
+      final report = Gen1PrechargeDiagnosticAnalyzer.analyze(
+        [
+          sample(0, 0x68),
+          sample(200, 0x6A),
+          sample(400, 0x6F),
+          sample(1000, 0x6F),
+        ],
+        voltageSamples: [
+          voltage(400, 360.0, 10.0),
+          voltage(600, 360.0, 80.0),
+          voltage(900, 360.0, 180.0),
+        ],
+      );
+
+      expect(
+        report.result,
+        Gen1PrechargeDiagnosticResult.prechargeVoltageDidNotConverge,
+      );
+      expect(
+        report.voltageAssessment.result,
+        Gen1PrechargeVoltageResult.roseButDidNotConverge,
+      );
+    });
+
+    test('does not guess voltage failure from one sample', () {
+      final report = Gen1PrechargeDiagnosticAnalyzer.analyze(
+        [
+          sample(0, 0x68),
+          sample(200, 0x6A),
+          sample(400, 0x6F),
+          sample(1000, 0x6F),
+        ],
+        voltageSamples: [voltage(500, 360.0, 10.0)],
+      );
+
+      expect(
+        report.result,
+        Gen1PrechargeDiagnosticResult.stalledInPrecharge,
+      );
+      expect(
+        report.voltageAssessment.result,
+        Gen1PrechargeVoltageResult.insufficientData,
       );
     });
 
