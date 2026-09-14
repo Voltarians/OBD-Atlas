@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "evidenceId": "chevrolet-volt-gen1-dc-link-candidate-20260914",
+  "vehicle": {
+    "modelYear": 2013,
+    "make": "Chevrolet",
+    "model": "Volt"
+  },
+  "capture": {
+    "canonicalName": "atlas_capture_20260914_041250.log",
+    "transferredAs": "atlas_latest.log",
+    "sha256": "e87e1b85963f1788d7e66d9f5bb0448febe9554dd9d28a492271e8d21c2d03f1"
+  },
+  "network": "hv_energy_management",
+  "bitrateKbps": 500,
+  "channelInCapture": "can1",
+  "candidate": {
+    "canId": "0x228",
+    "byteRange": "2-3",
+    "endian": "big",
+    "scaleVoltsPerCount": 0.0125,
+    "confidence": "highConfidenceCaptureDerivedCandidate"
+  },
+  "correlation": [
+    {
+      "relativeToFirstMainMs": -81.6,
+      "hpcm2State": "hvOff/first-main boundary",
+      "frame": "004F0149",
+      "decodedVolts": 4.1125
+    },
+    {
+      "relativeToFirstMainMs": 121.8,
+      "hpcm2State": "between first-main and precharge",
+      "frame": "004F1549",
+      "decodedVolts": 68.1125
+    },
+    {
+      "relativeToFirstMainMs": 218.9,
+      "hpcm2State": "prechargeActive",
+      "frame": "004F5E49",
+      "decodedVolts": 301.7125
+    },
+    {
+      "relativeToFirstMainMs": 318.9,
+      "hpcm2State": "late precharge",
+      "frame": "004F6049",
+      "decodedVolts": 308.1125
+    },
+    {
+      "relativeToFirstMainMs": 417.8,
+      "hpcm2State": "hvBusEstablished",
+      "frame": "004F6049",
+      "decodedVolts": 308.1125
+    }
+  ],
+  "packVoltageCrossCheck": {
+    "source": "internal BECM 0x210 first 16 bits",
+    "captureDerivedScaleVoltsPerCount": 0.00625,
+    "approximatelyVoltsDuringTransition": 309.2,
+    "dcLinkToPackRatioAtEstablished": 0.9964
+  },
+  "independentEstablishedCaptureCrossCheck": {
+    "capture": "1726f872-7f33-4ac5-89c7-a427b20e4a73.log",
+    "dcLinkMedianVolts": 304.975,
+    "packVoltageMedianVolts": 307.825,
+    "ratio": 0.9907
+  },
+  "status": "candidateOnly",
+  "notes": [
+    "The temporal ramp is tightly aligned with the vehicle-confirmed HPCM2 0x68 -> 0x6A -> 0x6F -> 0x6B startup sequence.",
+    "The candidate converges to within about one percent of independently decoded pack voltage in two captures.",
+    "Do not label this signal vehicle-confirmed until independently validated against a service parameter, GDS2 display, or controlled external measurement."
+  ]
+}
