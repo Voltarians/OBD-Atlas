@@ -48,14 +48,27 @@ class Gen1Hpcm2ContactorStateTests(unittest.TestCase):
             "normalShutdown",
         )
 
-    def test_parse_and_marker_window(self):
+    def test_interrupted_sequences_are_not_called_stable(self):
+        self.assertEqual(
+            module.classify_sequence([0x68, 0x6A, 0x68]),
+            "unknownOrIncomplete",
+        )
+        self.assertEqual(
+            module.classify_sequence([0x6B, 0x6A, 0x6B]),
+            "unknownOrIncomplete",
+        )
+
+    def test_parse_requires_confirmed_430e_definition(self):
         lines = [
-            "# ATLAS_EVENT (100.000000) 2026-09-14T00:00:00Z source=discovery label=HPCM2 Contactor Startup. start\n",
+            "(99.000000) can1 5EC#FE6B000000000000\n",
+            "(99.100000) can1 7E4#042CFE430E000000\n",
+            "(99.110000) can1 7EC#026CFEAAAAAAAAAA\n",
+            "# ATLAS_EVENT (100.000000) 2026-09-14T00:00:00Z source=discovery label=HPCM2 Contactor Startup start\n",
             "(100.100000) can1 5EC#FE68000000000000\n",
             "(100.300000) can1 5EC#FE6A000000000000\n",
             "(100.500000) can1 5EC#FE6F000000000000\n",
             "(100.700000) can1 5EC#FE6B000000000000\n",
-            "# ATLAS_EVENT (101.000000) 2026-09-14T00:00:01Z source=discovery label=HPCM2 Contactor Startup. end\n",
+            "# ATLAS_EVENT (101.000000) 2026-09-14T00:00:01Z source=discovery label=HPCM2 Contactor Startup end\n",
         ]
         samples, markers = module.parse(lines)
         result = module.analyze(samples, markers)
@@ -66,6 +79,19 @@ class Gen1Hpcm2ContactorStateTests(unittest.TestCase):
             [row["rawHex"] for row in result["transitions"]],
             ["0x68", "0x6A", "0x6F", "0x6B"],
         )
+
+    def test_unscoped_or_redefined_fe_stream_is_ignored(self):
+        lines = [
+            "(1.000000) can1 5EC#FE6B000000000000\n",
+            "(1.100000) can1 7E4#042CFE430E000000\n",
+            "(1.110000) can1 7EC#026CFEAAAAAAAAAA\n",
+            "(1.200000) can1 5EC#FE68000000000000\n",
+            "(1.300000) can1 7E4#042CFE432D000000\n",
+            "(1.310000) can1 7EC#026CFEAAAAAAAAAA\n",
+            "(1.400000) can1 5EC#FE6B000000000000\n",
+        ]
+        samples, _ = module.parse(lines)
+        self.assertEqual([sample.raw_state for sample in samples], [0x68])
 
 
 if __name__ == "__main__":
