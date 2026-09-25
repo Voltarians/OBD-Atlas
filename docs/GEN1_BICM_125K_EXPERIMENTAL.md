@@ -58,6 +58,8 @@ Atlas therefore keeps the Yasko decoder tagged experimental until a known Gen-1 
 
 `lib/core/gen1_bicm_125k.dart` performs passive decoding only. It intentionally does **not** transmit the `0x200` query/control frame used by the external project. Active BICM commands remain out of scope until separately reviewed and validated.
 
+Atlas now catalogs `0x200` as a BECM/master query **candidate** and `0x300` / `0x310` as observed master-traffic IDs in `docs/GEN1_CAN_RESEARCH_IDS.md`. These labels are metadata for capture recognition, not decoded command semantics.
+
 ## Validation target on PCG-1
 
 Capture the internal battery network at 125 kbit/s and verify:
