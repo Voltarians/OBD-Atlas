@@ -180,7 +180,7 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
       '0D3,0BC,0AA,098,0C7,096,1ED,1EB,097,0C9,0B1,1E9,185,1C6,1C4,1C5,1FB,287,1F4,0BA,1F5,0BD,1A1,0BB';
   int _obdlinkBankSeconds = 10;
   _ObdlinkMxCaptureProfile _obdlinkCaptureProfile =
-      _ObdlinkMxCaptureProfile.filteredRotating;
+      _ObdlinkMxCaptureProfile.fullBus;
   bool _scanningObdlink = false;
   bool _connectingObdlink = false;
 
@@ -514,7 +514,7 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                         leading: Icon(Icons.bluetooth),
                         title: Text('OBDLink MX+ • Bluetooth RFCOMM'),
                         subtitle: Text(
-                          'STM monitoring • filtered rotating profile or HS-CAN FULL BUS engineering test • GM SWCAN',
+                          'STM monitoring • HS-CAN FULL BUS default • filtered rotating fallback • GM SWCAN',
                         ),
                       ),
                       Wrap(
@@ -582,7 +582,7 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                                 ),
                                 DropdownMenuItem(
                                   value: _ObdlinkMxCaptureProfile.fullBus,
-                                  child: Text('FULL BUS • no filters • engineering'),
+                                  child: Text('FULL BUS • no filters • verified Linux'),
                                 ),
                               ],
                               onChanged: _connectingObdlink ||
@@ -590,7 +590,7 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                                   ? null
                                   : (value) => setState(
                                         () => _obdlinkCaptureProfile = value ??
-                                            _ObdlinkMxCaptureProfile.filteredRotating,
+                                            _ObdlinkMxCaptureProfile.fullBus,
                                       ),
                             ),
                           ),
@@ -680,10 +680,10 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                       const SizedBox(height: 8),
                       const Text(
                         'Pair the MX+ with BlueZ once, then Atlas opens and manages the '
-                        'RFCOMM connection automatically. Filtered HS-CAN uses protocol 31 '
-                        'with persistent priority IDs plus rotating discovery banks. FULL BUS '
-                        'uses protocol 31 with STFPA 000,000 and no bank rotation so Linux '
-                        'throughput can be measured directly. GM SWCAN uses protocol 61 on DLC pin 1.',
+                        'RFCOMM connection automatically. HS-CAN FULL BUS is the verified Linux '
+                        'default and uses protocol 31 with STFPA 000,000 and no bank rotation. '
+                        'Filtered HS-CAN remains available as a fallback with persistent priority '
+                        'IDs plus rotating discovery banks. GM SWCAN uses protocol 61 on DLC pin 1.',
                       ),
                     ],
                   ),
