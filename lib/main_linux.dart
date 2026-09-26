@@ -169,8 +169,15 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
   String? _selectedObdlinkPort;
   int _obdlinkAtlasChannel = 1;
   ObdlinkMxCanBus _obdlinkCanBus = ObdlinkMxCanBus.highSpeedCan;
-  String _obdlinkFilterText =
-      '0C1,0D1,0C5,238,1E5,0F1,1EF,186,0D3,0BC,0AA,098,0C7,096,1ED,1EB';
+  String _obdlinkPriorityFilterText =
+      '0C1,0D1,0C5,238,1E5,0F1,1EF,186';
+  String _obdlinkDiscoveryFilterText =
+      '0D3,0BC,0AA,098,0C7,096,1ED,1EB,097,0C9,0B1,1E9,185,1C6,1C4,1C5,1FB,287,1F4,0BA,1F5,0BD,1A1,0BB';
+  int _obdlinkBankSeconds = 10;
+  String _obdlinkDiagnosticHeader = '7E0';
+  String _obdlinkDiagnosticRequest = '0100';
+  String? _obdlinkDiagnosticResponse;
+  bool _runningObdlinkDiagnostic = false;
   bool _scanningObdlink = false;
   bool _connectingObdlink = false;
 
@@ -304,22 +311,24 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
     }
   }
 
-  List<int> _obdlinkFilterIds() {
-    final values = _obdlinkFilterText
+  List<int> _parseObdlinkIds(
+    String text, {
+    int? maxIds,
+    required String label,
+  }) {
+    final values = text
         .split(RegExp(r'[\s,;]+'))
         .where((value) => value.trim().isNotEmpty)
         .map((value) => value.trim().toUpperCase())
         .toSet()
         .toList();
-    if (values.length > 16) {
-      throw const FormatException(
-        'MX+ production profile allows at most 16 exact 11-bit CAN IDs.',
-      );
+    if (maxIds != null && values.length > maxIds) {
+      throw FormatException('$label allows at most $maxIds exact 11-bit CAN IDs.');
     }
     final ids = <int>[];
     for (final value in values) {
       if (!RegExp(r'^[0-7][0-9A-F]{2}$').hasMatch(value)) {
-        throw FormatException('Invalid 11-bit CAN ID: $value');
+        throw FormatException('Invalid 11-bit CAN ID in $label: $value');
       }
       ids.add(int.parse(value, radix: 16));
     }
@@ -331,19 +340,41 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
     if (port == null) return;
     setState(() => _connectingObdlink = true);
     try {
-      final filterIds = _obdlinkCanBus == ObdlinkMxCanBus.highSpeedCan
-          ? _obdlinkFilterIds()
+      final priorityIds = _obdlinkCanBus == ObdlinkMxCanBus.highSpeedCan
+          ? _parseObdlinkIds(
+              _obdlinkPriorityFilterText,
+              maxIds: 16,
+              label: 'MX+ priority profile',
+            )
           : const <int>[];
+      final discoveryIds = _obdlinkCanBus == ObdlinkMxCanBus.highSpeedCan
+          ? _parseObdlinkIds(
+              _obdlinkDiscoveryFilterText,
+              label: 'MX+ discovery profile',
+            )
+          : const <int>[];
+      if (priorityIds.length == 16 && discoveryIds.isNotEmpty) {
+        throw const FormatException(
+          'Leave at least one of the 16 MX+ filter slots free to rotate discovery IDs.',
+        );
+      }
+      final banks = LinuxObdlinkMxAdapter.buildFilterBanks(
+        priorityIds: priorityIds,
+        discoveryIds: discoveryIds,
+      );
       await AtlasRuntime.instance.connectLinuxObdlinkMx(
         port,
         channel: _obdlinkAtlasChannel,
         canBus: _obdlinkCanBus,
-        filterIds: filterIds,
+        filterIds: priorityIds,
+        discoveryFilterIds: discoveryIds,
+        filterBankInterval: Duration(seconds: _obdlinkBankSeconds),
       );
       _showMessage(
         'OBDLink MX+ ${_obdlinkCanBus.shortName} monitoring on $port '
         '→ Atlas CH$_obdlinkAtlasChannel'
-        '${filterIds.isEmpty ? "" : " • ${filterIds.length} exact hardware filters"}.',
+        '${priorityIds.isEmpty ? "" : " • ${priorityIds.length} priority IDs"}'
+        '${banks.length > 1 ? " • ${banks.length} rotating banks every $_obdlinkBankSeconds s" : ""}.',
       );
     } catch (error) {
       _showError(error);
@@ -352,6 +383,31 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
     }
   }
 
+  Future<void> _runObdlinkDiagnostic() async {
+    if (_runningObdlinkDiagnostic) return;
+    setState(() {
+      _runningObdlinkDiagnostic = true;
+      _obdlinkDiagnosticResponse = null;
+    });
+    try {
+      final response = await AtlasRuntime.instance.runLinuxObdlinkReadOnlyDiagnostic(
+        _obdlinkAtlasChannel,
+        _obdlinkDiagnosticRequest,
+        header: _obdlinkDiagnosticHeader,
+      );
+      if (!mounted) return;
+      setState(() {
+        _obdlinkDiagnosticResponse = response
+            .replaceAll('>', ' ')
+            .replaceAll(RegExp(r'[\r\n]+'), ' ')
+            .trim();
+      });
+    } catch (error) {
+      _showError(error);
+    } finally {
+      if (mounted) setState(() => _runningObdlinkDiagnostic = false);
+    }
+  }
   void _showError(Object error) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
