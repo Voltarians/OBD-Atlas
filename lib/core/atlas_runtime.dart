@@ -130,6 +130,7 @@ class AtlasRuntime extends ChangeNotifier {
     int channel = 1,
     int protocol = 6,
     ObdlinkMxCanBus canBus = ObdlinkMxCanBus.highSpeedCan,
+    List<int> filterIds = const <int>[],
   }) async {
     await _connectAdapter(
       LinuxObdlinkMxAdapter(
@@ -137,6 +138,7 @@ class AtlasRuntime extends ChangeNotifier {
         channel: channel,
         protocol: protocol,
         canBus: canBus,
+        filterIds: filterIds,
       ),
       channel,
     );
