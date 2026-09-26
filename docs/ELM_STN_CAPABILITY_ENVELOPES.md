@@ -3,110 +3,137 @@
 Status: **Active engineering policy**
 Date: 2026-09-26
 
-OBD Atlas and Voltarian should extract the maximum useful information an ELM327/STN-family adapter can deliver without pretending that the adapter is a native unrestricted CAN recorder.
+OBD Atlas and Voltarian should extract the maximum useful information each ELM327/STN-family adapter can reliably deliver. Capability is transport-specific: a limit observed on Windows serial or Android Bluetooth must not be applied automatically to Linux RFCOMM, and vice versa.
 
 ## Product principle
 
-Use the adapter for **all supported diagnostic and filtered-observation functions** inside its measured transport envelope.
+Use the adapter for **all supported passive and diagnostic functions inside its measured transport envelope**.
 
-Do not disable useful features merely because unrestricted bus mirroring is unavailable.
+Do not disable useful features merely because another transport or adapter performs differently. Full-bus monitoring is allowed when it has been verified on that adapter/transport combination.
 
 ## Current Voltarian/Atlas support envelopes
 
-| Adapter | Filtered production ceiling | Exact 11-bit IDs | Product role |
+| Adapter / transport | Verified passive capability | Exact 11-bit IDs | Product role |
 | --- | ---: | ---: | --- |
-| vLinker MS / STN2120 | 1,500 frames/s | 32 | High-rate filtered passive capture + active diagnostics |
-| OBDLink MX+ / STN2256 | 150 frames/s | 16 | Customer live data, filtered event capture, active diagnostics, SWCAN |
-| OBDLink EX / STN2232 | 100 frames/s | 16 | USB diagnostic/live-data path; filtered HS-CAN |
-| Generic/unknown ELM327 | 50 frames/s | 8 | Conservative basic diagnostics and selected live data |
+| vLinker MS / STN2120 | 1,500 frames/s filtered production profile; higher unrestricted rates observed in engineering tests | 32 | High-rate passive capture + active diagnostics |
+| OBDLink MX+ / STN2256 • Linux RFCOMM | **~2,900 frames/s sustained HS-CAN full-pass verified** | 16 in filtered fallback | **FULL BUS default on Linux HS-CAN** + filtered fallback + SWCAN |
+| OBDLink MX+ / STN2256 • other transports | Transport-specific; do not inherit Linux capability without testing | 16 | Customer live data, filtered/event capture, diagnostics, SWCAN |
+| OBDLink EX / STN2232 | 100 frames/s filtered production profile on current Android/USB path | 16 | USB diagnostic/live-data path; filtered HS-CAN |
+| Generic/unknown ELM327 | 50 frames/s conservative profile | 8 | Basic diagnostics and selected live data |
 
-These are project software limits, not manufacturer specifications.
+These are project software capability envelopes derived from observed behavior, not manufacturer maximum specifications.
 
-## Capability strategy
+## Verified Linux MX+ full-pass result
 
-### 1. Continuous priority set
+On 2026-09-26, OBDLink MX+ / STN2256 on PCG-1 Linux RFCOMM was verified in unrestricted HS-CAN monitoring using:
 
-Keep the highest-value CAN IDs continuously enabled for:
-- battery and propulsion state;
-- vehicle speed / driver controls;
-- charging and contactor state;
-- thermal state;
-- fault and warning state;
-- event markers used by signal discovery.
+- `STP 31`
+- `STCMM 0`
+- `STFAC`
+- `STFPA 000,000`
+- `STM`
 
-The continuous set must stay below the adapter's frame-rate ceiling.
+Observed capture:
 
-### 2. Rotating discovery banks
+- 1,988,662 CAN frames;
+- 682.8 seconds (>11 minutes);
+- 2,912.5 frames/s average;
+- 105 unique 11-bit CAN IDs;
+- zero malformed CAN lines;
+- zero observed `BUFFER FULL`, UART overflow, disconnect, or transport collapse;
+- no inter-frame gap greater than 50 ms.
 
-Secondary IDs should be divided into banks sized for the adapter.
+Historical native PCG-1 HS-CAN captures from 2026-09-09 were also compared against the MX+ full-pass run. Across 12 native `can3` captures, the weighted HS-CAN rate was approximately 2,840.7 frames/s with 106 unique IDs. Of 103 IDs common to both datasets, 100 matched periodic frame rates within 1%, including the major 100 Hz and 80 Hz traffic families.
 
-Atlas may stop the monitor, reprogram hardware pass filters, and resume on the next bank. Across time this allows broad network discovery without requiring all IDs to cross the serial/Bluetooth transport simultaneously.
+This verifies that Linux MX+ full-pass is viable at the observed Gen-1 Volt HS-CAN load. It does **not** claim a hardware maximum, and it does not replace a simultaneous native-reference test for formal frame-for-frame loss measurement.
 
-Every capture must record which bank/filter set was active.
+## Linux MX+ runtime policy
+
+### 1. HS-CAN default: full pass
+
+On Linux RFCOMM, Atlas should default OBDLink MX+ HS-CAN to unrestricted full-pass monitoring.
+
+The expected setup is `STFPA 000,000` with no filter-bank rotation.
+
+Every capture must stamp the active MX+ transport, bus, mode, bank state, and filter IDs at capture start so the evidence is self-describing.
+
+### 2. Filtered rotating fallback
+
+Exact-filter mode remains supported for:
+
+- troubleshooting transport-specific problems;
+- intentionally reducing traffic;
+- comparison testing;
+- deployments where unrestricted monitoring is not stable.
+
+Filtered mode may use persistent priority IDs plus rotating discovery banks, with no more than 16 exact 11-bit filters active at one time.
 
 ### 3. Active diagnostic collection
 
 Passive CAN bandwidth limits do not prohibit request/response diagnostics.
 
 Use supported OBD/UDS/GMLAN requests for:
+
 - module identification;
 - DTC inventory and details;
 - live parameter/DID reads;
 - battery/BECM/BICM data;
 - VIN/calibration/software metadata;
-- service information that is only available on request.
+- service information available only on request.
 
-Rate-limit requests so replies do not collide with the passive filtered stream.
+Rate-limit requests so replies do not interfere with passive capture.
 
 ### 4. Event-focused capture
 
 For brake, accelerator, shifter, steering, door, charge, thermal, and other discovery work:
-1. capture a stable filtered baseline;
-2. mark the event;
-3. compare changed bytes/bits within the enabled ID bank;
-4. rotate to the next bank and repeat when broader coverage is required.
 
-This preserves Atlas signal-discovery capability on bandwidth-limited adapters.
+1. use full-pass monitoring when the verified transport can sustain it;
+2. mark the event;
+3. compare changed bytes/bits across the complete observed ID population;
+4. use filtered banks only when the transport requires them or when a deliberately narrow capture is useful.
 
 ### 5. SWCAN
 
-MX+ SWCAN remains valuable independently of HS-CAN performance.
+MX+ SWCAN remains independently valuable.
 
-Atlas should continue to support GM SWCAN observation and discovery on protocol 61. If bus load or transport produces overflow, apply the same selected-ID policy rather than dropping SWCAN capability.
+Atlas should continue GM SWCAN monitoring on protocol 61. If SWCAN bus load or a transport-specific path produces overflow, apply selected-ID filtering rather than dropping SWCAN capability.
 
 ### 6. Native CAN interfaces
 
 CANable/gs_usb, SocketCAN, UC2/CANalyst/J2534 and similar native interfaces remain the preferred path for:
-- unrestricted full-bus recording;
+
 - simultaneous multi-bus capture;
-- forensic loss measurements;
-- high-rate protocol research.
+- formal forensic loss measurement;
+- adapter-vs-native reference comparison;
+- high-rate protocol research requiring hardware timestamps or native bus access.
 
-Their existence does not reduce the supported functionality of ELM/STN adapters.
+The verified Linux MX+ full-pass result makes the MX+ a practical unrestricted single-bus HS-CAN capture option on PCG-1; it does not make native interfaces unnecessary.
 
-## Runtime behavior
+## Runtime health
 
-A filtered ELM/STN capture is healthy when:
+A passive ELM/STN capture is healthy when:
+
 - the adapter reports no `BUFFER FULL` / UART overflow;
 - transport and file writes remain error-free;
-- observed filtered traffic remains at or below the configured product ceiling.
+- the frame stream remains stable without unexplained monitor stalls;
+- observed traffic remains inside the adapter/transport combination's verified envelope.
 
-When a ceiling is exceeded, Atlas should reduce or rotate the filter set instead of failing the entire adapter.
+If unrestricted monitoring proves unstable on a specific transport, Atlas should fall back to exact filtering or rotating banks rather than disabling the adapter.
 
 ## Data provenance
 
-Each capture/session manifest should eventually record:
-- adapter identity and firmware;
+Each capture/session should record:
+
+- adapter identity and firmware when available;
 - transport type;
 - vehicle bus;
+- monitor mode (`full-pass` or `exact-filter`);
 - exact filter IDs/masks;
 - active filter-bank number;
 - observed frames/s and bytes/s;
 - overflow/error count;
 - active diagnostic requests made during the session.
 
-This makes filtered evidence reproducible and usable by OBD Atlas.
-
 ## Decision
 
-**ELM/STN adapters remain first-class Voltarian and OBD Atlas interfaces for every function they can reliably support. Only unrestricted raw-bus mirroring is excluded from their production requirement.**
+**ELM/STN adapters remain first-class Voltarian and OBD Atlas interfaces for every function they can reliably support. OBDLink MX+ on Linux RFCOMM is now verified for sustained Gen-1 HS-CAN full-pass monitoring at approximately 2.9k frames/s and should default to FULL BUS on that platform.**
