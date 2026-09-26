@@ -22,6 +22,29 @@ void main() {
       );
     });
 
+    test('programs exact HS-CAN pass filters within the MX+ production envelope', () {
+      final commands = LinuxObdlinkMxAdapter.monitorSetupCommands(
+        ObdlinkMxCanBus.highSpeedCan,
+        filterIds: <int>[0x0C1, 0x1E5, 0x0D1],
+      );
+
+      expect(commands, contains('STFAC'));
+      expect(commands, contains('STFPA 0C1,7FF'));
+      expect(commands, contains('STFPA 0D1,7FF'));
+      expect(commands, contains('STFPA 1E5,7FF'));
+      expect(commands, isNot(contains('STFPA 000,000')));
+    });
+
+    test('rejects more than 16 MX+ exact filters', () {
+      expect(
+        () => LinuxObdlinkMxAdapter.monitorSetupCommands(
+          ObdlinkMxCanBus.highSpeedCan,
+          filterIds: List<int>.generate(17, (index) => index),
+        ),
+        throwsArgumentError,
+      );
+    });
+
     test('identifies the selected physical bus in the adapter name', () {
       final adapter = LinuxObdlinkMxAdapter(
         '/dev/rfcomm0',
