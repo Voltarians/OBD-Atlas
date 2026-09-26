@@ -22,6 +22,19 @@ void main() {
       );
     });
 
+    test('uses STFPA 000,000 for unrestricted HS-CAN full-bus monitoring', () {
+      final commands = LinuxObdlinkMxAdapter.monitorSetupCommands(
+        ObdlinkMxCanBus.highSpeedCan,
+      );
+
+      expect(commands, contains('STFAC'));
+      expect(commands, contains('STFPA 000,000'));
+      expect(
+        commands.where((command) => command.startsWith('STFPA ')).length,
+        1,
+      );
+    });
+
     test('programs exact HS-CAN pass filters within the MX+ production envelope', () {
       final commands = LinuxObdlinkMxAdapter.monitorSetupCommands(
         ObdlinkMxCanBus.highSpeedCan,
