@@ -41,9 +41,13 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
     this.fastMonitor = true,
     this.canBus = ObdlinkMxCanBus.highSpeedCan,
     this.filterIds = const <int>[],
+    this.discoveryFilterIds = const <int>[],
+    this.filterBankInterval = const Duration(seconds: 10),
   })  : assert(channel >= 1 && channel <= 5),
         assert(filterIds.length <= 16),
-        assert(filterIds.every((id) => id >= 0 && id <= 0x7FF));
+        assert(filterIds.every((id) => id >= 0 && id <= 0x7FF)),
+        assert(discoveryFilterIds.every((id) => id >= 0 && id <= 0x7FF)),
+        assert(!filterBankInterval.isNegative);
 
   final String portName;
   final int channel;
@@ -58,9 +62,16 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
   /// Atlas production policy caps the MX+ profile at 16 exact IDs.
   final List<int> filterIds;
 
+  /// Lower-priority IDs rotated through the unused exact-filter slots.
+  final List<int> discoveryFilterIds;
+
+  /// Time spent on each discovery bank. Zero disables automatic rotation.
+  final Duration filterBankInterval;
+
   final _frames = StreamController<CanFrame>.broadcast();
   final _states = StreamController<AtlasAdapterState>.broadcast();
   final _responses = StreamController<String>.broadcast();
+  final _annotations = StreamController<String>.broadcast();
   Process? _process;
   StreamSubscription<String>? _stdoutSubscription;
   StreamSubscription<String>? _stderrSubscription;
@@ -71,6 +82,13 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
   bool _monitoring = false;
   bool _disconnecting = false;
   Completer<void>? _firstFrame;
+  Timer? _filterBankTimer;
+  int _activeFilterBankIndex = 0;
+  late List<List<int>> _filterBanks = buildFilterBanks(
+    priorityIds: filterIds,
+    discoveryIds: discoveryFilterIds,
+  );
+  Future<void> _controlQueue = Future<void>.value();
 
   @override
   String get id => 'obdlink-mx:ch$channel:$portName';
@@ -85,6 +103,17 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
   Stream<CanFrame> get frames => _frames.stream;
   @override
   Stream<AtlasAdapterState> get states => _states.stream;
+
+  Stream<String> get annotations => _annotations.stream;
+
+  int get activeFilterBankNumber =>
+      _filterBanks.isEmpty ? 0 : _activeFilterBankIndex + 1;
+
+  int get filterBankCount => _filterBanks.length;
+
+  List<int> get activeFilterIds => _filterBanks.isEmpty
+      ? const <int>[]
+      : List<int>.unmodifiable(_filterBanks[_activeFilterBankIndex]);
 
   static Future<List<String>> availablePorts() async {
     final targets = <String>[];
@@ -186,9 +215,14 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
       await _command('ATAL');
       await _command('ATCFC0');
       if (fastMonitor) {
+        _filterBanks = buildFilterBanks(
+          priorityIds: filterIds,
+          discoveryIds: discoveryFilterIds,
+        );
+        _activeFilterBankIndex = 0;
         for (final command in monitorSetupCommands(
           canBus,
-          filterIds: filterIds,
+          filterIds: activeFilterIds,
         )) {
           await _command(command);
         }
@@ -206,12 +240,218 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
         ),
       );
       _setState(AtlasAdapterState.connected);
+      _emitFilterBankAnnotation(reason: 'connected');
+      _startFilterBankRotation();
       _log('CONNECTED first-frame-received');
     } catch (error) {
       _log('CONNECT FAILED $error');
       await disconnect();
       rethrow;
     }
+  }
+
+  static List<List<int>> buildFilterBanks({
+    required List<int> priorityIds,
+    required List<int> discoveryIds,
+    int maxExactIds = 16,
+  }) {
+    if (maxExactIds <= 0) {
+      throw ArgumentError.value(maxExactIds, 'maxExactIds', 'Must be positive.');
+    }
+    final priority = priorityIds.toSet().toList();
+    if (priority.length > maxExactIds) {
+      throw ArgumentError.value(
+        priority.length,
+        'priorityIds',
+        'Priority IDs exceed the exact-filter capacity.',
+      );
+    }
+    for (final id in <int>[...priority, ...discoveryIds]) {
+      if (id < 0 || id > 0x7FF) {
+        throw ArgumentError.value(id, 'CAN ID', 'Must be 000-7FF.');
+      }
+    }
+    final discovery = discoveryIds
+        .where((id) => !priority.contains(id))
+        .toSet()
+        .toList();
+    final rotatingSlots = maxExactIds - priority.length;
+    if (discovery.isEmpty || rotatingSlots == 0) {
+      return <List<int>>[List<int>.unmodifiable(priority)];
+    }
+    final banks = <List<int>>[];
+    for (var offset = 0; offset < discovery.length; offset += rotatingSlots) {
+      final end = (offset + rotatingSlots < discovery.length)
+          ? offset + rotatingSlots
+          : discovery.length;
+      banks.add(List<int>.unmodifiable(
+        <int>[...priority, ...discovery.sublist(offset, end)],
+      ));
+    }
+    return banks;
+  }
+
+  static String normalizeReadOnlyDiagnosticRequest(String request) {
+    final normalized =
+        request.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '').toUpperCase();
+    if (normalized.length < 2 ||
+        normalized.length.isOdd ||
+        !RegExp(r'^[0-9A-F]+$').hasMatch(normalized)) {
+      throw const FormatException(
+        'Diagnostic request must contain complete hexadecimal bytes.',
+      );
+    }
+    final service = int.parse(normalized.substring(0, 2), radix: 16);
+    const allowedReadServices = <int>{0x01, 0x03, 0x07, 0x09, 0x19, 0x22};
+    if (!allowedReadServices.contains(service)) {
+      throw FormatException(
+        'Service ${service.toRadixString(16).padLeft(2, '0').toUpperCase()} '
+        'is not enabled by the Atlas read-only diagnostic gate.',
+      );
+    }
+    return normalized;
+  }
+
+  static String normalize11BitHeader(String header) {
+    final normalized = header.trim().toUpperCase();
+    if (!RegExp(r'^[0-7][0-9A-F]{2}$').hasMatch(normalized)) {
+      throw const FormatException('Diagnostic header must be 000-7FF.');
+    }
+    return normalized;
+  }
+
+  Future<T> _serializeControl<T>(Future<T> Function() action) {
+    final completer = Completer<T>();
+    _controlQueue = _controlQueue.then<void>((_) async {
+      try {
+        completer.complete(await action());
+      } catch (error, stack) {
+        completer.completeError(error, stack);
+      }
+    }).catchError((Object _, StackTrace __) {
+      // Individual operations report their own failure through the completer.
+    });
+    return completer.future;
+  }
+
+  Future<String> _stopMonitorForControl() async {
+    if (!_monitoring) return '';
+    _responseBuffer = '';
+    _awaitingPrompt = true;
+    _monitoring = false;
+    final responseFuture = _responses.stream.first.timeout(
+      const Duration(seconds: 3),
+      onTimeout: () => throw TimeoutException(
+        'Timed out stopping STM monitor for adapter reconfiguration.',
+      ),
+    );
+    try {
+      _write('');
+      return await responseFuture;
+    } finally {
+      _awaitingPrompt = false;
+    }
+  }
+
+  void _resumeMonitor() {
+    _firstFrame = Completer<void>();
+    _monitoring = true;
+    _write('STM');
+    _log('TX STM resume');
+  }
+
+  void _startFilterBankRotation() {
+    _filterBankTimer?.cancel();
+    _filterBankTimer = null;
+    if (canBus != ObdlinkMxCanBus.highSpeedCan ||
+        _filterBanks.length <= 1 ||
+        filterBankInterval == Duration.zero) {
+      return;
+    }
+    _filterBankTimer = Timer.periodic(
+      filterBankInterval,
+      (_) => unawaited(_rotateFilterBank()),
+    );
+  }
+
+  Future<void> _rotateFilterBank() async {
+    if (_disconnecting || _state != AtlasAdapterState.connected) return;
+    await _serializeControl<void>(() async {
+      if (_disconnecting || _filterBanks.length <= 1) return;
+      await _stopMonitorForControl();
+      _activeFilterBankIndex =
+          (_activeFilterBankIndex + 1) % _filterBanks.length;
+      for (final command in monitorSetupCommands(
+        canBus,
+        filterIds: activeFilterIds,
+      )) {
+        await _command(command);
+      }
+      _emitFilterBankAnnotation(reason: 'rotation');
+      _resumeMonitor();
+    });
+  }
+
+  void _emitFilterBankAnnotation({required String reason}) {
+    final ids = activeFilterIds
+        .map((id) => id.toRadixString(16).padLeft(3, '0').toUpperCase())
+        .join(',');
+    final line = '# ATLAS_FILTER_BANK '
+        '${DateTime.now().toUtc().toIso8601String()} '
+        'adapter=OBDLink_MX+ bus=${canBus.shortName} '
+        'bank=$activeFilterBankNumber/$filterBankCount '
+        'reason=$reason ids=$ids';
+    _annotations.add(line);
+    _log(line.substring(2));
+  }
+
+  Future<String> runReadOnlyDiagnostic(
+    String request, {
+    String header = '7E0',
+  }) {
+    final normalizedRequest = normalizeReadOnlyDiagnosticRequest(request);
+    final normalizedHeader = normalize11BitHeader(header);
+    if (canBus != ObdlinkMxCanBus.highSpeedCan) {
+      throw UnsupportedError(
+        'Atlas read-only request/response is currently enabled on MX+ HS-CAN only.',
+      );
+    }
+    return _serializeControl<String>(() async {
+      if (_state != AtlasAdapterState.connected) {
+        throw StateError('OBDLink MX+ is not connected.');
+      }
+      await _stopMonitorForControl();
+      try {
+        await _command('ATSP6');
+        await _command('ATH1');
+        await _command('ATS1');
+        await _command('ATCAF1');
+        await _command('ATSH $normalizedHeader');
+        final response = await _command(
+          normalizedRequest,
+          timeout: const Duration(seconds: 5),
+        );
+        final cleanResponse = response
+            .replaceAll('>', ' ')
+            .replaceAll(RegExp(r'[\r\n]+'), ' ')
+            .trim();
+        _annotations.add(
+          '# ATLAS_DIAGNOSTIC ${DateTime.now().toUtc().toIso8601String()} '
+          'header=$normalizedHeader request=$normalizedRequest '
+          'response=${cleanResponse.replaceAll(' ', '_')}',
+        );
+        return response;
+      } finally {
+        for (final command in monitorSetupCommands(
+          canBus,
+          filterIds: activeFilterIds,
+        )) {
+          await _command(command);
+        }
+        _emitFilterBankAnnotation(reason: 'resume-after-diagnostic');
+        _resumeMonitor();
+      }
+    });
   }
 
   void _onTransportError(Object error, StackTrace stack) {
@@ -418,6 +658,8 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
   @override
   Future<void> disconnect() async {
     _disconnecting = true;
+    _filterBankTimer?.cancel();
+    _filterBankTimer = null;
     final process = _process;
     if (process != null) {
       if (_monitoring) {
