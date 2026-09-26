@@ -451,6 +451,14 @@ class AtlasRuntime extends ChangeNotifier {
     try {
       final file = await capture.start();
       markCaptureEvent('Capture start: ${discovery.eventLabel}', source: 'atlas');
+      for (final slot in channels.values) {
+        final adapter = slot.adapter;
+        if (slot.connected && adapter is LinuxObdlinkMxAdapter) {
+          capture.writeAnnotation(
+            adapter.captureProvenanceAnnotation(reason: 'capture-start'),
+          );
+        }
+      }
       return file;
     } catch (_) {
       discovery.finish();
