@@ -84,10 +84,7 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
   Completer<void>? _firstFrame;
   Timer? _filterBankTimer;
   int _activeFilterBankIndex = 0;
-  late List<List<int>> _filterBanks = buildFilterBanks(
-    priorityIds: filterIds,
-    discoveryIds: discoveryFilterIds,
-  );
+  List<List<int>> _filterBanks = const <List<int>>[];
   Future<void> _controlQueue = Future<void>.value();
 
   @override
