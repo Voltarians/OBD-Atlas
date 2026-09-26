@@ -9,6 +9,11 @@ import 'core/capture_session.dart';
 import 'core/signal_discovery.dart';
 import 'linux_capture_page.dart';
 
+enum _ObdlinkMxCaptureProfile {
+  filteredRotating,
+  fullBus,
+}
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   if (!Platform.isLinux) {
@@ -174,6 +179,8 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
   String _obdlinkDiscoveryFilterText =
       '0D3,0BC,0AA,098,0C7,096,1ED,1EB,097,0C9,0B1,1E9,185,1C6,1C4,1C5,1FB,287,1F4,0BA,1F5,0BD,1A1,0BB';
   int _obdlinkBankSeconds = 10;
+  _ObdlinkMxCaptureProfile _obdlinkCaptureProfile =
+      _ObdlinkMxCaptureProfile.filteredRotating;
   bool _scanningObdlink = false;
   bool _connectingObdlink = false;
 
@@ -336,19 +343,22 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
     if (port == null) return;
     setState(() => _connectingObdlink = true);
     try {
-      final priorityIds = _obdlinkCanBus == ObdlinkMxCanBus.highSpeedCan
+      final fullBus = _obdlinkCanBus == ObdlinkMxCanBus.highSpeedCan &&
+          _obdlinkCaptureProfile == _ObdlinkMxCaptureProfile.fullBus;
+      final priorityIds = _obdlinkCanBus == ObdlinkMxCanBus.highSpeedCan && !fullBus
           ? _parseObdlinkIds(
               _obdlinkPriorityFilterText,
               maxIds: 16,
               label: 'MX+ priority profile',
             )
           : const <int>[];
-      final discoveryIds = _obdlinkCanBus == ObdlinkMxCanBus.highSpeedCan
-          ? _parseObdlinkIds(
-              _obdlinkDiscoveryFilterText,
-              label: 'MX+ discovery profile',
-            )
-          : const <int>[];
+      final discoveryIds =
+          _obdlinkCanBus == ObdlinkMxCanBus.highSpeedCan && !fullBus
+              ? _parseObdlinkIds(
+                  _obdlinkDiscoveryFilterText,
+                  label: 'MX+ discovery profile',
+                )
+              : const <int>[];
       if (priorityIds.length == 16 && discoveryIds.isNotEmpty) {
         throw const FormatException(
           'Leave at least one of the 16 MX+ filter slots free to rotate discovery IDs.',
@@ -364,13 +374,17 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
         canBus: _obdlinkCanBus,
         filterIds: priorityIds,
         discoveryFilterIds: discoveryIds,
-        filterBankInterval: Duration(seconds: _obdlinkBankSeconds),
+        filterBankInterval:
+            fullBus ? Duration.zero : Duration(seconds: _obdlinkBankSeconds),
       );
       _showMessage(
-        'OBDLink MX+ ${_obdlinkCanBus.shortName} monitoring on $port '
-        '→ Atlas CH$_obdlinkAtlasChannel'
-        '${priorityIds.isEmpty ? "" : " • ${priorityIds.length} priority IDs"}'
-        '${banks.length > 1 ? " • ${banks.length} rotating banks every $_obdlinkBankSeconds s" : ""}.',
+        fullBus
+            ? 'OBDLink MX+ HS-CAN FULL BUS monitoring on $port '
+                '→ Atlas CH$_obdlinkAtlasChannel • STFPA 000,000 • no rotation.'
+            : 'OBDLink MX+ ${_obdlinkCanBus.shortName} monitoring on $port '
+                '→ Atlas CH$_obdlinkAtlasChannel'
+                '${priorityIds.isEmpty ? "" : " • ${priorityIds.length} priority IDs"}'
+                '${banks.length > 1 ? " • ${banks.length} rotating banks every $_obdlinkBankSeconds s" : ""}.',
       );
     } catch (error) {
       _showError(error);
@@ -500,7 +514,7 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                         leading: Icon(Icons.bluetooth),
                         title: Text('OBDLink MX+ • Bluetooth RFCOMM'),
                         subtitle: Text(
-                          'Filtered STM monitoring • persistent priority IDs • rotating discovery banks • HS-CAN or GM SWCAN',
+                          'STM monitoring • filtered rotating profile or HS-CAN FULL BUS engineering test • GM SWCAN',
                         ),
                       ),
                       Wrap(
@@ -555,11 +569,39 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                             ),
                           ),
                           SizedBox(
+                            width: 300,
+                            child: DropdownButtonFormField<_ObdlinkMxCaptureProfile>(
+                              initialValue: _obdlinkCaptureProfile,
+                              decoration: const InputDecoration(
+                                labelText: 'HS-CAN capture profile',
+                              ),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: _ObdlinkMxCaptureProfile.filteredRotating,
+                                  child: Text('Filtered + rotating banks'),
+                                ),
+                                DropdownMenuItem(
+                                  value: _ObdlinkMxCaptureProfile.fullBus,
+                                  child: Text('FULL BUS • no filters • engineering'),
+                                ),
+                              ],
+                              onChanged: _connectingObdlink ||
+                                      _obdlinkCanBus != ObdlinkMxCanBus.highSpeedCan
+                                  ? null
+                                  : (value) => setState(
+                                        () => _obdlinkCaptureProfile = value ??
+                                            _ObdlinkMxCaptureProfile.filteredRotating,
+                                      ),
+                            ),
+                          ),
+                          SizedBox(
                             width: 520,
                             child: TextFormField(
                               initialValue: _obdlinkPriorityFilterText,
                               enabled: !_connectingObdlink &&
-                                  _obdlinkCanBus == ObdlinkMxCanBus.highSpeedCan,
+                                  _obdlinkCanBus == ObdlinkMxCanBus.highSpeedCan &&
+                                  _obdlinkCaptureProfile ==
+                                      _ObdlinkMxCaptureProfile.filteredRotating,
                               textCapitalization: TextCapitalization.characters,
                               decoration: const InputDecoration(
                                 labelText: 'MX+ priority IDs • always present • max 16',
@@ -575,7 +617,9 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                             child: TextFormField(
                               initialValue: _obdlinkDiscoveryFilterText,
                               enabled: !_connectingObdlink &&
-                                  _obdlinkCanBus == ObdlinkMxCanBus.highSpeedCan,
+                                  _obdlinkCanBus == ObdlinkMxCanBus.highSpeedCan &&
+                                  _obdlinkCaptureProfile ==
+                                      _ObdlinkMxCaptureProfile.filteredRotating,
                               textCapitalization: TextCapitalization.characters,
                               decoration: const InputDecoration(
                                 labelText: 'MX+ discovery IDs • automatically rotated',
@@ -597,7 +641,9 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                                 DropdownMenuItem(value: 20, child: Text('20 seconds')),
                                 DropdownMenuItem(value: 30, child: Text('30 seconds')),
                               ],
-                              onChanged: _connectingObdlink
+                              onChanged: _connectingObdlink ||
+                                      _obdlinkCaptureProfile ==
+                                          _ObdlinkMxCaptureProfile.fullBus
                                   ? null
                                   : (value) => setState(
                                         () => _obdlinkBankSeconds = value ?? 10,
@@ -620,16 +666,24 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                                     child: CircularProgressIndicator(strokeWidth: 2),
                                   )
                                 : const Icon(Icons.link),
-                            label: const Text('Monitor with MX+'),
+                            label: Text(
+                              _obdlinkCaptureProfile ==
+                                          _ObdlinkMxCaptureProfile.fullBus &&
+                                      _obdlinkCanBus ==
+                                          ObdlinkMxCanBus.highSpeedCan
+                                  ? 'Monitor FULL BUS'
+                                  : 'Monitor with MX+',
+                            ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 8),
                       const Text(
                         'Pair the MX+ with BlueZ once, then Atlas opens and manages the '
-                        'RFCOMM connection automatically. HS-CAN uses protocol 31 with '
-                        'persistent priority IDs plus rotating discovery banks; GM SWCAN '
-                        'uses protocol 61 on DLC pin 1.',
+                        'RFCOMM connection automatically. Filtered HS-CAN uses protocol 31 '
+                        'with persistent priority IDs plus rotating discovery banks. FULL BUS '
+                        'uses protocol 31 with STFPA 000,000 and no bank rotation so Linux '
+                        'throughput can be measured directly. GM SWCAN uses protocol 61 on DLC pin 1.',
                       ),
                     ],
                   ),
