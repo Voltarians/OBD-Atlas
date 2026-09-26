@@ -56,10 +56,10 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
   final bool fastMonitor;
   final ObdlinkMxCanBus canBus;
 
-  /// Exact 11-bit hardware pass filters used for production HS-CAN capture.
+  /// Exact 11-bit hardware pass filters used for filtered HS-CAN capture.
   ///
-  /// An empty list preserves unrestricted engineering monitoring. Voltarian /
-  /// Atlas production policy caps the MX+ profile at 16 exact IDs.
+  /// An empty list selects the verified Linux full-pass profile. Filtered mode
+  /// remains available as a fallback and supports up to 16 exact IDs per bank.
   final List<int> filterIds;
 
   /// Lower-priority IDs rotated through the unused exact-filter slots.
@@ -111,6 +111,18 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
   List<int> get activeFilterIds => _filterBanks.isEmpty
       ? const <int>[]
       : List<int>.unmodifiable(_filterBanks[_activeFilterBankIndex]);
+
+  String captureProvenanceAnnotation({String reason = 'capture-start'}) {
+    final ids = activeFilterIds
+        .map((id) => id.toRadixString(16).padLeft(3, '0').toUpperCase())
+        .join(',');
+    final mode = activeFilterIds.isEmpty ? 'full-pass' : 'exact-filter';
+    return '# ATLAS_FILTER_BANK '
+        '${DateTime.now().toUtc().toIso8601String()} '
+        'adapter=OBDLink_MX+ transport=RFCOMM bus=${canBus.shortName} '
+        'mode=$mode bank=$activeFilterBankNumber/$filterBankCount '
+        'reason=$reason ids=$ids';
+  }
 
   static Future<List<String>> availablePorts() async {
     final targets = <String>[];
@@ -390,15 +402,7 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
   }
 
   void _emitFilterBankAnnotation({required String reason}) {
-    final ids = activeFilterIds
-        .map((id) => id.toRadixString(16).padLeft(3, '0').toUpperCase())
-        .join(',');
-    final mode = activeFilterIds.isEmpty ? 'full-pass' : 'exact-filter';
-    final line = '# ATLAS_FILTER_BANK '
-        '${DateTime.now().toUtc().toIso8601String()} '
-        'adapter=OBDLink_MX+ bus=${canBus.shortName} '
-        'mode=$mode bank=$activeFilterBankNumber/$filterBankCount '
-        'reason=$reason ids=$ids';
+    final line = captureProvenanceAnnotation(reason: reason);
     _annotations.add(line);
     _log(line.substring(2));
   }
