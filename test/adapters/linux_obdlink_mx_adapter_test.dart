@@ -45,6 +45,49 @@ void main() {
       );
     });
 
+    test('builds rotating discovery banks while preserving priority IDs', () {
+      final banks = LinuxObdlinkMxAdapter.buildFilterBanks(
+        priorityIds: <int>[0x0C1, 0x0D1],
+        discoveryIds: List<int>.generate(20, (index) => 0x100 + index),
+      );
+
+      expect(banks.length, 2);
+      expect(banks.every((bank) => bank.length <= 16), isTrue);
+      expect(banks.every((bank) => bank.contains(0x0C1)), isTrue);
+      expect(banks.every((bank) => bank.contains(0x0D1)), isTrue);
+      expect(
+        banks.expand((bank) => bank).where((id) => id >= 0x100).toSet().length,
+        20,
+      );
+    });
+
+    test('read-only diagnostic gate accepts reads and rejects writes', () {
+      expect(
+        LinuxObdlinkMxAdapter.normalizeReadOnlyDiagnosticRequest('22 F1 90'),
+        '22F190',
+      );
+      expect(
+        LinuxObdlinkMxAdapter.normalizeReadOnlyDiagnosticRequest('01 00'),
+        '0100',
+      );
+      expect(
+        () => LinuxObdlinkMxAdapter.normalizeReadOnlyDiagnosticRequest('2E F1 90 00'),
+        throwsFormatException,
+      );
+      expect(
+        () => LinuxObdlinkMxAdapter.normalizeReadOnlyDiagnosticRequest('31 01 FF 00'),
+        throwsFormatException,
+      );
+    });
+
+    test('validates 11-bit diagnostic headers', () {
+      expect(LinuxObdlinkMxAdapter.normalize11BitHeader('7e0'), '7E0');
+      expect(
+        () => LinuxObdlinkMxAdapter.normalize11BitHeader('18DAF110'),
+        throwsFormatException,
+      );
+    });
+
     test('identifies the selected physical bus in the adapter name', () {
       final adapter = LinuxObdlinkMxAdapter(
         '/dev/rfcomm0',
