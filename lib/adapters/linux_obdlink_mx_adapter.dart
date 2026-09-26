@@ -116,7 +116,11 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
     final ids = activeFilterIds
         .map((id) => id.toRadixString(16).padLeft(3, '0').toUpperCase())
         .join(',');
-    final mode = activeFilterIds.isEmpty ? 'full-pass' : 'exact-filter';
+    final mode = _filterBanks.isEmpty
+        ? (filterIds.isEmpty && discoveryFilterIds.isEmpty
+            ? 'full-pass'
+            : 'exact-filter')
+        : (activeFilterIds.isEmpty ? 'full-pass' : 'exact-filter');
     return '# ATLAS_FILTER_BANK '
         '${DateTime.now().toUtc().toIso8601String()} '
         'adapter=OBDLink_MX+ transport=RFCOMM bus=${canBus.shortName} '
