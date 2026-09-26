@@ -174,10 +174,6 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
   String _obdlinkDiscoveryFilterText =
       '0D3,0BC,0AA,098,0C7,096,1ED,1EB,097,0C9,0B1,1E9,185,1C6,1C4,1C5,1FB,287,1F4,0BA,1F5,0BD,1A1,0BB';
   int _obdlinkBankSeconds = 10;
-  String _obdlinkDiagnosticHeader = '7E0';
-  String _obdlinkDiagnosticRequest = '0100';
-  String? _obdlinkDiagnosticResponse;
-  bool _runningObdlinkDiagnostic = false;
   bool _scanningObdlink = false;
   bool _connectingObdlink = false;
 
@@ -383,31 +379,6 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
     }
   }
 
-  Future<void> _runObdlinkDiagnostic() async {
-    if (_runningObdlinkDiagnostic) return;
-    setState(() {
-      _runningObdlinkDiagnostic = true;
-      _obdlinkDiagnosticResponse = null;
-    });
-    try {
-      final response = await AtlasRuntime.instance.runLinuxObdlinkReadOnlyDiagnostic(
-        _obdlinkAtlasChannel,
-        _obdlinkDiagnosticRequest,
-        header: _obdlinkDiagnosticHeader,
-      );
-      if (!mounted) return;
-      setState(() {
-        _obdlinkDiagnosticResponse = response
-            .replaceAll('>', ' ')
-            .replaceAll(RegExp(r'[\r\n]+'), ' ')
-            .trim();
-      });
-    } catch (error) {
-      _showError(error);
-    } finally {
-      if (mounted) setState(() => _runningObdlinkDiagnostic = false);
-    }
-  }
   void _showError(Object error) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
@@ -529,7 +500,7 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                         leading: Icon(Icons.bluetooth),
                         title: Text('OBDLink MX+ • Bluetooth RFCOMM'),
                         subtitle: Text(
-                          'Filtered STM monitoring • rotating discovery banks • guarded read-only diagnostics • HS-CAN or GM SWCAN',
+                          'Filtered STM monitoring • persistent priority IDs • rotating discovery banks • HS-CAN or GM SWCAN',
                         ),
                       ),
                       Wrap(
@@ -660,66 +631,6 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                         'persistent priority IDs plus rotating discovery banks; GM SWCAN '
                         'uses protocol 61 on DLC pin 1.',
                       ),
-                      const SizedBox(height: 12),
-                      const Divider(),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Read-only diagnostic request',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 12,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          SizedBox(
-                            width: 150,
-                            child: TextFormField(
-                              initialValue: _obdlinkDiagnosticHeader,
-                              textCapitalization: TextCapitalization.characters,
-                              decoration: const InputDecoration(
-                                labelText: '11-bit header',
-                                hintText: '7E0',
-                              ),
-                              onChanged: (value) => _obdlinkDiagnosticHeader = value,
-                            ),
-                          ),
-                          SizedBox(
-                            width: 260,
-                            child: TextFormField(
-                              initialValue: _obdlinkDiagnosticRequest,
-                              textCapitalization: TextCapitalization.characters,
-                              decoration: const InputDecoration(
-                                labelText: 'Request bytes',
-                                hintText: '0100 or 22F190',
-                                helperText: 'Allowed services: 01, 03, 07, 09, 19, 22.',
-                              ),
-                              onChanged: (value) => _obdlinkDiagnosticRequest = value,
-                            ),
-                          ),
-                          FilledButton.tonalIcon(
-                            onPressed: _runningObdlinkDiagnostic
-                                ? null
-                                : _runObdlinkDiagnostic,
-                            icon: _runningObdlinkDiagnostic
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
-                                  )
-                                : const Icon(Icons.query_stats),
-                            label: const Text('Send read-only request'),
-                          ),
-                        ],
-                      ),
-                      if (_obdlinkDiagnosticResponse != null) ...[
-                        const SizedBox(height: 8),
-                        SelectableText(
-                          'Response: $_obdlinkDiagnosticResponse',
-                          style: const TextStyle(fontFamily: 'monospace'),
-                        ),
-                      ],
                     ],
                   ),
                 ),
