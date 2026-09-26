@@ -393,10 +393,11 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
     final ids = activeFilterIds
         .map((id) => id.toRadixString(16).padLeft(3, '0').toUpperCase())
         .join(',');
+    final mode = activeFilterIds.isEmpty ? 'full-pass' : 'exact-filter';
     final line = '# ATLAS_FILTER_BANK '
         '${DateTime.now().toUtc().toIso8601String()} '
         'adapter=OBDLink_MX+ bus=${canBus.shortName} '
-        'bank=$activeFilterBankNumber/$filterBankCount '
+        'mode=$mode bank=$activeFilterBankNumber/$filterBankCount '
         'reason=$reason ids=$ids';
     _annotations.add(line);
     _log(line.substring(2));
