@@ -35,6 +35,34 @@ void main() {
       );
     });
 
+    test('full-pass provenance records transport and current mode', () {
+      final adapter = LinuxObdlinkMxAdapter(
+        'rfcomm://00:04:3E:84:41:C1:1',
+        canBus: ObdlinkMxCanBus.highSpeedCan,
+      );
+
+      final annotation = adapter.captureProvenanceAnnotation();
+
+      expect(annotation, contains('adapter=OBDLink_MX+'));
+      expect(annotation, contains('transport=RFCOMM'));
+      expect(annotation, contains('bus=HS-CAN'));
+      expect(annotation, contains('mode=full-pass'));
+      expect(annotation, contains('reason=capture-start'));
+    });
+
+    test('filtered provenance does not mislabel configured exact filters', () {
+      final adapter = LinuxObdlinkMxAdapter(
+        'rfcomm://00:04:3E:84:41:C1:1',
+        canBus: ObdlinkMxCanBus.highSpeedCan,
+        filterIds: <int>[0x0C1, 0x1E5],
+      );
+
+      expect(
+        adapter.captureProvenanceAnnotation(),
+        contains('mode=exact-filter'),
+      );
+    });
+
     test('programs exact HS-CAN pass filters within the MX+ production envelope', () {
       final commands = LinuxObdlinkMxAdapter.monitorSetupCommands(
         ObdlinkMxCanBus.highSpeedCan,
