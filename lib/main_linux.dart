@@ -529,7 +529,7 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                         leading: Icon(Icons.bluetooth),
                         title: Text('OBDLink MX+ • Bluetooth RFCOMM'),
                         subtitle: Text(
-                          'Receive-only raw STM monitoring • HS-CAN or GM SWCAN • no diagnostic requests',
+                          'Filtered STM monitoring • rotating discovery banks • guarded read-only diagnostics • HS-CAN or GM SWCAN',
                         ),
                       ),
                       Wrap(
@@ -586,18 +586,51 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                           SizedBox(
                             width: 520,
                             child: TextFormField(
-                              initialValue: _obdlinkFilterText,
+                              initialValue: _obdlinkPriorityFilterText,
                               enabled: !_connectingObdlink &&
                                   _obdlinkCanBus == ObdlinkMxCanBus.highSpeedCan,
                               textCapitalization: TextCapitalization.characters,
                               decoration: const InputDecoration(
-                                labelText: 'HS-CAN exact hardware filters • max 16 IDs',
+                                labelText: 'MX+ priority IDs • always present • max 16',
                                 hintText: '0C1,0D1,1E5,...',
                                 helperText:
-                                    'Production MX+ profile: keep selected traffic within 150 frames/s. '
-                                    'SWCAN uses its own monitor path.',
+                                    'Keep critical live-data IDs here. Leave free slots for discovery rotation.',
                               ),
-                              onChanged: (value) => _obdlinkFilterText = value,
+                              onChanged: (value) => _obdlinkPriorityFilterText = value,
+                            ),
+                          ),
+                          SizedBox(
+                            width: 520,
+                            child: TextFormField(
+                              initialValue: _obdlinkDiscoveryFilterText,
+                              enabled: !_connectingObdlink &&
+                                  _obdlinkCanBus == ObdlinkMxCanBus.highSpeedCan,
+                              textCapitalization: TextCapitalization.characters,
+                              decoration: const InputDecoration(
+                                labelText: 'MX+ discovery IDs • automatically rotated',
+                                hintText: '097,0C9,1E9,...',
+                                helperText:
+                                    'Atlas fills unused filter slots and rotates banks without exceeding 16 exact IDs.',
+                              ),
+                              onChanged: (value) => _obdlinkDiscoveryFilterText = value,
+                            ),
+                          ),
+                          SizedBox(
+                            width: 190,
+                            child: DropdownButtonFormField<int>(
+                              initialValue: _obdlinkBankSeconds,
+                              decoration: const InputDecoration(labelText: 'Bank dwell time'),
+                              items: const <DropdownMenuItem<int>>[
+                                DropdownMenuItem(value: 5, child: Text('5 seconds')),
+                                DropdownMenuItem(value: 10, child: Text('10 seconds')),
+                                DropdownMenuItem(value: 20, child: Text('20 seconds')),
+                                DropdownMenuItem(value: 30, child: Text('30 seconds')),
+                              ],
+                              onChanged: _connectingObdlink
+                                  ? null
+                                  : (value) => setState(
+                                        () => _obdlinkBankSeconds = value ?? 10,
+                                      ),
                             ),
                           ),
                           _channelPicker(
@@ -623,11 +656,70 @@ class _LinuxConnectPageState extends State<LinuxConnectPage> {
                       const SizedBox(height: 8),
                       const Text(
                         'Pair the MX+ with BlueZ once, then Atlas opens and manages the '
-                        'RFCOMM connection automatically. HS-CAN uses protocol 31 and '
-                        'up to 16 exact adapter-side pass filters; GM SWCAN uses protocol '
-                        '61 on DLC pin 1. Atlas keeps useful data rather than requiring '
-                        'unrestricted HS-CAN mirroring from the MX+.',
+                        'RFCOMM connection automatically. HS-CAN uses protocol 31 with '
+                        'persistent priority IDs plus rotating discovery banks; GM SWCAN '
+                        'uses protocol 61 on DLC pin 1.',
                       ),
+                      const SizedBox(height: 12),
+                      const Divider(),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Read-only diagnostic request',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          SizedBox(
+                            width: 150,
+                            child: TextFormField(
+                              initialValue: _obdlinkDiagnosticHeader,
+                              textCapitalization: TextCapitalization.characters,
+                              decoration: const InputDecoration(
+                                labelText: '11-bit header',
+                                hintText: '7E0',
+                              ),
+                              onChanged: (value) => _obdlinkDiagnosticHeader = value,
+                            ),
+                          ),
+                          SizedBox(
+                            width: 260,
+                            child: TextFormField(
+                              initialValue: _obdlinkDiagnosticRequest,
+                              textCapitalization: TextCapitalization.characters,
+                              decoration: const InputDecoration(
+                                labelText: 'Request bytes',
+                                hintText: '0100 or 22F190',
+                                helperText: 'Allowed services: 01, 03, 07, 09, 19, 22.',
+                              ),
+                              onChanged: (value) => _obdlinkDiagnosticRequest = value,
+                            ),
+                          ),
+                          FilledButton.tonalIcon(
+                            onPressed: _runningObdlinkDiagnostic
+                                ? null
+                                : _runObdlinkDiagnostic,
+                            icon: _runningObdlinkDiagnostic
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.query_stats),
+                            label: const Text('Send read-only request'),
+                          ),
+                        ],
+                      ),
+                      if (_obdlinkDiagnosticResponse != null) ...[
+                        const SizedBox(height: 8),
+                        SelectableText(
+                          'Response: $_obdlinkDiagnosticResponse',
+                          style: const TextStyle(fontFamily: 'monospace'),
+                        ),
+                      ],
                     ],
                   ),
                 ),
