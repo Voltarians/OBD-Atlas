@@ -40,7 +40,10 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
     this.protocol = 6,
     this.fastMonitor = true,
     this.canBus = ObdlinkMxCanBus.highSpeedCan,
-  }) : assert(channel >= 1 && channel <= 5);
+    this.filterIds = const <int>[],
+  })  : assert(channel >= 1 && channel <= 5),
+        assert(filterIds.length <= 16),
+        assert(filterIds.every((id) => id >= 0 && id <= 0x7FF));
 
   final String portName;
   final int channel;
@@ -48,6 +51,12 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
   final int protocol;
   final bool fastMonitor;
   final ObdlinkMxCanBus canBus;
+
+  /// Exact 11-bit hardware pass filters used for production HS-CAN capture.
+  ///
+  /// An empty list preserves unrestricted engineering monitoring. Voltarian /
+  /// Atlas production policy caps the MX+ profile at 16 exact IDs.
+  final List<int> filterIds;
 
   final _frames = StreamController<CanFrame>.broadcast();
   final _states = StreamController<AtlasAdapterState>.broadcast();
@@ -177,7 +186,10 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
       await _command('ATAL');
       await _command('ATCFC0');
       if (fastMonitor) {
-        for (final command in monitorSetupCommands(canBus)) {
+        for (final command in monitorSetupCommands(
+          canBus,
+          filterIds: filterIds,
+        )) {
           await _command(command);
         }
       } else {
@@ -290,16 +302,38 @@ class LinuxObdlinkMxAdapter implements AtlasAdapter {
     return null;
   }
 
-  static List<String> monitorSetupCommands(ObdlinkMxCanBus bus) {
+  static List<String> monitorSetupCommands(
+    ObdlinkMxCanBus bus, {
+    List<int> filterIds = const <int>[],
+  }) {
     // OBDLink FRPM: protocol 31 is raw 11-bit HS-CAN at 500 kbit/s;
     // protocol 61 is raw 11-bit GM SWCAN at 33.3 kbit/s. STM preserves
     // raw CAN frames; STMA would treat them as ISO 15765 messages.
+    if (filterIds.length > 16) {
+      throw ArgumentError.value(
+        filterIds.length,
+        'filterIds',
+        'OBDLink MX+ production profile supports at most 16 exact IDs.',
+      );
+    }
+    for (final id in filterIds) {
+      if (id < 0 || id > 0x7FF) {
+        throw ArgumentError.value(id, 'filterIds', 'CAN ID must be 000-7FF.');
+      }
+    }
+    final uniqueIds = filterIds.toSet().toList()..sort();
     return <String>[
       'STP ${bus.protocolNumber}',
       if (bus == ObdlinkMxCanBus.singleWireCan) 'STCSWM 3',
       'STCMM 0',
       'STFAC',
-      'STFPA 000,000',
+      if (uniqueIds.isEmpty)
+        'STFPA 000,000'
+      else
+        ...uniqueIds.map(
+          (id) =>
+              'STFPA ${id.toRadixString(16).padLeft(3, '0').toUpperCase()},7FF',
+        ),
     ];
   }
 
