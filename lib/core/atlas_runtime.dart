@@ -33,6 +33,7 @@ class AtlasChannelStatus {
   final Set<int> seenIds = <int>{};
   StreamSubscription<CanFrame>? frameSubscription;
   StreamSubscription<AtlasAdapterState>? stateSubscription;
+  StreamSubscription<String>? annotationSubscription;
 
   String get bus => 'can${channel - 1}';
   bool get connected => state == AtlasAdapterState.connected;
@@ -131,6 +132,8 @@ class AtlasRuntime extends ChangeNotifier {
     int protocol = 6,
     ObdlinkMxCanBus canBus = ObdlinkMxCanBus.highSpeedCan,
     List<int> filterIds = const <int>[],
+    List<int> discoveryFilterIds = const <int>[],
+    Duration filterBankInterval = const Duration(seconds: 10),
   }) async {
     await _connectAdapter(
       LinuxObdlinkMxAdapter(
@@ -139,9 +142,23 @@ class AtlasRuntime extends ChangeNotifier {
         protocol: protocol,
         canBus: canBus,
         filterIds: filterIds,
+        discoveryFilterIds: discoveryFilterIds,
+        filterBankInterval: filterBankInterval,
       ),
       channel,
     );
+  }
+
+  Future<String> runLinuxObdlinkReadOnlyDiagnostic(
+    int channel,
+    String request, {
+    String header = '7E0',
+  }) async {
+    final adapter = channels[channel]?.adapter;
+    if (adapter is! LinuxObdlinkMxAdapter) {
+      throw StateError('Atlas CH$channel is not an OBDLink MX+ connection.');
+    }
+    return adapter.runReadOnlyDiagnostic(request, header: header);
   }
 
   Future<void> connectLinuxUc2(
@@ -358,6 +375,12 @@ class AtlasRuntime extends ChangeNotifier {
         notifyListeners();
       },
     );
+    if (adapter is LinuxObdlinkMxAdapter) {
+      slot.annotationSubscription = adapter.annotations.listen((annotation) {
+        capture.writeAnnotation(annotation);
+        notifyListeners();
+      });
+    }
 
     try {
       await adapter.connect();
@@ -464,8 +487,10 @@ class AtlasRuntime extends ChangeNotifier {
     for (final slot in affected) {
       await slot.frameSubscription?.cancel();
       await slot.stateSubscription?.cancel();
+      await slot.annotationSubscription?.cancel();
       slot.frameSubscription = null;
       slot.stateSubscription = null;
+      slot.annotationSubscription = null;
     }
     await adapter.disconnect();
     for (final slot in affected) {
@@ -494,8 +519,10 @@ class AtlasRuntime extends ChangeNotifier {
     } else {
       await slot.frameSubscription?.cancel();
       await slot.stateSubscription?.cancel();
+      await slot.annotationSubscription?.cancel();
       slot.frameSubscription = null;
       slot.stateSubscription = null;
+      slot.annotationSubscription = null;
       final adapter = slot.adapter;
       slot.adapter = null;
       if (adapter != null) await adapter.disconnect();
