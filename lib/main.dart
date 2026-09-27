@@ -411,6 +411,7 @@ class _ConnectPageState extends State<ConnectPage> {
               SizedBox(
                 width: 360,
                 child: DropdownButtonFormField<String>(
+                  isExpanded: true,
                   key: ValueKey('bt-$_selectedBluetoothAddress'),
                   initialValue: _selectedBluetoothAddress,
                   decoration: const InputDecoration(labelText: 'vLinker MS'),
