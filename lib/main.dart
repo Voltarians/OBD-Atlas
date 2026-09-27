@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import 'adapters/atlas_adapter.dart';
+import 'adapters/android_vlinker_ms_adapter.dart';
 import 'core/atlas_runtime.dart';
 import 'core/capture_session.dart';
 import 'core/gm_live_diagnostic_monitor.dart';
@@ -151,6 +152,9 @@ class _ConnectPageState extends State<ConnectPage> {
   bool _scanningCa = false;
   bool _probingLys = false;
   bool _lysAvailable = false;
+  List<AndroidBluetoothDevice> _bluetoothDevices = const [];
+  String? _selectedBluetoothAddress;
+  bool _scanningBluetooth = false;
 
   void _scanSlcan() {
     final ports = AtlasRuntime.instance.scanSlcanPorts();
@@ -158,6 +162,68 @@ class _ConnectPageState extends State<ConnectPage> {
       _ports = ports;
       if (_selectedPort == null || !ports.contains(_selectedPort)) _selectedPort = ports.isEmpty ? null : ports.first;
     });
+  }
+
+  Future<void> _scanBluetooth() async {
+    if (!Platform.isAndroid) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Bluetooth vLinker MS is currently enabled on Android.')),
+        );
+      }
+      return;
+    }
+
+    setState(() => _scanningBluetooth = true);
+    try {
+      final devices = await AtlasRuntime.instance.scanAndroidBluetoothDevices();
+      if (!mounted) return;
+      setState(() {
+        _bluetoothDevices = devices;
+        if (_selectedBluetoothAddress == null ||
+            !devices.any((d) => d.address == _selectedBluetoothAddress)) {
+          final preferred = devices.where(
+            (d) => d.name.toLowerCase().contains('vlinker'),
+          );
+          _selectedBluetoothAddress = preferred.isNotEmpty
+              ? preferred.first.address
+              : (devices.isEmpty ? null : devices.first.address);
+        }
+      });
+      if (devices.isEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No paired Bluetooth Classic devices found. Pair the vLinker MS in Android Settings first.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.toString())),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _scanningBluetooth = false);
+    }
+  }
+
+  Future<void> _connectBluetooth() async {
+    final device = _bluetoothDevices
+        .where((d) => d.address == _selectedBluetoothAddress)
+        .firstOrNull;
+    if (device == null) return;
+    try {
+      await AtlasRuntime.instance.connectAndroidVlinkerMs(
+        device.address,
+        deviceName: device.name.trim().isEmpty ? 'vLinker MS' : device.name,
+        channel: 1,
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.toString())),
+        );
+      }
+    }
   }
 
   Future<void> _scanGsUsb() async {
@@ -249,6 +315,7 @@ class _ConnectPageState extends State<ConnectPage> {
       final lysBusy = ch4.state == AtlasAdapterState.connecting || ch5.state == AtlasAdapterState.connecting;
       final lysConnected = ch4.connected && ch5.connected;
       final slcanConnected = ch1.connected && ch1.adapter?.transport == 'SLCAN serial';
+      final bluetoothConnected = ch1.connected && ch1.adapter?.transport == 'Android Bluetooth Classic RFCOMM';
       return PageShell(
         title: 'Connect',
         subtitle: 'Five-channel offline capture: CANable on CH1, CANalyst-II on CH2+CH3, LYS USBCAN-II on CH4+CH5.',
@@ -312,8 +379,73 @@ class _ConnectPageState extends State<ConnectPage> {
               onChanged: (caBusy || caConnected || lysBusy || lysConnected || slcanConnected) ? null : (v) => setState(() => _highSpeedBitrate = v ?? 500000),
             )),
           ]),
+          const SizedBox(height: 18),
+          _StatusTile(
+            name: 'CH1 • Bluetooth OBD adapter',
+            detail: bluetoothConnected
+                ? '${ch1.adapterName} • ${ch1.state.name} • HS-CAN 500 kbit/s passive monitor'
+                : Platform.isAndroid
+                    ? 'vLinker MS over Bluetooth Classic RFCOMM/SPP'
+                    : 'Android transport',
+            icon: Icons.bluetooth,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              FilledButton.icon(
+                onPressed: !Platform.isAndroid || ch1.connected || ch1Busy || _scanningBluetooth
+                    ? null
+                    : _scanBluetooth,
+                icon: _scanningBluetooth
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.bluetooth_searching),
+                label: const Text('Paired Bluetooth devices'),
+              ),
+              SizedBox(
+                width: 360,
+                child: DropdownButtonFormField<String>(
+                  key: ValueKey('bt-$_selectedBluetoothAddress'),
+                  initialValue: _selectedBluetoothAddress,
+                  decoration: const InputDecoration(labelText: 'vLinker MS'),
+                  items: _bluetoothDevices
+                      .map(
+                        (d) => DropdownMenuItem(
+                          value: d.address,
+                          child: Text(d.label, overflow: TextOverflow.ellipsis),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: ch1.connected || ch1Busy
+                      ? null
+                      : (value) => setState(() => _selectedBluetoothAddress = value),
+                ),
+              ),
+              FilledButton.icon(
+                onPressed: !Platform.isAndroid ||
+                        ch1.connected ||
+                        ch1Busy ||
+                        _selectedBluetoothAddress == null
+                    ? null
+                    : _connectBluetooth,
+                icon: const Icon(Icons.link),
+                label: const Text('Connect vLinker MS'),
+              ),
+              if (bluetoothConnected)
+                FilledButton.tonalIcon(
+                  onPressed: () => runtime.disconnectChannel(1),
+                  icon: const Icon(Icons.link_off),
+                  label: const Text('Disconnect vLinker MS'),
+                ),
+            ],
+          ),
           const SizedBox(height: 12),
-          const _StatusTile(name: 'ELM / OBDLink', detail: 'Transport pending', icon: Icons.bluetooth),
           const _StatusTile(name: 'J2534 / VCX', detail: 'Windows transport pending', icon: Icons.memory),
           if (runtime.lastError != null) ...[
             const SizedBox(height: 12),
