@@ -20,6 +20,7 @@ dependencies:
     path: packages/atlas_canalystii
   atlas_lys_usbcan:
     path: packages/atlas_lys_usbcan
+  flutter_classic_bluetooth: ^1.5.0
 
 dev_dependencies:
   flutter_test:
