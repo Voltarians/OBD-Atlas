@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_classic_bluetooth/flutter_classic_bluetooth.dart';
 
 import '../core/can_frame.dart';
@@ -91,19 +92,26 @@ class AndroidVlinkerMsAdapter implements AtlasAdapter {
     }
 
     _setState(AtlasAdapterState.connecting);
+    debugPrint('Atlas vLinker MS: opening RFCOMM $address');
     try {
       final connection = await _bluetooth.connect(
         address: address,
-        timeout: const Duration(seconds: 15),
+        timeout: const Duration(seconds: 10),
       );
       _connection = connection;
+      debugPrint('Atlas vLinker MS: RFCOMM connected');
+
+      await _initializeElmStn(connection);
+
       _inputSubscription = connection.input.listen(
         _onBytes,
         onError: (Object error, StackTrace stack) {
+          debugPrint('Atlas vLinker MS: input error: $error');
           if (!_frames.isClosed) _frames.addError(error, stack);
           _setState(AtlasAdapterState.error);
         },
         onDone: () {
+          debugPrint('Atlas vLinker MS: RFCOMM input closed');
           if (_state != AtlasAdapterState.disconnected) {
             _setState(AtlasAdapterState.disconnected);
           }
@@ -111,37 +119,56 @@ class AndroidVlinkerMsAdapter implements AtlasAdapter {
         cancelOnError: false,
       );
 
-      await _initializeElmStn(connection);
+      debugPrint('Atlas vLinker MS: starting passive ATMA monitor');
+      await connection.output.writeString('ATMA\r');
+      await connection.output.allSent.timeout(const Duration(seconds: 2));
       _setState(AtlasAdapterState.connected);
-    } catch (_) {
+      debugPrint('Atlas vLinker MS: passive monitor active');
+    } catch (error) {
+      debugPrint('Atlas vLinker MS: connect/init failed: $error');
       _setState(AtlasAdapterState.error);
       rethrow;
     }
   }
 
   Future<void> _initializeElmStn(dynamic connection) async {
-    const commands = <String>[
+    debugPrint('Atlas vLinker MS: ATZ');
+    final reset = await connection.sendAndReceive(
       'ATZ',
+      where: (String line) {
+        final value = line.trim().toUpperCase();
+        return value.isNotEmpty && value != 'ATZ';
+      },
+      timeout: const Duration(seconds: 3),
+    );
+    debugPrint('Atlas vLinker MS: ATZ -> $reset');
+
+    for (final command in const <String>[
       'ATE0',
       'ATL0',
       'ATS1',
       'ATH1',
       'ATSP6',
-      'ATDP',
-    ];
-
-    for (final command in commands) {
-      await connection.output.writeString('$command\r');
-      await connection.output.allSent;
-      await Future<void>.delayed(
-        command == 'ATZ'
-            ? const Duration(milliseconds: 900)
-            : const Duration(milliseconds: 180),
+    ]) {
+      debugPrint('Atlas vLinker MS: $command');
+      final response = await connection.sendAndReceive(
+        command,
+        where: (String line) => line.trim().toUpperCase() == 'OK',
+        timeout: const Duration(seconds: 2),
       );
+      debugPrint('Atlas vLinker MS: $command -> $response');
     }
 
-    await connection.output.writeString('ATMA\r');
-    await connection.output.allSent;
+    debugPrint('Atlas vLinker MS: ATDP');
+    final protocol = await connection.sendAndReceive(
+      'ATDP',
+      where: (String line) {
+        final value = line.trim().toUpperCase();
+        return value.isNotEmpty && value != 'ATDP' && value != 'OK';
+      },
+      timeout: const Duration(seconds: 2),
+    );
+    debugPrint('Atlas vLinker MS: protocol -> $protocol');
   }
 
   void _onBytes(dynamic chunk) {
