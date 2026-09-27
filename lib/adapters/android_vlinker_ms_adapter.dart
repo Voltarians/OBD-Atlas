@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_classic_bluetooth/flutter_classic_bluetooth.dart';
 
 import '../core/can_frame.dart';
@@ -42,8 +43,25 @@ class AndroidVlinkerMsAdapter implements AtlasAdapter {
   AtlasAdapterState _state = AtlasAdapterState.disconnected;
   String _rxBuffer = '';
 
+  static const MethodChannel _permissionChannel =
+      MethodChannel('obd_atlas/bluetooth_permissions');
+
+  static Future<void> _ensureBluetoothPermissions() async {
+    if (!Platform.isAndroid) return;
+    final granted = await _permissionChannel.invokeMethod<bool>(
+          'ensureBluetoothPermissions',
+        ) ??
+        false;
+    if (!granted) {
+      throw StateError(
+        'Nearby devices permission is required for Bluetooth OBD adapters.',
+      );
+    }
+  }
+
   static Future<List<AndroidBluetoothDevice>> pairedDevices() async {
     if (!Platform.isAndroid) return const <AndroidBluetoothDevice>[];
+    await _ensureBluetoothPermissions();
     final bluetooth = FlutterClassicBluetooth();
     final devices = await bluetooth.getPairedDevices();
     return devices
@@ -86,6 +104,8 @@ class AndroidVlinkerMsAdapter implements AtlasAdapter {
         'Android vLinker MS Bluetooth transport is available only on Android.',
       );
     }
+    await _ensureBluetoothPermissions();
+
     if (_state == AtlasAdapterState.connected ||
         _state == AtlasAdapterState.connecting) {
       return;
