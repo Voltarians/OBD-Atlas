@@ -49,7 +49,9 @@ class VlinkerMsAdapter implements AtlasAdapter {
   String get displayName => 'CH$channel vLinker MS $portName';
 
   @override
-  String get transport => 'vLinker MS isolated serial';
+  String get transport => Platform.isAndroid
+      ? 'vLinker MS Android RFCOMM'
+      : 'vLinker MS isolated serial';
 
   @override
   AtlasAdapterState get state => _state;
