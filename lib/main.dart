@@ -142,6 +142,8 @@ class ConnectPage extends StatefulWidget {
 class _ConnectPageState extends State<ConnectPage> {
   List<String> _ports = const [];
   String? _selectedPort;
+  List<String> _vlinkerPorts = const [];
+  String? _selectedVlinkerPort;
   List<GsUsbDevice> _gsDevices = const [];
   String? _selectedGsPath;
   List<CanalystiiDevice> _caDevices = const [];
@@ -159,6 +161,24 @@ class _ConnectPageState extends State<ConnectPage> {
       _ports = ports;
       if (_selectedPort == null || !ports.contains(_selectedPort)) _selectedPort = ports.isEmpty ? null : ports.first;
     });
+  }
+
+  void _scanVlinkerMs() {
+    final ports = AtlasRuntime.instance.scanVlinkerMsPorts();
+    setState(() {
+      _vlinkerPorts = ports;
+      if (_selectedVlinkerPort == null ||
+          !ports.contains(_selectedVlinkerPort)) {
+        _selectedVlinkerPort = ports.isEmpty ? null : ports.first;
+      }
+    });
+    if (ports.isEmpty && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No serial ports found. Pair the vLinker MS in Windows first.'),
+        ),
+      );
+    }
   }
 
   Future<void> _scanGsUsb() async {
@@ -222,6 +242,21 @@ class _ConnectPageState extends State<ConnectPage> {
     catch (error) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString()))); }
   }
 
+  Future<void> _connectVlinkerMs() async {
+    if (_selectedVlinkerPort == null) return;
+    try {
+      await AtlasRuntime.instance.connectVlinkerMs(
+        _selectedVlinkerPort!,
+        channel: 1,
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
   Future<void> _connectCanalystii() async {
     final device = _caDevices.where((d) => d.path == _selectedCaPath).firstOrNull;
     if (device == null) return;
@@ -250,6 +285,8 @@ class _ConnectPageState extends State<ConnectPage> {
       final lysBusy = ch4.state == AtlasAdapterState.connecting || ch5.state == AtlasAdapterState.connecting;
       final lysConnected = ch4.connected && ch5.connected;
       final slcanConnected = ch1.connected && ch1.adapter?.transport == 'SLCAN serial';
+      final vlinkerConnected =
+          ch1.connected && ch1.adapter?.transport == 'vLinker MS serial';
       return PageShell(
         title: 'Connect',
         subtitle: 'Five-channel offline capture: CANable on CH1, CANalyst-II on CH2+CH3, LYS USBCAN-II on CH4+CH5.',
@@ -278,6 +315,56 @@ class _ConnectPageState extends State<ConnectPage> {
             FilledButton.icon(onPressed: lysConnected || lysBusy || !_lysAvailable ? null : _connectLys, icon: const Icon(Icons.link), label: const Text('Connect CH4 + CH5')),
             if (lysConnected) FilledButton.tonalIcon(onPressed: () => runtime.disconnectChannel(4), icon: const Icon(Icons.link_off), label: const Text('Disconnect LYS')),
           ]),
+          const SizedBox(height: 18),
+          _StatusTile(
+            name: 'CH1 • vLinker MS',
+            detail: vlinkerConnected
+                ? '${ch1.adapterName} • ${ch1.state.name} • raw HS-CAN STM'
+                : 'Bluetooth/serial COM transport • raw 500 kbit/s HS-CAN monitor',
+            icon: Icons.bluetooth,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              FilledButton.icon(
+                onPressed: ch1.connected || ch1Busy ? null : _scanVlinkerMs,
+                icon: const Icon(Icons.search),
+                label: const Text('Scan vLinker ports'),
+              ),
+              SizedBox(
+                width: 240,
+                child: DropdownButtonFormField<String>(
+                  key: ValueKey('vlinker-$_selectedVlinkerPort'),
+                  initialValue: _selectedVlinkerPort,
+                  decoration: const InputDecoration(labelText: 'vLinker MS COM port'),
+                  items: _vlinkerPorts
+                      .map((p) => DropdownMenuItem(value: p, child: Text(p)))
+                      .toList(),
+                  onChanged: ch1.connected || ch1Busy
+                      ? null
+                      : (v) => setState(() => _selectedVlinkerPort = v),
+                ),
+              ),
+              FilledButton.icon(
+                onPressed: ch1.connected ||
+                        ch1Busy ||
+                        _selectedVlinkerPort == null
+                    ? null
+                    : _connectVlinkerMs,
+                icon: const Icon(Icons.link),
+                label: const Text('Connect vLinker MS'),
+              ),
+              if (vlinkerConnected)
+                FilledButton.tonalIcon(
+                  onPressed: () => runtime.disconnectChannel(1),
+                  icon: const Icon(Icons.link_off),
+                  label: const Text('Disconnect vLinker MS'),
+                ),
+            ],
+          ),
           const SizedBox(height: 18),
           _StatusTile(name: 'CH1 • USB CAN / CANable (SLCAN)', detail: ch1.adapter?.transport == 'SLCAN serial' ? '${ch1.adapterName} • ${ch1.state.name} • $_highSpeedBitrate bit/s' : 'Serial Lawicel transport ready', icon: Icons.cable),
           const SizedBox(height: 8),
@@ -314,7 +401,7 @@ class _ConnectPageState extends State<ConnectPage> {
             )),
           ]),
           const SizedBox(height: 12),
-          const _StatusTile(name: 'ELM / OBDLink', detail: 'Transport pending', icon: Icons.bluetooth),
+          const _StatusTile(name: 'OBDLink MX+', detail: 'Linux RFCOMM transport available; Windows transport still pending', icon: Icons.bluetooth),
           const _StatusTile(name: 'J2534 / VCX', detail: 'Windows transport pending', icon: Icons.memory),
           if (runtime.lastError != null) ...[
             const SizedBox(height: 12),
