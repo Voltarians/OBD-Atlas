@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'adapters/atlas_adapter.dart';
 import 'core/atlas_runtime.dart';
 import 'core/capture_session.dart';
+import 'core/fleetcarma_signal_candidates.dart';
 import 'core/gm_live_diagnostic_monitor.dart';
 import 'core/local_store.dart';
 import 'core/signal_discovery.dart';
@@ -335,6 +336,7 @@ class CapturePage extends StatefulWidget {
 class _CapturePageState extends State<CapturePage> {
   final _eventLabel = TextEditingController(text: 'GDS2 action');
   final _markerLabel = TextEditingController();
+  String? _fleetCarmaValidationReportPath;
 
   @override
   void dispose() {
@@ -350,6 +352,194 @@ class _CapturePageState extends State<CapturePage> {
     _markerLabel.clear();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Marked: $text')),
+    );
+  }
+
+  Future<void> _startFleetCarmaValidation(AtlasRuntime runtime) async {
+    final workspace = FleetCarmaCandidateWorkspace.instance;
+    final candidate = workspace.selectedCandidate;
+    if (candidate == null) return;
+    try {
+      if (!runtime.capture.isRecording) {
+        await runtime.startCapture(
+          eventLabel: 'FleetCarma candidate 0x${candidate.canIdHex}',
+        );
+      }
+      workspace.startValidation();
+      runtime.markCaptureEvent(
+        'FleetCarma validation start: historical bus ${candidate.bus}, '
+        'ID 0x${candidate.canIdHex}, ${candidate.kind} offset ${candidate.offset}',
+        source: 'fleetcarma-validation',
+      );
+      if (mounted) setState(() => _fleetCarmaValidationReportPath = null);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
+  void _markFleetCarmaStep(
+    AtlasRuntime runtime,
+    String label,
+    double targetMph,
+  ) {
+    final workspace = FleetCarmaCandidateWorkspace.instance;
+    try {
+      workspace.markStep(label, targetMph: targetMph);
+      runtime.markCaptureEvent(
+        'FleetCarma speed step: $label target=${targetMph.toStringAsFixed(0)} mph',
+        source: 'fleetcarma-validation',
+      );
+      setState(() {});
+    } catch (error) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  Future<void> _finishFleetCarmaValidation(AtlasRuntime runtime) async {
+    final workspace = FleetCarmaCandidateWorkspace.instance;
+    try {
+      if (runtime.capture.isRecording) {
+        runtime.markCaptureEvent(
+          'FleetCarma validation finish',
+          source: 'fleetcarma-validation',
+        );
+      }
+      final report = workspace.finishValidation();
+      final file =
+          await AtlasLocalStore.instance.writeFleetCarmaValidationReport(report);
+      if (runtime.capture.isRecording) {
+        await runtime.stopCapture();
+      }
+      if (mounted) {
+        setState(() => _fleetCarmaValidationReportPath = file.path);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('FleetCarma validation saved: ${file.path}')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
+  Widget _fleetCarmaValidationPanel(AtlasRuntime runtime) {
+    final workspace = FleetCarmaCandidateWorkspace.instance;
+    final candidate = workspace.selectedCandidate;
+    if (candidate == null) {
+      return const Card(
+        child: ListTile(
+          leading: Icon(Icons.science_outlined),
+          title: Text('FleetCarma candidate validation'),
+          subtitle: Text(
+            'Import fleetcarma_signal_candidates.json in Library and select a candidate first.',
+          ),
+        ),
+      );
+    }
+
+    final matching =
+        runtime.recentFrames.where((frame) => frame.id == candidate.canId).toList();
+    final latest = matching.isEmpty ? null : matching.first;
+    final decoded = latest == null ? null : candidate.decode(latest);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.science),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'FleetCarma live validation • 0x${candidate.canIdHex}',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                Chip(label: Text(workspace.validationActive ? 'RECORDING' : 'candidateOnly')),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Historical bus ${candidate.bus} • ${candidate.kind} offset ${candidate.offset} • '
+              'r=${candidate.speedCorrelation.toStringAsFixed(6)} • '
+              'overlap ${candidate.overlap}',
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'This workflow records validation evidence only. It cannot promote a signal to confirmed automatically.',
+            ),
+            const SizedBox(height: 10),
+            if (latest == null)
+              const Text('Waiting for the selected CAN ID in the live stream.')
+            else
+              Text(
+                'Latest CH${latest.channel}: ${latest.dataHex}  → raw ${decoded ?? 'n/a'}',
+              ),
+            const SizedBox(height: 12),
+            if (!workspace.validationActive)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  onPressed:
+                      runtime.anyConnected ? () => _startFleetCarmaValidation(runtime) : null,
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Text('Start candidate validation'),
+                ),
+              )
+            else ...[
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilledButton.tonal(
+                    onPressed: () => _markFleetCarmaStep(runtime, '0 mph', 0),
+                    child: const Text('0 mph'),
+                  ),
+                  FilledButton.tonal(
+                    onPressed: () => _markFleetCarmaStep(runtime, '10 mph', 10),
+                    child: const Text('10 mph'),
+                  ),
+                  FilledButton.tonal(
+                    onPressed: () => _markFleetCarmaStep(runtime, '20 mph', 20),
+                    child: const Text('20 mph'),
+                  ),
+                  FilledButton.tonal(
+                    onPressed: () => _markFleetCarmaStep(runtime, '30 mph', 30),
+                    child: const Text('30 mph'),
+                  ),
+                  FilledButton.tonal(
+                    onPressed: () => _markFleetCarmaStep(runtime, 'stop', 0),
+                    child: const Text('Stop / 0 mph'),
+                  ),
+                  FilledButton.icon(
+                    onPressed: () => _finishFleetCarmaValidation(runtime),
+                    icon: const Icon(Icons.stop),
+                    label: const Text('Finish + save report'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${workspace.samples.length} matching samples • '
+                '${workspace.markers.length} operator steps',
+              ),
+            ],
+            if (_fleetCarmaValidationReportPath != null) ...[
+              const SizedBox(height: 8),
+              SelectableText('Validation report: $_fleetCarmaValidationReportPath'),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -441,6 +631,8 @@ class _CapturePageState extends State<CapturePage> {
             const SizedBox(height: 6),
             Text('${runtime.totalFrames} total frames • ${runtime.framesPerSecond} frames/s'),
             const SizedBox(height: 16),
+            _fleetCarmaValidationPanel(runtime),
+            const SizedBox(height: 12),
             _gmDiagnosticPanel(gmLive),
             const SizedBox(height: 12),
             if (phase == CapturePhase.idle)
@@ -590,6 +782,19 @@ class _LibraryPageState extends State<LibraryPage> {
     final path = picked?.path;
     if (path == null) return;
     final source = File(path);
+    if (path.toLowerCase().endsWith('.json')) {
+      final text = await source.readAsString();
+      if (FleetCarmaCandidateWorkspace.instance.loadJsonText(text)) {
+        await AtlasLocalStore.instance.importLog(source);
+        if (mounted) {
+          setState(_refresh);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('FleetCarma candidate report loaded.')),
+          );
+        }
+        return;
+      }
+    }
     if (path.toLowerCase().endsWith('.bin')) {
       await AtlasLocalStore.instance.importFleetCarmaC5(source);
     } else {
@@ -602,7 +807,56 @@ class _LibraryPageState extends State<LibraryPage> {
     title: 'Atlas Library',
     subtitle: 'Local vehicle captures remain available with no internet connection.',
     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Align(alignment: Alignment.centerLeft, child: FilledButton.icon(onPressed: _import, icon: const Icon(Icons.file_open), label: const Text('Import capture'))),
+      Align(alignment: Alignment.centerLeft, child: FilledButton.icon(onPressed: _import, icon: const Icon(Icons.file_open), label: const Text('Import capture / candidate report'))),
+      const SizedBox(height: 12),
+      Builder(builder: (context) {
+        final workspace = FleetCarmaCandidateWorkspace.instance;
+        final report = workspace.report;
+        if (report == null) return const SizedBox.shrink();
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('FleetCarma historical candidates', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 4),
+                Text(
+                  '${report.sourceFiles} source files • ${report.canFrames} CAN frames • '
+                  '${report.gpsSpeedSamples} GPS speed samples • ${report.mappingStatus}',
+                ),
+                const SizedBox(height: 4),
+                Text(report.evidenceBoundary),
+                const Divider(),
+                ...report.topSpeedCandidates.take(12).map((candidate) {
+                  final selected = identical(candidate, workspace.selectedCandidate);
+                  return ListTile(
+                    dense: true,
+                    leading: Icon(selected ? Icons.radio_button_checked : Icons.radio_button_off),
+                    title: Text(
+                      'Bus ${candidate.bus} • 0x${candidate.canIdHex} • '
+                      '${candidate.kind} @ ${candidate.offset}',
+                    ),
+                    subtitle: Text(
+                      'r=${candidate.speedCorrelation.toStringAsFixed(6)} • '
+                      'overlap ${candidate.overlap} • ${candidate.confidence}',
+                    ),
+                    trailing: FilledButton.tonal(
+                      onPressed: workspace.validationActive
+                          ? null
+                          : () {
+                              workspace.selectCandidate(candidate);
+                              setState(() {});
+                            },
+                      child: Text(selected ? 'Selected' : 'Select'),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      }),
       const SizedBox(height: 12),
       FutureBuilder<List<FileSystemEntity>>(
         future: _logs,
