@@ -46,6 +46,19 @@ void main() {
     expect(VlinkerMsAdapter.parseMonitorLine('3E9ABC'), isNull);
   });
 
+  test('extracts Android RFCOMM address from paired-device label', () {
+    expect(
+      VlinkerMsAdapter.androidAddressFromLabel(
+        'vLinker MS • 12:34:56:78:9A:BC',
+      ),
+      '12:34:56:78:9A:BC',
+    );
+    expect(
+      VlinkerMsAdapter.androidAddressFromLabel('vLinker MS'),
+      isNull,
+    );
+  });
+
   test('reports terminal monitor errors', () {
     expect(
       VlinkerMsAdapter.monitorTerminalError('BUFFER FULL'),
