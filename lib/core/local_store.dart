@@ -85,6 +85,26 @@ class AtlasLocalStore {
     return source.copy(destination.path);
   }
 
+
+  Future<File> writeFleetCarmaValidationReport(
+    Map<String, dynamic> report,
+  ) async {
+    final dir = await logsDirectory();
+    final now = DateTime.now();
+    String two(int value) => value.toString().padLeft(2, '0');
+    final stamp = '${now.year}${two(now.month)}${two(now.day)}_'
+        '${two(now.hour)}${two(now.minute)}${two(now.second)}';
+    final file = File(
+      '${dir.path}${Platform.pathSeparator}'
+      'fleetcarma_live_validation_$stamp.json',
+    );
+    await file.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(report),
+      flush: true,
+    );
+    return file;
+  }
+
   Future<File> importFleetCarmaC5(File source) async {
     // Preserve the original evidence before decoding it.
     await importLog(source);
