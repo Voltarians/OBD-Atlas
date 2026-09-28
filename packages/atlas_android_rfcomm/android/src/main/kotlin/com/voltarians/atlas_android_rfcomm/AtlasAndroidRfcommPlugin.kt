@@ -1,6 +1,7 @@
 package com.voltarians.atlas_android_rfcomm
 
 import android.Manifest
+import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
@@ -10,20 +11,31 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.embedding.engine.plugins.activity.ActivityAware
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.PluginRegistry
 import java.io.IOException
 import java.util.UUID
 import kotlin.concurrent.thread
 
 class AtlasAndroidRfcommPlugin : FlutterPlugin,
-    MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
+    MethodChannel.MethodCallHandler,
+    EventChannel.StreamHandler,
+    ActivityAware,
+    PluginRegistry.RequestPermissionsResultListener {
     private val sppUuid: UUID =
         UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+    private val permissionRequestCode = 4817
+
     private lateinit var context: Context
     private lateinit var methodChannel: MethodChannel
     private lateinit var eventChannel: EventChannel
+    private var activity: Activity? = null
+    private var activityBinding: ActivityPluginBinding? = null
+    private var permissionResult: MethodChannel.Result? = null
     private var socket: BluetoothSocket? = null
     private var eventSink: EventChannel.EventSink? = null
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -48,6 +60,35 @@ class AtlasAndroidRfcommPlugin : FlutterPlugin,
         closeSocket()
     }
 
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        activity = binding.activity
+        activityBinding = binding
+        binding.addRequestPermissionsResultListener(this)
+    }
+
+    override fun onDetachedFromActivityForConfigChanges() {
+        detachActivity()
+    }
+
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+        onAttachedToActivity(binding)
+    }
+
+    override fun onDetachedFromActivity() {
+        detachActivity()
+    }
+
+    private fun detachActivity() {
+        activityBinding?.removeRequestPermissionsResultListener(this)
+        activityBinding = null
+        activity = null
+        permissionResult?.error(
+            "PERMISSION",
+            "Bluetooth permission request was interrupted.",
+            null)
+        permissionResult = null
+    }
+
     override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
         eventSink = events
     }
@@ -57,16 +98,10 @@ class AtlasAndroidRfcommPlugin : FlutterPlugin,
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
-        if (!hasConnectPermission()) {
-            result.error(
-                "PERMISSION",
-                "Bluetooth connect permission has not been granted to OBD Atlas.",
-                null)
-            return
-        }
-
         when (call.method) {
+            "requestConnectPermission" -> requestConnectPermission(result)
             "pairedDevices" -> {
+                if (!requireConnectPermission(result)) return
                 try {
                     val devices = adapter?.bondedDevices.orEmpty().map {
                         mapOf(
@@ -79,6 +114,7 @@ class AtlasAndroidRfcommPlugin : FlutterPlugin,
                 }
             }
             "connect" -> {
+                if (!requireConnectPermission(result)) return
                 val address = call.argument<String>("address")
                 if (address == null) {
                     result.error("ARGUMENT", "Missing Bluetooth address", null)
@@ -87,6 +123,7 @@ class AtlasAndroidRfcommPlugin : FlutterPlugin,
                 }
             }
             "write" -> {
+                if (!requireConnectPermission(result)) return
                 val bytes = call.arguments as? ByteArray
                 if (bytes == null) {
                     result.error("ARGUMENT", "Missing bytes", null)
@@ -102,10 +139,68 @@ class AtlasAndroidRfcommPlugin : FlutterPlugin,
         }
     }
 
+    private fun requestConnectPermission(result: MethodChannel.Result) {
+        if (hasConnectPermission()) {
+            result.success(true)
+            return
+        }
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            result.success(true)
+            return
+        }
+
+        val currentActivity = activity
+        if (currentActivity == null) {
+            result.error(
+                "PERMISSION",
+                "Android activity is unavailable for Bluetooth permission request.",
+                null)
+            return
+        }
+
+        if (permissionResult != null) {
+            result.error(
+                "PERMISSION",
+                "A Bluetooth permission request is already in progress.",
+                null)
+            return
+        }
+
+        permissionResult = result
+        currentActivity.requestPermissions(
+            arrayOf(Manifest.permission.BLUETOOTH_CONNECT),
+            permissionRequestCode)
+    }
+
+    private fun requireConnectPermission(result: MethodChannel.Result): Boolean {
+        if (hasConnectPermission()) return true
+        result.error(
+            "PERMISSION",
+            "Bluetooth connect permission has not been granted to OBD Atlas.",
+            null)
+        return false
+    }
+
     private fun hasConnectPermission(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
         return context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) ==
             PackageManager.PERMISSION_GRANTED
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ): Boolean {
+        if (requestCode != permissionRequestCode) return false
+
+        val pending = permissionResult ?: return true
+        permissionResult = null
+        val granted = grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        pending.success(granted)
+        return true
     }
 
     private fun connect(address: String, result: MethodChannel.Result) {
