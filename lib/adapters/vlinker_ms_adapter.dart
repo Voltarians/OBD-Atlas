@@ -84,6 +84,16 @@ class VlinkerMsAdapter implements AtlasAdapter {
     }
   }
 
+  static String _encodePowerShellCommand(String command) {
+    final bytes = <int>[];
+    for (final codeUnit in command.codeUnits) {
+      bytes
+        ..add(codeUnit & 0xFF)
+        ..add((codeUnit >> 8) & 0xFF);
+    }
+    return base64.encode(bytes);
+  }
+
   static int _compareComPorts(String a, String b) {
     int number(String value) =>
         int.tryParse(value.replaceFirst(RegExp(r'^COM', caseSensitive: false), '')) ??
@@ -110,9 +120,7 @@ class VlinkerMsAdapter implements AtlasAdapter {
     _firstFrame = Completer<void>();
     final ready = Completer<void>();
 
-    final encodedCommand = base64.encode(
-      unicode.encode(_serialBridgePowerShell),
-    );
+    final encodedCommand = _encodePowerShellCommand(_serialBridgePowerShell);
 
     late final Process process;
     try {
