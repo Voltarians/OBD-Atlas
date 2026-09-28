@@ -13,6 +13,7 @@ import '../adapters/linux_uc2_pair_adapter.dart';
 import '../adapters/linux_obdlink_mx_adapter.dart';
 import '../adapters/lys_usbcan_adapter.dart';
 import '../adapters/slcan_adapter.dart';
+import '../adapters/vlinker_ms_adapter.dart';
 import '../adapters/socketcan_adapter.dart';
 import 'can_frame.dart';
 import 'capture_session.dart';
@@ -71,6 +72,7 @@ class AtlasRuntime extends ChangeNotifier {
   bool get isCapturing => capture.hasOpenCapture;
 
   List<String> scanSlcanPorts() => SlcanAdapter.availablePorts();
+  List<String> scanVlinkerMsPorts() => VlinkerMsAdapter.availablePorts();
   Future<List<String>> scanLinuxObdlinkPorts() =>
       LinuxObdlinkMxAdapter.availablePorts();
   Future<List<String>> scanSocketCanInterfaces() => SocketCanAdapter.availableInterfaces();
@@ -118,6 +120,21 @@ class AtlasRuntime extends ChangeNotifier {
   }) async {
     await _connectAdapter(
       SlcanAdapter(portName, bitrate: bitrate, channel: channel),
+      channel,
+    );
+  }
+
+  Future<void> connectVlinkerMs(
+    String portName, {
+    int channel = 1,
+    int baudRate = 115200,
+  }) async {
+    await _connectAdapter(
+      VlinkerMsAdapter(
+        portName,
+        channel: channel,
+        baudRate: baudRate,
+      ),
       channel,
     );
   }
