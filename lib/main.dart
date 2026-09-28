@@ -586,10 +586,15 @@ class _LibraryPageState extends State<LibraryPage> {
   void initState() { super.initState(); _refresh(); }
   void _refresh() => _logs = AtlasLocalStore.instance.listLogs();
   Future<void> _import() async {
-    final picked = await FilePicker.pickFile(type: FileType.custom, allowedExtensions: const ['log', 'csv', 'txt', 'json', 'asc', 'trc']);
+    final picked = await FilePicker.pickFile(type: FileType.custom, allowedExtensions: const ['log', 'csv', 'txt', 'json', 'asc', 'trc', 'bin']);
     final path = picked?.path;
     if (path == null) return;
-    await AtlasLocalStore.instance.importLog(File(path));
+    final source = File(path);
+    if (path.toLowerCase().endsWith('.bin')) {
+      await AtlasLocalStore.instance.importFleetCarmaC5(source);
+    } else {
+      await AtlasLocalStore.instance.importLog(source);
+    }
     if (mounted) setState(_refresh);
   }
   @override
