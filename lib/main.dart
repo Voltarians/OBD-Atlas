@@ -286,7 +286,7 @@ class _ConnectPageState extends State<ConnectPage> {
       final lysConnected = ch4.connected && ch5.connected;
       final slcanConnected = ch1.connected && ch1.adapter?.transport == 'SLCAN serial';
       final vlinkerConnected =
-          ch1.connected && ch1.adapter?.transport == 'vLinker MS serial';
+          ch1.connected && ch1.adapter?.transport == 'vLinker MS isolated serial';
       return PageShell(
         title: 'Connect',
         subtitle: 'Five-channel offline capture: CANable on CH1, CANalyst-II on CH2+CH3, LYS USBCAN-II on CH4+CH5.',
