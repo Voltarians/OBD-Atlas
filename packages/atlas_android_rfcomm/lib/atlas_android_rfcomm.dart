@@ -30,6 +30,10 @@ class AtlasAndroidRfcomm {
             : Uint8List.fromList((event as List).cast<int>()),
       );
 
+  static Future<bool> requestConnectPermission() async {
+    return await _channel.invokeMethod<bool>('requestConnectPermission') ?? false;
+  }
+
   static Future<List<AndroidRfcommDevice>> pairedDevices() async {
     final raw =
         await _channel.invokeListMethod<Object?>('pairedDevices') ?? const [];
