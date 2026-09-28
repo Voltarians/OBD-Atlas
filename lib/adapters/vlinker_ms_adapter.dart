@@ -4,7 +4,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:atlas_android_rfcomm/atlas_android_rfcomm.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 import '../core/can_frame.dart';
 import 'atlas_adapter.dart';
@@ -64,8 +63,8 @@ class VlinkerMsAdapter implements AtlasAdapter {
 
   static Future<List<String>> availablePorts() async {
     if (Platform.isAndroid) {
-      final status = await Permission.bluetoothConnect.request();
-      if (!status.isGranted) {
+      final granted = await AtlasAndroidRfcomm.requestConnectPermission();
+      if (!granted) {
         throw StateError(
           'Bluetooth permission is required to use the vLinker MS on Android.',
         );
@@ -315,8 +314,8 @@ class VlinkerMsAdapter implements AtlasAdapter {
   }
 
   Future<void> _connectAndroid() async {
-    final status = await Permission.bluetoothConnect.request();
-    if (!status.isGranted) {
+    final granted = await AtlasAndroidRfcomm.requestConnectPermission();
+    if (!granted) {
       _setState(AtlasAdapterState.error);
       throw StateError(
         'Bluetooth permission is required to connect the vLinker MS.',
