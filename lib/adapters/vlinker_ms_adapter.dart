@@ -99,7 +99,22 @@ class VlinkerMsAdapter implements AtlasAdapter {
       final ports = const LineSplitter()
           .convert('${result.stdout}')
           .map((line) => line.trim())
-          .where((line) => RegExp(r'^COM\d+
+          .where(
+            (line) => RegExp(
+              r'^COM\d+$',
+              caseSensitive: false,
+            ).hasMatch(line),
+          )
+          .map((line) => line.toUpperCase())
+          .toSet()
+          .toList()
+        ..sort(_compareComPorts);
+      return ports;
+    } on Object {
+      return const <String>[];
+    }
+  }
+
   static String _encodePowerShellCommand(String command) {
     final bytes = <int>[];
     for (final codeUnit in command.codeUnits) {
