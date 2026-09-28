@@ -16,6 +16,7 @@ import '../adapters/slcan_adapter.dart';
 import '../adapters/socketcan_adapter.dart';
 import 'can_frame.dart';
 import 'capture_session.dart';
+import 'fleetcarma_signal_candidates.dart';
 import 'local_store.dart';
 import 'signal_discovery.dart';
 
@@ -381,6 +382,7 @@ class AtlasRuntime extends ChangeNotifier {
     recentFrames.insert(0, frame);
     if (recentFrames.length > 500) recentFrames.removeLast();
     capture.writeLine(frame.toCandump());
+    FleetCarmaCandidateWorkspace.instance.observe(frame);
     if (capture.isRecording) discovery.observe(frame);
     // Do not rebuild the whole desktop UI once for every CAN frame.
     // The rate/UI timers publish the latest counters and recent-frame list.
