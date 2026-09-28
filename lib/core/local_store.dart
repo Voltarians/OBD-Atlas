@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
+import 'fleetcarma_c5_importer.dart';
+
 class AtlasLocalStore {
   AtlasLocalStore._();
   static final AtlasLocalStore instance = AtlasLocalStore._();
@@ -81,5 +83,60 @@ class AtlasLocalStore {
       destination = File('${dir.path}${Platform.pathSeparator}${stamp}_$baseName');
     }
     return source.copy(destination.path);
+  }
+
+  Future<File> importFleetCarmaC5(File source) async {
+    // Preserve the original evidence before decoding it.
+    await importLog(source);
+
+    final bytes = await source.readAsBytes();
+    final decoded = const FleetCarmaC5Importer().decode(bytes);
+    final dir = await logsDirectory();
+    final originalName = source.uri.pathSegments.last;
+    final dot = originalName.lastIndexOf('.');
+    final stem = dot > 0 ? originalName.substring(0, dot) : originalName;
+
+    var destination = File(
+      '${dir.path}${Platform.pathSeparator}${stem}_fleetcarma_c5.log',
+    );
+    if (await destination.exists()) {
+      final stamp = DateTime.now().toIso8601String().replaceAll(':', '-');
+      destination = File(
+        '${dir.path}${Platform.pathSeparator}'
+        '${stamp}_${stem}_fleetcarma_c5.log',
+      );
+    }
+
+    final sink = destination.openWrite();
+    try {
+      for (final record in decoded.canRecords) {
+        sink.writeln(record.toRelativeCandump());
+      }
+    } finally {
+      await sink.close();
+    }
+
+    final summary = File('${destination.path}.json');
+    await summary.writeAsString(
+      const JsonEncoder.withIndent('  ').convert({
+        'schema': 'atlas.fleetcarma-c5-import.v1',
+        'source': originalName,
+        'canFrames': decoded.canRecords.length,
+        'gpsRecords': decoded.gpsRecords.length,
+        'configuredIds': decoded.configuredIds
+            .map((entry) => {
+                  'bus': entry.bus,
+                  'canIdHex':
+                      entry.canId.toRadixString(16).toUpperCase().padLeft(3, '0'),
+                  'configValue': entry.configValue,
+                })
+            .toList(),
+        'malformedTail': decoded.malformedTail,
+        'bytesConsumed': decoded.bytesConsumed,
+      }),
+      flush: true,
+    );
+
+    return destination;
   }
 }
