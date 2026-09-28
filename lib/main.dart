@@ -163,21 +163,32 @@ class _ConnectPageState extends State<ConnectPage> {
     });
   }
 
-  void _scanVlinkerMs() {
-    final ports = AtlasRuntime.instance.scanVlinkerMsPorts();
-    setState(() {
-      _vlinkerPorts = ports;
-      if (_selectedVlinkerPort == null ||
-          !ports.contains(_selectedVlinkerPort)) {
-        _selectedVlinkerPort = ports.isEmpty ? null : ports.first;
+  Future<void> _scanVlinkerMs() async {
+    try {
+      final ports = await AtlasRuntime.instance.scanVlinkerMsPorts();
+      if (!mounted) return;
+      setState(() {
+        _vlinkerPorts = ports;
+        if (_selectedVlinkerPort == null ||
+            !ports.contains(_selectedVlinkerPort)) {
+          _selectedVlinkerPort = ports.isEmpty ? null : ports.first;
+        }
+      });
+      if (ports.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No vLinker/OBD Bluetooth device found. Pair the adapter in '
+              'Android or Windows first.',
+            ),
+          ),
+        );
       }
-    });
-    if (ports.isEmpty && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No serial ports found. Pair the vLinker MS in Windows first.'),
-        ),
-      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
     }
   }
 
@@ -286,7 +297,7 @@ class _ConnectPageState extends State<ConnectPage> {
       final lysConnected = ch4.connected && ch5.connected;
       final slcanConnected = ch1.connected && ch1.adapter?.transport == 'SLCAN serial';
       final vlinkerConnected =
-          ch1.connected && ch1.adapter?.transport == 'vLinker MS serial';
+          ch1.connected && ch1.adapter?.transport == 'vLinker MS isolated serial';
       return PageShell(
         title: 'Connect',
         subtitle: 'Five-channel offline capture: CANable on CH1, CANalyst-II on CH2+CH3, LYS USBCAN-II on CH4+CH5.',
@@ -320,7 +331,9 @@ class _ConnectPageState extends State<ConnectPage> {
             name: 'CH1 • vLinker MS',
             detail: vlinkerConnected
                 ? '${ch1.adapterName} • ${ch1.state.name} • raw HS-CAN STM'
-                : 'Bluetooth/serial COM transport • raw 500 kbit/s HS-CAN monitor',
+                : Platform.isAndroid
+                    ? 'Android Bluetooth RFCOMM/SPP • raw 500 kbit/s HS-CAN monitor'
+                    : 'Bluetooth/serial COM transport • raw 500 kbit/s HS-CAN monitor',
             icon: Icons.bluetooth,
           ),
           const SizedBox(height: 8),
@@ -339,7 +352,11 @@ class _ConnectPageState extends State<ConnectPage> {
                 child: DropdownButtonFormField<String>(
                   key: ValueKey('vlinker-$_selectedVlinkerPort'),
                   initialValue: _selectedVlinkerPort,
-                  decoration: const InputDecoration(labelText: 'vLinker MS COM port'),
+                  decoration: InputDecoration(
+                    labelText: Platform.isAndroid
+                        ? 'Paired vLinker MS'
+                        : 'vLinker MS COM port',
+                  ),
                   items: _vlinkerPorts
                       .map((p) => DropdownMenuItem(value: p, child: Text(p)))
                       .toList(),

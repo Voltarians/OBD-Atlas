@@ -1,17 +1,19 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:libserialport/libserialport.dart';
+import 'package:atlas_android_rfcomm/atlas_android_rfcomm.dart';
 
 import '../core/can_frame.dart';
 import 'atlas_adapter.dart';
 
-/// Receive-only vLinker MS transport for paired Bluetooth/serial COM ports.
+/// Receive-only vLinker MS transport for Windows Bluetooth/serial COM ports.
 ///
-/// The first implementation targets the 500 kbit/s HS-CAN path used by the
-/// Volt test workflow. It uses the STN-style raw monitor command set already
-/// validated by Atlas' OBDLink work and preserves raw CAN frames only.
+/// The COM port is intentionally owned by an isolated PowerShell/.NET helper
+/// process. This keeps native Windows serial-driver or CRT failures outside the
+/// Flutter process so a failed/retried Bluetooth SPP connection cannot take
+/// Atlas down with it.
 class VlinkerMsAdapter implements AtlasAdapter {
   VlinkerMsAdapter(
     this.portName, {
@@ -27,14 +29,16 @@ class VlinkerMsAdapter implements AtlasAdapter {
   final _states = StreamController<AtlasAdapterState>.broadcast();
   final _responses = StreamController<String>.broadcast();
 
-  SerialPort? _port;
-  SerialPortReader? _reader;
-  StreamSubscription<Uint8List>? _subscription;
+  Process? _process;
+  StreamSubscription<String>? _stdoutSubscription;
+  StreamSubscription<String>? _stderrSubscription;
+  StreamSubscription<Uint8List>? _androidBytesSubscription;
   AtlasAdapterState _state = AtlasAdapterState.disconnected;
   String _buffer = '';
   String _responseBuffer = '';
   bool _awaitingPrompt = false;
   bool _monitoring = false;
+  bool _disconnecting = false;
   Completer<void>? _firstFrame;
 
   @override
@@ -44,7 +48,9 @@ class VlinkerMsAdapter implements AtlasAdapter {
   String get displayName => 'CH$channel vLinker MS $portName';
 
   @override
-  String get transport => 'vLinker MS serial';
+  String get transport => Platform.isAndroid
+      ? 'vLinker MS Android RFCOMM'
+      : 'vLinker MS isolated serial';
 
   @override
   AtlasAdapterState get state => _state;
@@ -55,7 +61,83 @@ class VlinkerMsAdapter implements AtlasAdapter {
   @override
   Stream<AtlasAdapterState> get states => _states.stream;
 
-  static List<String> availablePorts() => SerialPort.availablePorts;
+  static Future<List<String>> availablePorts() async {
+    if (Platform.isAndroid) {
+      final granted = await AtlasAndroidRfcomm.requestConnectPermission();
+      if (!granted) {
+        throw StateError(
+          'Bluetooth permission is required to use the vLinker MS on Android.',
+        );
+      }
+      final devices = await AtlasAndroidRfcomm.pairedDevices();
+      return devices
+          .where((device) {
+            final name = device.name.toLowerCase();
+            return name.contains('vlinker') ||
+                name.contains('obd') ||
+                name.contains('stn');
+          })
+          .map((device) => device.label)
+          .toList(growable: false);
+    }
+
+    if (!Platform.isWindows) return const <String>[];
+    try {
+      final result = Process.runSync(
+        'powershell.exe',
+        const <String>[
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          'Get-CimInstance Win32_SerialPort | Select-Object -ExpandProperty DeviceID',
+        ],
+        stdoutEncoding: utf8,
+        stderrEncoding: utf8,
+      );
+      if (result.exitCode != 0) return const <String>[];
+      final ports = const LineSplitter()
+          .convert('${result.stdout}')
+          .map((line) => line.trim())
+          .where(
+            (line) => RegExp(
+              r'^COM\d+$',
+              caseSensitive: false,
+            ).hasMatch(line),
+          )
+          .map((line) => line.toUpperCase())
+          .toSet()
+          .toList()
+        ..sort(_compareComPorts);
+      return ports;
+    } on Object {
+      return const <String>[];
+    }
+  }
+
+  static String? androidAddressFromLabel(String value) {
+    final match = RegExp(
+      r'([0-9A-F]{2}:){5}[0-9A-F]{2}',
+      caseSensitive: false,
+    ).firstMatch(value);
+    return match?.group(0)?.toUpperCase();
+  }
+
+  static String _encodePowerShellCommand(String command) {
+    final bytes = <int>[];
+    for (final codeUnit in command.codeUnits) {
+      bytes
+        ..add(codeUnit & 0xFF)
+        ..add((codeUnit >> 8) & 0xFF);
+    }
+    return base64.encode(bytes);
+  }
+
+  static int _compareComPorts(String a, String b) {
+    int number(String value) =>
+        int.tryParse(value.replaceFirst(RegExp(r'^COM', caseSensitive: false), '')) ??
+        1 << 30;
+    return number(a).compareTo(number(b));
+  }
 
   void _setState(AtlasAdapterState value) {
     _state = value;
@@ -65,36 +147,94 @@ class VlinkerMsAdapter implements AtlasAdapter {
   @override
   Future<void> connect() async {
     if (_state == AtlasAdapterState.connected) return;
+
     _setState(AtlasAdapterState.connecting);
+    _disconnecting = false;
     _firstFrame = Completer<void>();
 
-    final port = SerialPort(portName);
-    if (!port.openReadWrite()) {
-      _setState(AtlasAdapterState.error);
-      throw StateError('Unable to open $portName: ${SerialPort.lastError}');
+    if (Platform.isAndroid) {
+      await _connectAndroid();
+      return;
     }
 
-    final config = SerialPortConfig()
-      ..baudRate = baudRate
-      ..bits = 8
-      ..parity = SerialPortParity.none
-      ..stopBits = 1
-      ..setFlowControl(SerialPortFlowControl.none);
-    port.config = config;
-    config.dispose();
+    if (!Platform.isWindows) {
+      _setState(AtlasAdapterState.error);
+      throw UnsupportedError(
+        'vLinker MS is currently supported on Windows and Android.',
+      );
+    }
 
-    _port = port;
-    _reader = SerialPortReader(port);
-    _subscription = _reader!.stream.listen(
-      _onBytes,
-      onError: (Object error, StackTrace stack) {
+    final ready = Completer<void>();
+    final encodedCommand = _encodePowerShellCommand(_serialBridgePowerShell);
+
+    late final Process process;
+    try {
+      process = await Process.start(
+        'powershell.exe',
+        <String>[
+          '-NoProfile',
+          '-NonInteractive',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-EncodedCommand',
+          encodedCommand,
+        ],
+        environment: <String, String>{
+          ...Platform.environment,
+          'ATLAS_PORT': portName,
+          'ATLAS_BAUD': '$baudRate',
+        },
+      );
+    } catch (error) {
+      _setState(AtlasAdapterState.error);
+      throw StateError('Unable to start isolated serial helper: $error');
+    }
+
+    _process = process;
+    _stdoutSubscription = process.stdout
+        .transform(const AsciiDecoder(allowInvalid: true))
+        .listen(_onText, onError: _onTransportError);
+    _stderrSubscription = process.stderr
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen((line) {
+      final trimmed = line.trim();
+      if (trimmed == 'READY') {
+        if (!ready.isCompleted) ready.complete();
+      } else if (trimmed.startsWith('ERROR ')) {
+        if (!ready.isCompleted) {
+          ready.completeError(StateError(trimmed.substring(6)));
+        } else if (!_disconnecting) {
+          _setState(AtlasAdapterState.error);
+          _frames.addError(StateError(trimmed.substring(6)));
+        }
+      }
+    });
+
+    unawaited(process.exitCode.then((code) {
+      if (!ready.isCompleted) {
+        ready.completeError(
+          StateError('vLinker MS serial helper exited before READY (code $code).'),
+        );
+      }
+      if (!_disconnecting && _state != AtlasAdapterState.disconnected) {
+        final error = StateError(
+          'vLinker MS isolated serial helper exited with code $code.',
+        );
         _setState(AtlasAdapterState.error);
-        _frames.addError(error, stack);
-      },
-      cancelOnError: false,
-    );
+        _frames.addError(error);
+      }
+    }));
 
     try {
+      await ready.future.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw TimeoutException(
+          'Timed out opening $portName. Confirm the vLinker MS is paired and '
+          'that this is the Windows outgoing Bluetooth serial COM port.',
+        ),
+      );
+
       await _command('ATZ', timeout: const Duration(seconds: 4));
       await _command('ATE0');
       await _command('ATL0');
@@ -111,14 +251,14 @@ class VlinkerMsAdapter implements AtlasAdapter {
       await _command('STFPA 000,000');
 
       _monitoring = true;
-      _write('STM');
+      await _write('STM');
 
       await _firstFrame!.future.timeout(
         const Duration(seconds: 6),
         onTimeout: () => throw TimeoutException(
           'vLinker MS monitor started but no CAN frames were received. '
-          'Confirm the adapter is paired, the correct COM port is selected, '
-          'and the vehicle HS-CAN bus is active.',
+          'Confirm the correct outgoing COM port is selected and the '
+          'vehicle HS-CAN bus is active.',
         ),
       );
       _setState(AtlasAdapterState.connected);
@@ -126,6 +266,12 @@ class VlinkerMsAdapter implements AtlasAdapter {
       await disconnect();
       rethrow;
     }
+  }
+
+  void _onTransportError(Object error, StackTrace stack) {
+    if (_disconnecting) return;
+    _setState(AtlasAdapterState.error);
+    _frames.addError(error, stack);
   }
 
   Future<String> _command(
@@ -139,7 +285,7 @@ class VlinkerMsAdapter implements AtlasAdapter {
       onTimeout: () => throw TimeoutException('No prompt after $command', timeout),
     );
     try {
-      _write(command);
+      await _write(command);
       final response = await future;
       final upper = response.toUpperCase();
       if (upper.contains('?') ||
@@ -153,20 +299,80 @@ class VlinkerMsAdapter implements AtlasAdapter {
     }
   }
 
-  void _write(String command) {
-    final port = _port;
-    if (port == null || !port.isOpen) {
-      throw StateError('vLinker MS serial port is not open');
-    }
+  Future<void> _write(String command) async {
     final bytes = Uint8List.fromList(ascii.encode('$command\r'));
-    final written = port.write(bytes);
-    if (written != bytes.length) {
-      throw StateError('Short serial write for vLinker MS command $command');
+    if (Platform.isAndroid) {
+      await AtlasAndroidRfcomm.write(bytes);
+      return;
+    }
+
+    final process = _process;
+    if (process == null) {
+      throw StateError('vLinker MS isolated serial helper is not running');
+    }
+    process.stdin.add(bytes);
+  }
+
+  Future<void> _connectAndroid() async {
+    final granted = await AtlasAndroidRfcomm.requestConnectPermission();
+    if (!granted) {
+      _setState(AtlasAdapterState.error);
+      throw StateError(
+        'Bluetooth permission is required to connect the vLinker MS.',
+      );
+    }
+
+    final address = androidAddressFromLabel(portName);
+    if (address == null) {
+      _setState(AtlasAdapterState.error);
+      throw StateError('No Bluetooth address found in $portName');
+    }
+
+    _androidBytesSubscription = AtlasAndroidRfcomm.bytes.listen(
+      (bytes) => _onText(ascii.decode(bytes, allowInvalid: true)),
+      onError: (Object error, StackTrace stack) =>
+          _onTransportError(error, stack),
+    );
+
+    try {
+      await AtlasAndroidRfcomm.connect(address).timeout(
+        const Duration(seconds: 12),
+        onTimeout: () => throw TimeoutException(
+          'Timed out connecting to vLinker MS $address over Android RFCOMM.',
+        ),
+      );
+
+      await _command('ATZ', timeout: const Duration(seconds: 4));
+      await _command('ATE0');
+      await _command('ATL0');
+      await _command('ATS0');
+      await _command('ATH1');
+      await _command('ATD0');
+      await _command('ATAL');
+      await _command('ATCFC0');
+      await _command('STP 31');
+      await _command('STCMM 0');
+      await _command('STFAC');
+      await _command('STFPA 000,000');
+
+      _monitoring = true;
+      await _write('STM');
+
+      await _firstFrame!.future.timeout(
+        const Duration(seconds: 6),
+        onTimeout: () => throw TimeoutException(
+          'vLinker MS connected over Android RFCOMM but no HS-CAN frames '
+          'were received. Confirm the vehicle bus is active.',
+        ),
+      );
+      _setState(AtlasAdapterState.connected);
+    } catch (_) {
+      await disconnect();
+      rethrow;
     }
   }
 
-  void _onBytes(Uint8List bytes) {
-    final text = ascii.decode(bytes, allowInvalid: true);
+  void _onText(String text) {
     if (_awaitingPrompt) {
       _responseBuffer += text;
       if (_responseBuffer.contains('>')) {
@@ -228,7 +434,6 @@ class VlinkerMsAdapter implements AtlasAdapter {
       return null;
     }
 
-    // ATS0 + ATD0 compact STM format: 3 hex ID chars followed by 0..8 bytes.
     if (RegExp(r'^[0-9A-F]+$').hasMatch(cleaned)) {
       final idLength = cleaned.length.isOdd ? 3 : 8;
       if (cleaned.length < idLength ||
@@ -253,7 +458,6 @@ class VlinkerMsAdapter implements AtlasAdapter {
       );
     }
 
-    // Tolerate spaced monitor output with displayed DLC.
     final tokens = cleaned.split(RegExp(r'\s+'));
     if (tokens.isEmpty) return null;
     final idText = tokens.first;
@@ -283,20 +487,58 @@ class VlinkerMsAdapter implements AtlasAdapter {
 
   @override
   Future<void> disconnect() async {
-    final port = _port;
-    if (port != null && port.isOpen && _monitoring) {
+    _disconnecting = true;
+
+    if (Platform.isAndroid) {
+      if (_monitoring) {
+        try {
+          await AtlasAndroidRfcomm.write(
+            Uint8List.fromList(const <int>[13]),
+          );
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        } catch (_) {}
+      }
+      await _androidBytesSubscription?.cancel();
+      _androidBytesSubscription = null;
       try {
-        port.write(Uint8List.fromList(const <int>[13]));
-        await Future<void>.delayed(const Duration(milliseconds: 100));
+        await AtlasAndroidRfcomm.close();
       } catch (_) {}
+      _monitoring = false;
+      _buffer = '';
+      _responseBuffer = '';
+      _awaitingPrompt = false;
+      _firstFrame = null;
+      _setState(AtlasAdapterState.disconnected);
+      return;
     }
-    await _subscription?.cancel();
-    _subscription = null;
-    _reader?.close();
-    _reader = null;
-    if (port != null && port.isOpen) port.close();
-    port?.dispose();
-    _port = null;
+
+    final process = _process;
+
+    if (process != null) {
+      if (_monitoring) {
+        try {
+          process.stdin.add(const <int>[13]);
+          await process.stdin.flush();
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        } catch (_) {}
+      }
+
+      try {
+        await process.stdin.close();
+      } catch (_) {}
+
+      try {
+        await process.exitCode.timeout(const Duration(seconds: 2));
+      } on TimeoutException {
+        process.kill();
+      }
+    }
+
+    await _stdoutSubscription?.cancel();
+    await _stderrSubscription?.cancel();
+    _stdoutSubscription = null;
+    _stderrSubscription = null;
+    _process = null;
     _monitoring = false;
     _buffer = '';
     _responseBuffer = '';
@@ -304,4 +546,75 @@ class VlinkerMsAdapter implements AtlasAdapter {
     _firstFrame = null;
     _setState(AtlasAdapterState.disconnected);
   }
+
+  static const String _serialBridgePowerShell = r'''
+$source = @"
+using System;
+using System.IO;
+using System.IO.Ports;
+
+public static class AtlasSerialBridge
+{
+    public static int Run(string portName, int baud)
+    {
+        using (var port = new SerialPort(
+            portName, baud, Parity.None, 8, StopBits.One))
+        {
+            port.Handshake = Handshake.None;
+            port.ReadTimeout = 250;
+            port.WriteTimeout = 1000;
+            port.DtrEnable = false;
+            port.RtsEnable = false;
+            port.Open();
+
+            var output = Console.OpenStandardOutput();
+            port.DataReceived += (sender, args) =>
+            {
+                try
+                {
+                    int available = port.BytesToRead;
+                    if (available <= 0) return;
+                    var buffer = new byte[available];
+                    int read = port.Read(buffer, 0, buffer.Length);
+                    if (read > 0)
+                    {
+                        output.Write(buffer, 0, read);
+                        output.Flush();
+                    }
+                }
+                catch
+                {
+                }
+            };
+
+            Console.Error.WriteLine("READY");
+            Console.Error.Flush();
+
+            var input = Console.OpenStandardInput();
+            var inbound = new byte[1024];
+            while (true)
+            {
+                int read = input.Read(inbound, 0, inbound.Length);
+                if (read <= 0) break;
+                port.Write(inbound, 0, read);
+            }
+        }
+        return 0;
+    }
+}
+"@
+
+try {
+    Add-Type -TypeDefinition $source -Language CSharp
+    $portName = $env:ATLAS_PORT
+    $baud = [int]$env:ATLAS_BAUD
+    exit [AtlasSerialBridge]::Run($portName, $baud)
+}
+catch {
+    $message = $_.Exception.GetBaseException().Message
+    [Console]::Error.WriteLine("ERROR " + $message)
+    [Console]::Error.Flush()
+    exit 2
+}
+''';
 }

@@ -72,7 +72,7 @@ class AtlasRuntime extends ChangeNotifier {
   bool get isCapturing => capture.hasOpenCapture;
 
   List<String> scanSlcanPorts() => SlcanAdapter.availablePorts();
-  List<String> scanVlinkerMsPorts() => VlinkerMsAdapter.availablePorts();
+  Future<List<String>> scanVlinkerMsPorts() => VlinkerMsAdapter.availablePorts();
   Future<List<String>> scanLinuxObdlinkPorts() =>
       LinuxObdlinkMxAdapter.availablePorts();
   Future<List<String>> scanSocketCanInterfaces() => SocketCanAdapter.availableInterfaces();

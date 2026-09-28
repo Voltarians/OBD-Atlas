@@ -20,6 +20,8 @@ dependencies:
     path: packages/atlas_canalystii
   atlas_lys_usbcan:
     path: packages/atlas_lys_usbcan
+  atlas_android_rfcomm:
+    path: packages/atlas_android_rfcomm
 
 dev_dependencies:
   flutter_test:
