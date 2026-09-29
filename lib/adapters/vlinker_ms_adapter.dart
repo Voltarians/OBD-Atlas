@@ -393,7 +393,7 @@ class VlinkerMsAdapter implements AtlasAdapter {
     int maxExactFilters = productionMaxExactFilters,
     double headroom = 0.85,
   }) {
-    if (frameCounts.isEmpty || sampleDuration <= Duration.zero) {
+    if (frameCounts.isEmpty || sampleDuration.inMicroseconds <= 0) {
       return const <List<int>>[];
     }
     if (targetFramesPerSecond <= 0 ||
@@ -571,12 +571,15 @@ class VlinkerMsAdapter implements AtlasAdapter {
 
       final frame = parseMonitorLine(line, channel: channel);
       if (frame != null) {
-        if (_characterizingAndroid && !frame.extended) {
-          _androidCharacterizationCounts.update(
-            frame.id,
-            (count) => count + 1,
-            ifAbsent: () => 1,
-          );
+        if (_characterizingAndroid) {
+          if (!frame.extended) {
+            _androidCharacterizationCounts.update(
+              frame.id,
+              (count) => count + 1,
+              ifAbsent: () => 1,
+            );
+          }
+          continue;
         }
         if (_firstFrame?.isCompleted == false) _firstFrame!.complete();
         _frames.add(frame);
