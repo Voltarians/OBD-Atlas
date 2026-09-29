@@ -40,6 +40,17 @@ class VlinkerMsAdapter implements AtlasAdapter {
   bool _monitoring = false;
   bool _disconnecting = false;
   Completer<void>? _firstFrame;
+  Timer? _androidBankTimer;
+  bool _rotatingAndroidBank = false;
+  bool _characterizingAndroid = false;
+  final Map<int, int> _androidCharacterizationCounts = <int, int>{};
+  List<List<int>> _androidFilterBanks = const <List<int>>[];
+  int _androidBankIndex = 0;
+
+  static const double productionTargetFps = 1500;
+  static const int productionMaxExactFilters = 32;
+  static const Duration androidCharacterizationDuration = Duration(seconds: 2);
+  static const Duration androidBankRotationInterval = Duration(seconds: 5);
 
   @override
   String get id => 'vlinker-ms:ch$channel:$portName';
@@ -352,23 +363,183 @@ class VlinkerMsAdapter implements AtlasAdapter {
       await _command('ATCFC0');
       await _command('STP 31');
       await _command('STCMM 0');
-      await _command('STFAC');
-      await _command('STFPA 000,000');
 
-      _monitoring = true;
-      await _write('STM');
+      // Android Bluetooth cannot sustain unrestricted Gen-1 Volt HS-CAN
+      // indefinitely. Take a short full-pass census, then switch to exact
+      // filters packed below the measured 1,500 fps production envelope.
+      await _characterizeAndroidHsCan();
+      _firstFrame = Completer<void>();
+      await _startAndroidProductionBank(0);
 
       await _firstFrame!.future.timeout(
         const Duration(seconds: 6),
         onTimeout: () => throw TimeoutException(
-          'vLinker MS connected over Android RFCOMM but no HS-CAN frames '
+          'vLinker MS production filter bank started but no HS-CAN frames '
           'were received. Confirm the vehicle bus is active.',
         ),
       );
       _setState(AtlasAdapterState.connected);
+      _startAndroidBankRotation();
     } catch (_) {
       await disconnect();
       rethrow;
+    }
+  }
+
+  static List<List<int>> planProductionFilterBanks(
+    Map<int, int> frameCounts,
+    Duration sampleDuration, {
+    double targetFramesPerSecond = productionTargetFps,
+    int maxExactFilters = productionMaxExactFilters,
+    double headroom = 0.85,
+  }) {
+    if (frameCounts.isEmpty || sampleDuration.inMicroseconds <= 0) {
+      return const <List<int>>[];
+    }
+    if (targetFramesPerSecond <= 0 ||
+        maxExactFilters <= 0 ||
+        headroom <= 0 ||
+        headroom > 1) {
+      throw ArgumentError('Invalid production filter-bank limits.');
+    }
+
+    final sampleSeconds =
+        sampleDuration.inMicroseconds / Duration.microsecondsPerSecond;
+    final budget = targetFramesPerSecond * headroom;
+    final entries = frameCounts.entries
+        .where((entry) => entry.key >= 0 && entry.key <= 0x7FF && entry.value > 0)
+        .map(
+          (entry) => (
+            id: entry.key,
+            fps: entry.value / sampleSeconds,
+          ),
+        )
+        .toList()
+      ..sort((a, b) {
+        final byRate = b.fps.compareTo(a.fps);
+        return byRate != 0 ? byRate : a.id.compareTo(b.id);
+      });
+
+    final banks = <List<int>>[];
+    final bankRates = <double>[];
+
+    for (final entry in entries) {
+      var placed = false;
+      for (var index = 0; index < banks.length; index++) {
+        if (banks[index].length >= maxExactFilters) continue;
+        if (bankRates[index] + entry.fps > budget) continue;
+        banks[index].add(entry.id);
+        bankRates[index] += entry.fps;
+        placed = true;
+        break;
+      }
+      if (!placed) {
+        banks.add(<int>[entry.id]);
+        bankRates.add(entry.fps);
+      }
+    }
+
+    for (final bank in banks) {
+      bank.sort();
+    }
+    return banks;
+  }
+
+  Future<void> _characterizeAndroidHsCan() async {
+    _androidBankTimer?.cancel();
+    _androidBankTimer = null;
+    _androidCharacterizationCounts.clear();
+    _androidFilterBanks = const <List<int>>[];
+    _androidBankIndex = 0;
+
+    await _command('STFAC');
+    await _command('STFPA 000,000');
+
+    _characterizingAndroid = true;
+    _monitoring = true;
+    await _write('STM');
+    await Future<void>.delayed(androidCharacterizationDuration);
+    await _stopAndroidMonitor();
+    _characterizingAndroid = false;
+
+    _androidFilterBanks = planProductionFilterBanks(
+      _androidCharacterizationCounts,
+      androidCharacterizationDuration,
+    );
+    if (_androidFilterBanks.isEmpty) {
+      throw StateError(
+        'vLinker MS characterization received no usable 11-bit HS-CAN IDs.',
+      );
+    }
+  }
+
+  Future<void> _stopAndroidMonitor() async {
+    if (!_monitoring) return;
+    _monitoring = false;
+    _responseBuffer = '';
+    _awaitingPrompt = true;
+    final future = _responses.stream.first.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () => throw TimeoutException(
+        'Timed out stopping vLinker MS monitor for filter reconfiguration.',
+      ),
+    );
+    try {
+      await AtlasAndroidRfcomm.write(
+        Uint8List.fromList(const <int>[13]),
+      );
+      await future;
+    } finally {
+      _awaitingPrompt = false;
+    }
+  }
+
+  Future<void> _startAndroidProductionBank(int bankIndex) async {
+    if (_androidFilterBanks.isEmpty) {
+      throw StateError('No vLinker MS production filter banks are available.');
+    }
+    final index = bankIndex % _androidFilterBanks.length;
+    final bank = _androidFilterBanks[index];
+
+    await _command('STFPC');
+    for (final id in bank) {
+      final idText = id.toRadixString(16).toUpperCase().padLeft(3, '0');
+      await _command('STFPA $idText,7FF');
+    }
+
+    _androidBankIndex = index;
+    _monitoring = true;
+    await _write('STM');
+  }
+
+  void _startAndroidBankRotation() {
+    _androidBankTimer?.cancel();
+    if (_androidFilterBanks.length <= 1) return;
+    _androidBankTimer = Timer.periodic(androidBankRotationInterval, (_) {
+      unawaited(_rotateAndroidProductionBank());
+    });
+  }
+
+  Future<void> _rotateAndroidProductionBank() async {
+    if (_rotatingAndroidBank ||
+        _disconnecting ||
+        _state != AtlasAdapterState.connected ||
+        _androidFilterBanks.length <= 1) {
+      return;
+    }
+    _rotatingAndroidBank = true;
+    try {
+      await _stopAndroidMonitor();
+      await _startAndroidProductionBank(
+        (_androidBankIndex + 1) % _androidFilterBanks.length,
+      );
+    } catch (error, stack) {
+      if (!_disconnecting) {
+        _setState(AtlasAdapterState.error);
+        _frames.addError(error, stack);
+      }
+    } finally {
+      _rotatingAndroidBank = false;
     }
   }
 
@@ -400,6 +571,16 @@ class VlinkerMsAdapter implements AtlasAdapter {
 
       final frame = parseMonitorLine(line, channel: channel);
       if (frame != null) {
+        if (_characterizingAndroid) {
+          if (!frame.extended) {
+            _androidCharacterizationCounts.update(
+              frame.id,
+              (count) => count + 1,
+              ifAbsent: () => 1,
+            );
+          }
+          continue;
+        }
         if (_firstFrame?.isCompleted == false) _firstFrame!.complete();
         _frames.add(frame);
       }
@@ -490,6 +671,10 @@ class VlinkerMsAdapter implements AtlasAdapter {
     _disconnecting = true;
 
     if (Platform.isAndroid) {
+      _androidBankTimer?.cancel();
+      _androidBankTimer = null;
+      _rotatingAndroidBank = false;
+      _characterizingAndroid = false;
       if (_monitoring) {
         try {
           await AtlasAndroidRfcomm.write(

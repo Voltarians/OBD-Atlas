@@ -70,4 +70,70 @@ void main() {
     );
     expect(VlinkerMsAdapter.monitorTerminalError('3E91234'), isNull);
   });
+
+  test('packs production filter banks under the configured throughput budget', () {
+    final banks = VlinkerMsAdapter.planProductionFilterBanks(
+      <int, int>{
+        0x100: 1000,
+        0x101: 900,
+        0x102: 800,
+        0x103: 700,
+        0x104: 600,
+        0x105: 500,
+      },
+      const Duration(seconds: 2),
+      targetFramesPerSecond: 1500,
+      headroom: 0.80,
+    );
+
+    expect(banks, isNotEmpty);
+    expect(banks.expand((bank) => bank).toSet(), hasLength(6));
+    expect(banks.every((bank) => bank.length <= 32), isTrue);
+
+    final rates = <int, double>{
+      0x100: 500,
+      0x101: 450,
+      0x102: 400,
+      0x103: 350,
+      0x104: 300,
+      0x105: 250,
+    };
+    for (final bank in banks) {
+      final total = bank.fold<double>(
+        0,
+        (sum, id) => sum + rates[id]!,
+      );
+      expect(total, lessThanOrEqualTo(1200));
+    }
+  });
+
+  test('production filter planning covers more than 32 observed IDs by rotating banks', () {
+    final counts = <int, int>{
+      for (var id = 0; id < 70; id++) 0x100 + id: 2,
+    };
+
+    final banks = VlinkerMsAdapter.planProductionFilterBanks(
+      counts,
+      const Duration(seconds: 2),
+    );
+
+    expect(banks.length, greaterThanOrEqualTo(3));
+    expect(banks.every((bank) => bank.length <= 32), isTrue);
+    expect(banks.expand((bank) => bank).toSet(), hasLength(70));
+  });
+
+  test('production filter planning ignores invalid and extended identifiers', () {
+    final banks = VlinkerMsAdapter.planProductionFilterBanks(
+      <int, int>{
+        -1: 10,
+        0x100: 10,
+        0x7FF: 10,
+        0x800: 10,
+      },
+      const Duration(seconds: 1),
+    );
+
+    expect(banks.expand((bank) => bank).toSet(), <int>{0x100, 0x7FF});
+  });
+
 }
