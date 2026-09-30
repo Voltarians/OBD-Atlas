@@ -34,8 +34,10 @@ class AtlasChannelStatus {
   int framesPerSecond = 0;
   int errorCount = 0;
   int captureStartFrames = 0;
+  int captureStartErrors = 0;
   int capturePeakFps = 0;
   final Set<int> seenIds = <int>{};
+  final Set<int> captureSeenIds = <int>{};
   StreamSubscription<CanFrame>? frameSubscription;
   StreamSubscription<AtlasAdapterState>? stateSubscription;
 
@@ -404,6 +406,7 @@ class AtlasRuntime extends ChangeNotifier {
       slot.totalFrames++;
       slot.framesThisSecond++;
       slot.seenIds.add(frame.id);
+      if (capture.isRecording) slot.captureSeenIds.add(frame.id);
     }
     recentFrames.insert(0, frame);
     if (recentFrames.length > 500) recentFrames.removeLast();
@@ -459,7 +462,9 @@ class AtlasRuntime extends ChangeNotifier {
       _captureStartedAt = DateTime.now().toUtc();
       for (final slot in channels.values) {
         slot.captureStartFrames = slot.totalFrames;
+        slot.captureStartErrors = slot.errorCount;
         slot.capturePeakFps = 0;
+        slot.captureSeenIds.clear();
       }
       markCaptureEvent('Capture start: ${discovery.eventLabel}', source: 'atlas');
       return file;
@@ -513,11 +518,11 @@ class AtlasRuntime extends ChangeNotifier {
           'transport': adapter.transport,
           'stateAtStop': slot.state.name,
           'capturedFrames': capturedFrames,
-          'uniqueIdsObserved': slot.seenIds.length,
+          'uniqueIdsObserved': slot.captureSeenIds.length,
           'averageFps':
               durationSeconds > 0 ? capturedFrames / durationSeconds : 0.0,
           'peakFps': slot.capturePeakFps,
-          'errorCount': slot.errorCount,
+          'errorCount': slot.errorCount - slot.captureStartErrors,
           if (slot.lastError != null) 'lastError': slot.lastError,
           ...adapterSpecific,
         });
