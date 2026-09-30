@@ -74,6 +74,22 @@ class AtlasLocalStore {
     return File('${dir.path}${Platform.pathSeparator}atlas_capture_$stamp.log');
   }
 
+
+  Future<File> writeCaptureSessionManifest(
+    File captureFile,
+    Map<String, dynamic> manifest,
+  ) async {
+    final file = File('${captureFile.path}.session.json');
+    final tmp = File('${file.path}.tmp');
+    await tmp.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(manifest),
+      flush: true,
+    );
+    if (await file.exists()) await file.delete();
+    await tmp.rename(file.path);
+    return file;
+  }
+
   Future<File> importLog(File source) async {
     final dir = await logsDirectory();
     final baseName = source.uri.pathSegments.last;
