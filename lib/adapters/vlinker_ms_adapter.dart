@@ -14,7 +14,7 @@ import 'atlas_adapter.dart';
 /// process. This keeps native Windows serial-driver or CRT failures outside the
 /// Flutter process so a failed/retried Bluetooth SPP connection cannot take
 /// Atlas down with it.
-class VlinkerMsAdapter implements AtlasAdapter {
+class VlinkerMsAdapter implements AtlasAdapter, CaptureProvenanceProvider {
   VlinkerMsAdapter(
     this.portName, {
     this.channel = 1,
@@ -40,6 +40,8 @@ class VlinkerMsAdapter implements AtlasAdapter {
   bool _monitoring = false;
   bool _disconnecting = false;
   Completer<void>? _firstFrame;
+  int _monitorErrorCount = 0;
+  int _overflowCount = 0;
   Timer? _androidBankTimer;
   bool _rotatingAndroidBank = false;
   bool _characterizingAndroid = false;
@@ -71,6 +73,35 @@ class VlinkerMsAdapter implements AtlasAdapter {
 
   @override
   Stream<AtlasAdapterState> get states => _states.stream;
+
+  @override
+  Map<String, Object?> get captureProvenance => <String, Object?>{
+        'mode': Platform.isAndroid
+            ? 'filtered-production'
+            : 'full-pass',
+        'productionTargetFps':
+            Platform.isAndroid ? productionTargetFps : null,
+        'filterBankIndex':
+            Platform.isAndroid && _androidFilterBanks.isNotEmpty
+                ? _androidBankIndex
+                : null,
+        'filterBanks': Platform.isAndroid
+            ? _androidFilterBanks
+                .map(
+                  (bank) => bank
+                      .map(
+                        (id) => id
+                            .toRadixString(16)
+                            .toUpperCase()
+                            .padLeft(3, '0'),
+                      )
+                      .toList(growable: false),
+                )
+                .toList(growable: false)
+            : const <List<String>>[],
+        'monitorErrorCount': _monitorErrorCount,
+        'overflowCount': _overflowCount,
+      };
 
   static Future<List<String>> availablePorts() async {
     if (Platform.isAndroid) {
@@ -563,6 +594,11 @@ class VlinkerMsAdapter implements AtlasAdapter {
 
       final terminalError = monitorTerminalError(line);
       if (terminalError != null) {
+        _monitorErrorCount++;
+        final upper = line.toUpperCase();
+        if (upper.contains('BUFFER FULL') || upper.contains('UART RX OVERFLOW')) {
+          _overflowCount++;
+        }
         _monitoring = false;
         _setState(AtlasAdapterState.error);
         _frames.addError(StateError(terminalError));

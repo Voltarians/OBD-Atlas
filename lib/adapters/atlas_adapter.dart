@@ -2,6 +2,10 @@ import '../core/can_frame.dart';
 
 enum AtlasAdapterState { disconnected, connecting, connected, error }
 
+abstract interface class CaptureProvenanceProvider {
+  Map<String, Object?> get captureProvenance;
+}
+
 abstract class AtlasAdapter {
   String get id;
   String get displayName;

@@ -32,7 +32,12 @@ class AtlasChannelStatus {
   int totalFrames = 0;
   int framesThisSecond = 0;
   int framesPerSecond = 0;
+  int errorCount = 0;
+  int captureStartFrames = 0;
+  int captureStartErrors = 0;
+  int capturePeakFps = 0;
   final Set<int> seenIds = <int>{};
+  final Set<int> captureSeenIds = <int>{};
   StreamSubscription<CanFrame>? frameSubscription;
   StreamSubscription<AtlasAdapterState>? stateSubscription;
 
@@ -67,6 +72,7 @@ class AtlasRuntime extends ChangeNotifier {
   CanalystiiAdapter? _canalystAdapter;
   LysUsbcanAdapter? _lysAdapter;
   LinuxUc2PairAdapter? _linuxUc2PairAdapter;
+  DateTime? _captureStartedAt;
 
   File? get activeCaptureFile => capture.activeFile ?? capture.lastCompletedFile;
   bool get isCapturing => capture.hasOpenCapture;
@@ -276,6 +282,7 @@ class AtlasRuntime extends ChangeNotifier {
       onError: (Object error) {
         for (final slot in slots) {
           slot.lastError = error.toString();
+          slot.errorCount++;
           slot.state = AtlasAdapterState.error;
         }
         notifyListeners();
@@ -288,6 +295,7 @@ class AtlasRuntime extends ChangeNotifier {
     } catch (error) {
       for (final slot in slots) {
         slot.lastError = error.toString();
+        slot.errorCount++;
         slot.state = AtlasAdapterState.error;
       }
       notifyListeners();
@@ -327,6 +335,8 @@ class AtlasRuntime extends ChangeNotifier {
       onError: (Object error) {
         first.lastError = error.toString();
         second.lastError = error.toString();
+        first.errorCount++;
+        second.errorCount++;
         first.state = AtlasAdapterState.error;
         second.state = AtlasAdapterState.error;
         notifyListeners();
@@ -370,6 +380,7 @@ class AtlasRuntime extends ChangeNotifier {
       _onFrame,
       onError: (Object error) {
         slot.lastError = error.toString();
+        slot.errorCount++;
         slot.state = AtlasAdapterState.error;
         notifyListeners();
       },
@@ -395,6 +406,7 @@ class AtlasRuntime extends ChangeNotifier {
       slot.totalFrames++;
       slot.framesThisSecond++;
       slot.seenIds.add(frame.id);
+      if (capture.isRecording) slot.captureSeenIds.add(frame.id);
     }
     recentFrames.insert(0, frame);
     if (recentFrames.length > 500) recentFrames.removeLast();
@@ -415,6 +427,9 @@ class AtlasRuntime extends ChangeNotifier {
       framesThisSecond = 0;
       for (final slot in channels.values) {
         slot.framesPerSecond = slot.framesThisSecond;
+        if (capture.isRecording && slot.framesPerSecond > slot.capturePeakFps) {
+          slot.capturePeakFps = slot.framesPerSecond;
+        }
         slot.framesThisSecond = 0;
       }
       notifyListeners();
@@ -444,6 +459,13 @@ class AtlasRuntime extends ChangeNotifier {
     notifyListeners();
     try {
       final file = await capture.start();
+      _captureStartedAt = DateTime.now().toUtc();
+      for (final slot in channels.values) {
+        slot.captureStartFrames = slot.totalFrames;
+        slot.captureStartErrors = slot.errorCount;
+        slot.capturePeakFps = 0;
+        slot.captureSeenIds.clear();
+      }
       markCaptureEvent('Capture start: ${discovery.eventLabel}', source: 'atlas');
       return file;
     } catch (_) {
@@ -465,13 +487,67 @@ class AtlasRuntime extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<File?> stopCapture() {
+  Future<File?> stopCapture() async {
+    final stoppedAt = DateTime.now().toUtc();
     if (capture.isRecording) {
       markCaptureEvent('Capture stop', source: 'atlas');
     }
     if (discovery.isRunning) discovery.finish();
     notifyListeners();
-    return capture.stop();
+
+    final file = await capture.stop();
+    final startedAt = _captureStartedAt;
+    if (file != null && startedAt != null) {
+      final durationMicros =
+          stoppedAt.microsecondsSinceEpoch - startedAt.microsecondsSinceEpoch;
+      final durationSeconds =
+          durationMicros > 0 ? durationMicros / 1000000.0 : 0.0;
+      final channelManifests = <Map<String, Object?>>[];
+
+      for (final slot in channels.values.where((slot) => slot.adapter != null)) {
+        final adapter = slot.adapter!;
+        final capturedFrames = slot.totalFrames - slot.captureStartFrames;
+        final adapterSpecific = adapter is CaptureProvenanceProvider
+            ? adapter.captureProvenance
+            : const <String, Object?>{};
+        channelManifests.add(<String, Object?>{
+          'channel': slot.channel,
+          'bus': slot.bus,
+          'adapterId': adapter.id,
+          'adapterName': slot.adapterName ?? adapter.displayName,
+          'transport': adapter.transport,
+          'stateAtStop': slot.state.name,
+          'capturedFrames': capturedFrames,
+          'uniqueIdsObserved': slot.captureSeenIds.length,
+          'averageFps':
+              durationSeconds > 0 ? capturedFrames / durationSeconds : 0.0,
+          'peakFps': slot.capturePeakFps,
+          'errorCount': slot.errorCount - slot.captureStartErrors,
+          if (slot.lastError != null) 'lastError': slot.lastError,
+          ...adapterSpecific,
+        });
+      }
+
+      final capturedFrames = channelManifests.fold<int>(
+        0,
+        (sum, channel) => sum + (channel['capturedFrames'] as int),
+      );
+      await AtlasLocalStore.instance.writeCaptureSessionManifest(
+        file,
+        <String, dynamic>{
+          'schema': 'atlas.capture-session.v1',
+          'captureFile': file.uri.pathSegments.last,
+          'startedAtUtc': startedAt.toIso8601String(),
+          'stoppedAtUtc': stoppedAt.toIso8601String(),
+          'durationSeconds': durationSeconds,
+          'capturedFrames': capturedFrames,
+          'eventLabel': discovery.eventLabel,
+          'channels': channelManifests,
+        },
+      );
+    }
+    _captureStartedAt = null;
+    return file;
   }
 
   Future<void> _disconnectSharedAdapter(AtlasAdapter adapter) async {

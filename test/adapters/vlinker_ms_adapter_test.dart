@@ -136,4 +136,15 @@ void main() {
     expect(banks.expand((bank) => bank).toSet(), <int>{0x100, 0x7FF});
   });
 
+
+  test('exposes capture provenance counters and mode', () {
+    final adapter = VlinkerMsAdapter('COM9');
+    final provenance = adapter.captureProvenance;
+
+    expect(provenance['mode'], isNotNull);
+    expect(provenance['monitorErrorCount'], 0);
+    expect(provenance['overflowCount'], 0);
+    expect(provenance['filterBanks'], isA<List<Object?>>());
+  });
+
 }
