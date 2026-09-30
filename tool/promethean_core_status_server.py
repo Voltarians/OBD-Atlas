@@ -20,6 +20,7 @@ import json
 import socket
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -149,13 +150,36 @@ def read_can_interfaces() -> list[dict[str, Any]]:
     return buses
 
 
+def sample_can_interfaces(interval: float = 0.25) -> list[dict[str, Any]]:
+    first = read_can_interfaces()
+    if not first:
+        return first
+
+    started = time.monotonic()
+    time.sleep(interval)
+    second = read_can_interfaces()
+    elapsed = max(time.monotonic() - started, 0.001)
+
+    first_by_interface = {
+        str(bus.get("interface")): bus
+        for bus in first
+    }
+    for bus in second:
+        previous = first_by_interface.get(str(bus.get("interface")))
+        if previous is None:
+            continue
+        delta = int(bus.get("frames", 0)) - int(previous.get("frames", 0))
+        bus["framesPerSecond"] = max(delta, 0) / elapsed
+    return second
+
+
 def build_status(
     repo_root: Path,
     *,
     vim3_available: bool = False,
     hmi_available: bool = False,
 ) -> dict[str, Any]:
-    buses = read_can_interfaces()
+    buses = sample_can_interfaces()
     return {
         "schema": SCHEMA,
         "capturedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
