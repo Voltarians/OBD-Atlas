@@ -136,19 +136,27 @@ jobs:
         run: |
           set -euo pipefail
           PBXPROJ="ios/Runner.xcodeproj/project.pbxproj"
-          sed -i '' '/PRODUCT_BUNDLE_IDENTIFIER = /s/= [^;]*/= com.voltarians.obdatlas/' "$PBXPROJ"
-          sed -i '' '/CODE_SIGN_STYLE = /s/= [^;]*/= Manual/' "$PBXPROJ"
-          sed -i '' '/DEVELOPMENT_TEAM = /s/= [^;]*/= B3QHY9J2Q8/' "$PBXPROJ"
-          if ! grep -q 'DEVELOPMENT_TEAM = B3QHY9J2Q8;' "$PBXPROJ"; then
-            sed -i '' '/PRODUCT_BUNDLE_IDENTIFIER = com.voltarians.obdatlas;/a\
-\t\t\t\tDEVELOPMENT_TEAM = B3QHY9J2Q8;\
-\t\t\t\tCODE_SIGN_STYLE = Manual;\
-\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\
-\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "OBD Atlas App Store";
-' "$PBXPROJ"
-          fi
-          sed -i '' '/CODE_SIGN_IDENTITY = /s/= [^;]*/= "Apple Distribution"/' "$PBXPROJ"
-          sed -i '' '/PROVISIONING_PROFILE_SPECIFIER = /s/= [^;]*/= "OBD Atlas App Store"/' "$PBXPROJ"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("ios/Runner.xcodeproj/project.pbxproj")
+          text = path.read_text()
+
+          def replace_setting(text, key, value):
+              pattern = rf"({re.escape(key)}\s*=\s*)[^;]+;"
+              if re.search(pattern, text):
+                  return re.sub(pattern, rf"\g<1>{value};", text)
+              return text
+
+          text = replace_setting(text, "PRODUCT_BUNDLE_IDENTIFIER", "com.voltarians.obdatlas")
+          text = replace_setting(text, "CODE_SIGN_STYLE", "Manual")
+          text = replace_setting(text, "DEVELOPMENT_TEAM", "B3QHY9J2Q8")
+          text = replace_setting(text, "CODE_SIGN_IDENTITY", '"Apple Distribution"')
+          text = replace_setting(text, "PROVISIONING_PROFILE_SPECIFIER", '"OBD Atlas App Store"')
+
+          path.write_text(text)
+          PY
           echo "Configured signing settings:"
           grep -E 'DEVELOPMENT_TEAM|PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER' "$PBXPROJ" | sort -u
 
