@@ -68,10 +68,10 @@ class _AtlasHomePageState extends State<AtlasHomePage> {
           builder: (context, _) {
             final connected = AtlasRuntime.instance.anyConnected;
             return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
               child: Chip(
                 avatar: Icon(connected ? Icons.usb : Icons.offline_bolt, size: 18),
-                label: Text(connected ? '${AtlasRuntime.instance.connectedChannelCount} CHANNELS CONNECTED' : 'OFFLINE READY'),
+                label: Text(connected ? '${AtlasRuntime.instance.connectedChannelCount} ${AtlasRuntime.instance.connectedChannelCount == 1 ? 'CHANNEL' : 'CHANNELS'} CONNECTED' : 'OFFLINE READY', maxLines: 1, overflow: TextOverflow.ellipsis),
               ),
             );
           },
@@ -121,15 +121,25 @@ class PageShell extends StatelessWidget {
 class VehiclePage extends StatelessWidget {
   const VehiclePage({super.key});
   @override
-  Widget build(BuildContext context) => const PageShell(
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: AtlasRuntime.instance,
+    builder: (context, _) {
+      final runtime = AtlasRuntime.instance;
+      return PageShell(
     title: 'Vehicle Workspace',
     subtitle: 'Identify the vehicle, preserve research context, and keep every session tied to one machine.',
-    child: Wrap(spacing: 12, runSpacing: 12, children: [
-      _MetricCard(label: 'Vehicle', value: 'Not selected', icon: Icons.directions_car),
-      _MetricCard(label: 'VIN', value: '—', icon: Icons.pin),
-      _MetricCard(label: 'Platform', value: 'Unknown', icon: Icons.account_tree),
-      _MetricCard(label: 'Sessions', value: '0', icon: Icons.history),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(runtime.anyConnected ? 'Adapter connected. Vehicle identification has not been performed.' : 'Connect an adapter to begin vehicle discovery.'),
+      const SizedBox(height: 12),
+      Wrap(spacing: 12, runSpacing: 12, children: [
+        const _MetricCard(label: 'Vehicle', value: 'Not identified', icon: Icons.directions_car),
+        const _MetricCard(label: 'VIN', value: 'Not read', icon: Icons.pin),
+        const _MetricCard(label: 'Platform', value: 'Not identified', icon: Icons.account_tree),
+        _MetricCard(label: 'CAN activity', value: runtime.anyConnected ? '${runtime.framesPerSecond} frames/s' : 'Disconnected', icon: Icons.speed),
+      ]),
     ]),
+  );
+    },
   );
 }
 
@@ -319,9 +329,9 @@ class _ConnectPageState extends State<ConnectPage> {
             if (caConnected) FilledButton.tonalIcon(onPressed: () => runtime.disconnectChannel(2), icon: const Icon(Icons.link_off), label: const Text('Disconnect CANalyst-II')),
           ]),
           const SizedBox(height: 18),
-          _StatusTile(name: 'CH4 + CH5 • LYS USBCAN-II dual', detail: lysConnected ? '${ch4.adapterName} • ${ch4.state.name} / ${ch5.adapterName} • ${ch5.state.name} • $_highSpeedBitrate bit/s' : _lysAvailable ? 'Direct WinUSB ready • VID 0471:PID 1200' : 'Native direct WinUSB transport • no ControlCAN.dll required', icon: Icons.device_hub),
+          if (!Platform.isAndroid) _StatusTile(name: 'CH4 + CH5 • LYS USBCAN-II dual', detail: lysConnected ? '${ch4.adapterName} • ${ch4.state.name} / ${ch5.adapterName} • ${ch5.state.name} • $_highSpeedBitrate bit/s' : _lysAvailable ? 'Direct WinUSB ready • VID 0471:PID 1200' : 'Native direct WinUSB transport • no ControlCAN.dll required', icon: Icons.device_hub),
           const SizedBox(height: 8),
-          Wrap(spacing: 12, runSpacing: 12, children: [
+          if (!Platform.isAndroid) Wrap(spacing: 12, runSpacing: 12, children: [
             FilledButton.icon(onPressed: lysConnected || lysBusy || _probingLys ? null : _probeLys, icon: _probingLys ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.search), label: const Text('Probe LYS USBCAN')),
             FilledButton.icon(onPressed: lysConnected || lysBusy || !_lysAvailable ? null : _connectLys, icon: const Icon(Icons.link), label: const Text('Connect CH4 + CH5')),
             if (lysConnected) FilledButton.tonalIcon(onPressed: () => runtime.disconnectChannel(4), icon: const Icon(Icons.link_off), label: const Text('Disconnect LYS')),
@@ -350,6 +360,7 @@ class _ConnectPageState extends State<ConnectPage> {
               SizedBox(
                 width: 240,
                 child: DropdownButtonFormField<String>(
+                  isExpanded: true,
                   key: ValueKey('vlinker-$_selectedVlinkerPort'),
                   initialValue: _selectedVlinkerPort,
                   decoration: InputDecoration(
@@ -358,7 +369,7 @@ class _ConnectPageState extends State<ConnectPage> {
                         : 'vLinker MS COM port',
                   ),
                   items: _vlinkerPorts
-                      .map((p) => DropdownMenuItem(value: p, child: Text(p)))
+                      .map((p) => DropdownMenuItem(value: p, child: Text(p, maxLines: 1, overflow: TextOverflow.ellipsis)))
                       .toList(),
                   onChanged: ch1.connected || ch1Busy
                       ? null
