@@ -6,9 +6,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import 'adapters/atlas_adapter.dart';
-import 'adapters/android_vlinker_ms_adapter.dart';
 import 'core/atlas_runtime.dart';
 import 'core/capture_session.dart';
+import 'core/fleetcarma_signal_candidates.dart';
 import 'core/gm_live_diagnostic_monitor.dart';
 import 'core/local_store.dart';
 import 'core/signal_discovery.dart';
@@ -68,10 +68,10 @@ class _AtlasHomePageState extends State<AtlasHomePage> {
           builder: (context, _) {
             final connected = AtlasRuntime.instance.anyConnected;
             return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
               child: Chip(
                 avatar: Icon(connected ? Icons.usb : Icons.offline_bolt, size: 18),
-                label: Text(connected ? '${AtlasRuntime.instance.connectedChannelCount} CHANNELS CONNECTED' : 'OFFLINE READY'),
+                label: Text(connected ? '${AtlasRuntime.instance.connectedChannelCount} ${AtlasRuntime.instance.connectedChannelCount == 1 ? 'CHANNEL' : 'CHANNELS'} CONNECTED' : 'OFFLINE READY', maxLines: 1, overflow: TextOverflow.ellipsis),
               ),
             );
           },
@@ -121,15 +121,25 @@ class PageShell extends StatelessWidget {
 class VehiclePage extends StatelessWidget {
   const VehiclePage({super.key});
   @override
-  Widget build(BuildContext context) => const PageShell(
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: AtlasRuntime.instance,
+    builder: (context, _) {
+      final runtime = AtlasRuntime.instance;
+      return PageShell(
     title: 'Vehicle Workspace',
     subtitle: 'Identify the vehicle, preserve research context, and keep every session tied to one machine.',
-    child: Wrap(spacing: 12, runSpacing: 12, children: [
-      _MetricCard(label: 'Vehicle', value: 'Not selected', icon: Icons.directions_car),
-      _MetricCard(label: 'VIN', value: '—', icon: Icons.pin),
-      _MetricCard(label: 'Platform', value: 'Unknown', icon: Icons.account_tree),
-      _MetricCard(label: 'Sessions', value: '0', icon: Icons.history),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(runtime.anyConnected ? 'Adapter connected. Vehicle identification has not been performed.' : 'Connect an adapter to begin vehicle discovery.'),
+      const SizedBox(height: 12),
+      Wrap(spacing: 12, runSpacing: 12, children: [
+        const _MetricCard(label: 'Vehicle', value: 'Not identified', icon: Icons.directions_car),
+        const _MetricCard(label: 'VIN', value: 'Not read', icon: Icons.pin),
+        const _MetricCard(label: 'Platform', value: 'Not identified', icon: Icons.account_tree),
+        _MetricCard(label: 'CAN activity', value: runtime.anyConnected ? '${runtime.framesPerSecond} frames/s' : 'Disconnected', icon: Icons.speed),
+      ]),
     ]),
+  );
+    },
   );
 }
 
@@ -142,6 +152,8 @@ class ConnectPage extends StatefulWidget {
 class _ConnectPageState extends State<ConnectPage> {
   List<String> _ports = const [];
   String? _selectedPort;
+  List<String> _vlinkerPorts = const [];
+  String? _selectedVlinkerPort;
   List<GsUsbDevice> _gsDevices = const [];
   String? _selectedGsPath;
   List<CanalystiiDevice> _caDevices = const [];
@@ -152,9 +164,6 @@ class _ConnectPageState extends State<ConnectPage> {
   bool _scanningCa = false;
   bool _probingLys = false;
   bool _lysAvailable = false;
-  List<AndroidBluetoothDevice> _bluetoothDevices = const [];
-  String? _selectedBluetoothAddress;
-  bool _scanningBluetooth = false;
 
   void _scanSlcan() {
     final ports = AtlasRuntime.instance.scanSlcanPorts();
@@ -164,64 +173,31 @@ class _ConnectPageState extends State<ConnectPage> {
     });
   }
 
-  Future<void> _scanBluetooth() async {
-    if (!Platform.isAndroid) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Bluetooth vLinker MS is currently enabled on Android.')),
-        );
-      }
-      return;
-    }
-
-    setState(() => _scanningBluetooth = true);
+  Future<void> _scanVlinkerMs() async {
     try {
-      final devices = await AtlasRuntime.instance.scanAndroidBluetoothDevices();
+      final ports = await AtlasRuntime.instance.scanVlinkerMsPorts();
       if (!mounted) return;
       setState(() {
-        _bluetoothDevices = devices;
-        if (_selectedBluetoothAddress == null ||
-            !devices.any((d) => d.address == _selectedBluetoothAddress)) {
-          final preferred = devices.where(
-            (d) => d.name.toLowerCase().contains('vlinker'),
-          );
-          _selectedBluetoothAddress = preferred.isNotEmpty
-              ? preferred.first.address
-              : (devices.isEmpty ? null : devices.first.address);
+        _vlinkerPorts = ports;
+        if (_selectedVlinkerPort == null ||
+            !ports.contains(_selectedVlinkerPort)) {
+          _selectedVlinkerPort = ports.isEmpty ? null : ports.first;
         }
       });
-      if (devices.isEmpty && mounted) {
+      if (ports.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No paired Bluetooth Classic devices found. Pair the vLinker MS in Android Settings first.')),
+          const SnackBar(
+            content: Text(
+              'No vLinker/OBD Bluetooth device found. Pair the adapter in '
+              'Android or Windows first.',
+            ),
+          ),
         );
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.toString())),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _scanningBluetooth = false);
-    }
-  }
-
-  Future<void> _connectBluetooth() async {
-    final device = _bluetoothDevices
-        .where((d) => d.address == _selectedBluetoothAddress)
-        .firstOrNull;
-    if (device == null) return;
-    try {
-      await AtlasRuntime.instance.connectAndroidVlinkerMs(
-        device.address,
-        deviceName: device.name.trim().isEmpty ? 'vLinker MS' : device.name,
-        channel: 1,
-      );
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.toString())),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
       }
     }
   }
@@ -287,6 +263,21 @@ class _ConnectPageState extends State<ConnectPage> {
     catch (error) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString()))); }
   }
 
+  Future<void> _connectVlinkerMs() async {
+    if (_selectedVlinkerPort == null) return;
+    try {
+      await AtlasRuntime.instance.connectVlinkerMs(
+        _selectedVlinkerPort!,
+        channel: 1,
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
   Future<void> _connectCanalystii() async {
     final device = _caDevices.where((d) => d.path == _selectedCaPath).firstOrNull;
     if (device == null) return;
@@ -315,7 +306,8 @@ class _ConnectPageState extends State<ConnectPage> {
       final lysBusy = ch4.state == AtlasAdapterState.connecting || ch5.state == AtlasAdapterState.connecting;
       final lysConnected = ch4.connected && ch5.connected;
       final slcanConnected = ch1.connected && ch1.adapter?.transport == 'SLCAN serial';
-      final bluetoothConnected = ch1.connected && ch1.adapter?.transport == 'Android Bluetooth Classic RFCOMM';
+      final vlinkerConnected =
+          ch1.connected && ch1.adapter?.transport == 'vLinker MS isolated serial';
       return PageShell(
         title: 'Connect',
         subtitle: 'Five-channel offline capture: CANable on CH1, CANalyst-II on CH2+CH3, LYS USBCAN-II on CH4+CH5.',
@@ -337,13 +329,70 @@ class _ConnectPageState extends State<ConnectPage> {
             if (caConnected) FilledButton.tonalIcon(onPressed: () => runtime.disconnectChannel(2), icon: const Icon(Icons.link_off), label: const Text('Disconnect CANalyst-II')),
           ]),
           const SizedBox(height: 18),
-          _StatusTile(name: 'CH4 + CH5 • LYS USBCAN-II dual', detail: lysConnected ? '${ch4.adapterName} • ${ch4.state.name} / ${ch5.adapterName} • ${ch5.state.name} • $_highSpeedBitrate bit/s' : _lysAvailable ? 'Direct WinUSB ready • VID 0471:PID 1200' : 'Native direct WinUSB transport • no ControlCAN.dll required', icon: Icons.device_hub),
+          if (!Platform.isAndroid) _StatusTile(name: 'CH4 + CH5 • LYS USBCAN-II dual', detail: lysConnected ? '${ch4.adapterName} • ${ch4.state.name} / ${ch5.adapterName} • ${ch5.state.name} • $_highSpeedBitrate bit/s' : _lysAvailable ? 'Direct WinUSB ready • VID 0471:PID 1200' : 'Native direct WinUSB transport • no ControlCAN.dll required', icon: Icons.device_hub),
           const SizedBox(height: 8),
-          Wrap(spacing: 12, runSpacing: 12, children: [
+          if (!Platform.isAndroid) Wrap(spacing: 12, runSpacing: 12, children: [
             FilledButton.icon(onPressed: lysConnected || lysBusy || _probingLys ? null : _probeLys, icon: _probingLys ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.search), label: const Text('Probe LYS USBCAN')),
             FilledButton.icon(onPressed: lysConnected || lysBusy || !_lysAvailable ? null : _connectLys, icon: const Icon(Icons.link), label: const Text('Connect CH4 + CH5')),
             if (lysConnected) FilledButton.tonalIcon(onPressed: () => runtime.disconnectChannel(4), icon: const Icon(Icons.link_off), label: const Text('Disconnect LYS')),
           ]),
+          const SizedBox(height: 18),
+          _StatusTile(
+            name: 'CH1 • vLinker MS',
+            detail: vlinkerConnected
+                ? '${ch1.adapterName} • ${ch1.state.name} • raw HS-CAN STM'
+                : Platform.isAndroid
+                    ? 'Android Bluetooth RFCOMM/SPP • raw 500 kbit/s HS-CAN monitor'
+                    : 'Bluetooth/serial COM transport • raw 500 kbit/s HS-CAN monitor',
+            icon: Icons.bluetooth,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              FilledButton.icon(
+                onPressed: ch1.connected || ch1Busy ? null : _scanVlinkerMs,
+                icon: const Icon(Icons.search),
+                label: const Text('Scan vLinker ports'),
+              ),
+              SizedBox(
+                width: 240,
+                child: DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  key: ValueKey('vlinker-$_selectedVlinkerPort'),
+                  initialValue: _selectedVlinkerPort,
+                  decoration: InputDecoration(
+                    labelText: Platform.isAndroid
+                        ? 'Paired vLinker MS'
+                        : 'vLinker MS COM port',
+                  ),
+                  items: _vlinkerPorts
+                      .map((p) => DropdownMenuItem(value: p, child: Text(p, maxLines: 1, overflow: TextOverflow.ellipsis)))
+                      .toList(),
+                  onChanged: ch1.connected || ch1Busy
+                      ? null
+                      : (v) => setState(() => _selectedVlinkerPort = v),
+                ),
+              ),
+              FilledButton.icon(
+                onPressed: ch1.connected ||
+                        ch1Busy ||
+                        _selectedVlinkerPort == null
+                    ? null
+                    : _connectVlinkerMs,
+                icon: const Icon(Icons.link),
+                label: const Text('Connect vLinker MS'),
+              ),
+              if (vlinkerConnected)
+                FilledButton.tonalIcon(
+                  onPressed: () => runtime.disconnectChannel(1),
+                  icon: const Icon(Icons.link_off),
+                  label: const Text('Disconnect vLinker MS'),
+                ),
+            ],
+          ),
           const SizedBox(height: 18),
           _StatusTile(name: 'CH1 • USB CAN / CANable (SLCAN)', detail: ch1.adapter?.transport == 'SLCAN serial' ? '${ch1.adapterName} • ${ch1.state.name} • $_highSpeedBitrate bit/s' : 'Serial Lawicel transport ready', icon: Icons.cable),
           const SizedBox(height: 8),
@@ -379,73 +428,8 @@ class _ConnectPageState extends State<ConnectPage> {
               onChanged: (caBusy || caConnected || lysBusy || lysConnected || slcanConnected) ? null : (v) => setState(() => _highSpeedBitrate = v ?? 500000),
             )),
           ]),
-          const SizedBox(height: 18),
-          _StatusTile(
-            name: 'CH1 • Bluetooth OBD adapter',
-            detail: bluetoothConnected
-                ? '${ch1.adapterName} • ${ch1.state.name} • HS-CAN 500 kbit/s passive monitor'
-                : Platform.isAndroid
-                    ? 'vLinker MS over Bluetooth Classic RFCOMM/SPP'
-                    : 'Android transport',
-            icon: Icons.bluetooth,
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              FilledButton.icon(
-                onPressed: !Platform.isAndroid || ch1.connected || ch1Busy || _scanningBluetooth
-                    ? null
-                    : _scanBluetooth,
-                icon: _scanningBluetooth
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.bluetooth_searching),
-                label: const Text('Paired Bluetooth devices'),
-              ),
-              SizedBox(
-                width: 360,
-                child: DropdownButtonFormField<String>(
-                  key: ValueKey('bt-$_selectedBluetoothAddress'),
-                  initialValue: _selectedBluetoothAddress,
-                  decoration: const InputDecoration(labelText: 'vLinker MS'),
-                  items: _bluetoothDevices
-                      .map(
-                        (d) => DropdownMenuItem(
-                          value: d.address,
-                          child: Text(d.label, overflow: TextOverflow.ellipsis),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: ch1.connected || ch1Busy
-                      ? null
-                      : (value) => setState(() => _selectedBluetoothAddress = value),
-                ),
-              ),
-              FilledButton.icon(
-                onPressed: !Platform.isAndroid ||
-                        ch1.connected ||
-                        ch1Busy ||
-                        _selectedBluetoothAddress == null
-                    ? null
-                    : _connectBluetooth,
-                icon: const Icon(Icons.link),
-                label: const Text('Connect vLinker MS'),
-              ),
-              if (bluetoothConnected)
-                FilledButton.tonalIcon(
-                  onPressed: () => runtime.disconnectChannel(1),
-                  icon: const Icon(Icons.link_off),
-                  label: const Text('Disconnect vLinker MS'),
-                ),
-            ],
-          ),
           const SizedBox(height: 12),
+          const _StatusTile(name: 'OBDLink MX+', detail: 'Linux RFCOMM transport available; Windows transport still pending', icon: Icons.bluetooth),
           const _StatusTile(name: 'J2534 / VCX', detail: 'Windows transport pending', icon: Icons.memory),
           if (runtime.lastError != null) ...[
             const SizedBox(height: 12),
@@ -467,6 +451,7 @@ class CapturePage extends StatefulWidget {
 class _CapturePageState extends State<CapturePage> {
   final _eventLabel = TextEditingController(text: 'GDS2 action');
   final _markerLabel = TextEditingController();
+  String? _fleetCarmaValidationReportPath;
 
   @override
   void dispose() {
@@ -482,6 +467,194 @@ class _CapturePageState extends State<CapturePage> {
     _markerLabel.clear();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Marked: $text')),
+    );
+  }
+
+  Future<void> _startFleetCarmaValidation(AtlasRuntime runtime) async {
+    final workspace = FleetCarmaCandidateWorkspace.instance;
+    final candidate = workspace.selectedCandidate;
+    if (candidate == null) return;
+    try {
+      if (!runtime.capture.isRecording) {
+        await runtime.startCapture(
+          eventLabel: 'FleetCarma candidate 0x${candidate.canIdHex}',
+        );
+      }
+      workspace.startValidation();
+      runtime.markCaptureEvent(
+        'FleetCarma validation start: historical bus ${candidate.bus}, '
+        'ID 0x${candidate.canIdHex}, ${candidate.kind} offset ${candidate.offset}',
+        source: 'fleetcarma-validation',
+      );
+      if (mounted) setState(() => _fleetCarmaValidationReportPath = null);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
+  void _markFleetCarmaStep(
+    AtlasRuntime runtime,
+    String label,
+    double targetMph,
+  ) {
+    final workspace = FleetCarmaCandidateWorkspace.instance;
+    try {
+      workspace.markStep(label, targetMph: targetMph);
+      runtime.markCaptureEvent(
+        'FleetCarma speed step: $label target=${targetMph.toStringAsFixed(0)} mph',
+        source: 'fleetcarma-validation',
+      );
+      setState(() {});
+    } catch (error) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  Future<void> _finishFleetCarmaValidation(AtlasRuntime runtime) async {
+    final workspace = FleetCarmaCandidateWorkspace.instance;
+    try {
+      if (runtime.capture.isRecording) {
+        runtime.markCaptureEvent(
+          'FleetCarma validation finish',
+          source: 'fleetcarma-validation',
+        );
+      }
+      final report = workspace.finishValidation();
+      final file =
+          await AtlasLocalStore.instance.writeFleetCarmaValidationReport(report);
+      if (runtime.capture.isRecording) {
+        await runtime.stopCapture();
+      }
+      if (mounted) {
+        setState(() => _fleetCarmaValidationReportPath = file.path);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('FleetCarma validation saved: ${file.path}')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
+  Widget _fleetCarmaValidationPanel(AtlasRuntime runtime) {
+    final workspace = FleetCarmaCandidateWorkspace.instance;
+    final candidate = workspace.selectedCandidate;
+    if (candidate == null) {
+      return const Card(
+        child: ListTile(
+          leading: Icon(Icons.science_outlined),
+          title: Text('FleetCarma candidate validation'),
+          subtitle: Text(
+            'Import fleetcarma_signal_candidates.json in Library and select a candidate first.',
+          ),
+        ),
+      );
+    }
+
+    final matching =
+        runtime.recentFrames.where((frame) => frame.id == candidate.canId).toList();
+    final latest = matching.isEmpty ? null : matching.first;
+    final decoded = latest == null ? null : candidate.decode(latest);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.science),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'FleetCarma live validation • 0x${candidate.canIdHex}',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                Chip(label: Text(workspace.validationActive ? 'RECORDING' : 'candidateOnly')),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Historical bus ${candidate.bus} • ${candidate.kind} offset ${candidate.offset} • '
+              'r=${candidate.speedCorrelation.toStringAsFixed(6)} • '
+              'overlap ${candidate.overlap}',
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'This workflow records validation evidence only. It cannot promote a signal to confirmed automatically.',
+            ),
+            const SizedBox(height: 10),
+            if (latest == null)
+              const Text('Waiting for the selected CAN ID in the live stream.')
+            else
+              Text(
+                'Latest CH${latest.channel}: ${latest.dataHex}  → raw ${decoded ?? 'n/a'}',
+              ),
+            const SizedBox(height: 12),
+            if (!workspace.validationActive)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  onPressed:
+                      runtime.anyConnected ? () => _startFleetCarmaValidation(runtime) : null,
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Text('Start candidate validation'),
+                ),
+              )
+            else ...[
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilledButton.tonal(
+                    onPressed: () => _markFleetCarmaStep(runtime, '0 mph', 0),
+                    child: const Text('0 mph'),
+                  ),
+                  FilledButton.tonal(
+                    onPressed: () => _markFleetCarmaStep(runtime, '10 mph', 10),
+                    child: const Text('10 mph'),
+                  ),
+                  FilledButton.tonal(
+                    onPressed: () => _markFleetCarmaStep(runtime, '20 mph', 20),
+                    child: const Text('20 mph'),
+                  ),
+                  FilledButton.tonal(
+                    onPressed: () => _markFleetCarmaStep(runtime, '30 mph', 30),
+                    child: const Text('30 mph'),
+                  ),
+                  FilledButton.tonal(
+                    onPressed: () => _markFleetCarmaStep(runtime, 'stop', 0),
+                    child: const Text('Stop / 0 mph'),
+                  ),
+                  FilledButton.icon(
+                    onPressed: () => _finishFleetCarmaValidation(runtime),
+                    icon: const Icon(Icons.stop),
+                    label: const Text('Finish + save report'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${workspace.samples.length} matching samples • '
+                '${workspace.markers.length} operator steps',
+              ),
+            ],
+            if (_fleetCarmaValidationReportPath != null) ...[
+              const SizedBox(height: 8),
+              SelectableText('Validation report: $_fleetCarmaValidationReportPath'),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -573,6 +746,8 @@ class _CapturePageState extends State<CapturePage> {
             const SizedBox(height: 6),
             Text('${runtime.totalFrames} total frames • ${runtime.framesPerSecond} frames/s'),
             const SizedBox(height: 16),
+            _fleetCarmaValidationPanel(runtime),
+            const SizedBox(height: 12),
             _gmDiagnosticPanel(gmLive),
             const SizedBox(height: 12),
             if (phase == CapturePhase.idle)
@@ -718,10 +893,28 @@ class _LibraryPageState extends State<LibraryPage> {
   void initState() { super.initState(); _refresh(); }
   void _refresh() => _logs = AtlasLocalStore.instance.listLogs();
   Future<void> _import() async {
-    final picked = await FilePicker.pickFile(type: FileType.custom, allowedExtensions: const ['log', 'csv', 'txt', 'json', 'asc', 'trc']);
+    final picked = await FilePicker.pickFile(type: FileType.custom, allowedExtensions: const ['log', 'csv', 'txt', 'json', 'asc', 'trc', 'bin']);
     final path = picked?.path;
     if (path == null) return;
-    await AtlasLocalStore.instance.importLog(File(path));
+    final source = File(path);
+    if (path.toLowerCase().endsWith('.json')) {
+      final text = await source.readAsString();
+      if (FleetCarmaCandidateWorkspace.instance.loadJsonText(text)) {
+        await AtlasLocalStore.instance.importLog(source);
+        if (mounted) {
+          setState(_refresh);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('FleetCarma candidate report loaded.')),
+          );
+        }
+        return;
+      }
+    }
+    if (path.toLowerCase().endsWith('.bin')) {
+      await AtlasLocalStore.instance.importFleetCarmaC5(source);
+    } else {
+      await AtlasLocalStore.instance.importLog(source);
+    }
     if (mounted) setState(_refresh);
   }
   @override
@@ -729,7 +922,56 @@ class _LibraryPageState extends State<LibraryPage> {
     title: 'Atlas Library',
     subtitle: 'Local vehicle captures remain available with no internet connection.',
     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Align(alignment: Alignment.centerLeft, child: FilledButton.icon(onPressed: _import, icon: const Icon(Icons.file_open), label: const Text('Import capture'))),
+      Align(alignment: Alignment.centerLeft, child: FilledButton.icon(onPressed: _import, icon: const Icon(Icons.file_open), label: const Text('Import capture / candidate report'))),
+      const SizedBox(height: 12),
+      Builder(builder: (context) {
+        final workspace = FleetCarmaCandidateWorkspace.instance;
+        final report = workspace.report;
+        if (report == null) return const SizedBox.shrink();
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('FleetCarma historical candidates', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 4),
+                Text(
+                  '${report.sourceFiles} source files • ${report.canFrames} CAN frames • '
+                  '${report.gpsSpeedSamples} GPS speed samples • ${report.mappingStatus}',
+                ),
+                const SizedBox(height: 4),
+                Text(report.evidenceBoundary),
+                const Divider(),
+                ...report.topSpeedCandidates.take(12).map((candidate) {
+                  final selected = identical(candidate, workspace.selectedCandidate);
+                  return ListTile(
+                    dense: true,
+                    leading: Icon(selected ? Icons.radio_button_checked : Icons.radio_button_off),
+                    title: Text(
+                      'Bus ${candidate.bus} • 0x${candidate.canIdHex} • '
+                      '${candidate.kind} @ ${candidate.offset}',
+                    ),
+                    subtitle: Text(
+                      'r=${candidate.speedCorrelation.toStringAsFixed(6)} • '
+                      'overlap ${candidate.overlap} • ${candidate.confidence}',
+                    ),
+                    trailing: FilledButton.tonal(
+                      onPressed: workspace.validationActive
+                          ? null
+                          : () {
+                              workspace.selectCandidate(candidate);
+                              setState(() {});
+                            },
+                      child: Text(selected ? 'Selected' : 'Select'),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      }),
       const SizedBox(height: 12),
       FutureBuilder<List<FileSystemEntity>>(
         future: _logs,
