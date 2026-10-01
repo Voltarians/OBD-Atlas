@@ -1,4 +1,5 @@
 name: iOS Cloud Build
+# Fresh run marker after Apple signing secret refresh: 2026-10-01
 
 on:
   push:
