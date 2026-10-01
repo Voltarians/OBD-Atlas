@@ -210,8 +210,40 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.appstoreconnect/private_keys"
-          printf '%s\n' "$ASC_PRIVATE_KEY" > "$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8"
-          chmod 600 "$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8"
+          KEY_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8"
+          # Accept either a literal multiline P8 secret or a single-line secret with escaped newlines.
+          printf '%s' "$ASC_PRIVATE_KEY" | sed 's/\\\\n/\\n/g' | tr -d '\\r' > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+
+          if ! grep -q '^-----BEGIN PRIVATE KEY-----
+      - name: Upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          IPA_PATH="$(find build/ios/ipa -maxdepth 1 -name '*.ipa' -print -quit)"
+          test -n "$IPA_PATH"
+          xcrun altool --upload-app --type ios --file "$IPA_PATH" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+ "$KEY_PATH" || ! grep -q '^-----END PRIVATE KEY-----
+      - name: Upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          IPA_PATH="$(find build/ios/ipa -maxdepth 1 -name '*.ipa' -print -quit)"
+          test -n "$IPA_PATH"
+          xcrun altool --upload-app --type ios --file "$IPA_PATH" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+ "$KEY_PATH"; then
+            echo "::error::APP_STORE_CONNECT_PRIVATE_KEY is not a PEM PKCS#8 private key. Store the complete AuthKey_*.p8 contents in the GitHub secret."
+            exit 1
+          fi
+          if ! openssl pkey -in "$KEY_PATH" -noout >/dev/null 2>&1; then
+            echo "::error::APP_STORE_CONNECT_PRIVATE_KEY could not be parsed by OpenSSL."
+            exit 1
+          fi
+          echo "App Store Connect API key PEM validated."
 
       - name: Upload to TestFlight
         env:
