@@ -23,6 +23,41 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Flutter environment
+        run: |
+          flutter --version
+          xcodebuild -version
+      - name: Resolve packages
+        run: flutter pub get
+      - name: Analyze
+        run: flutter analyze
+      - name: Build unsigned iOS app
+        run: flutter build ios --release --no-codesign
+      - name: Package unsigned app
+        run: |
+          cd build/ios/iphoneos
+          ditto -c -k --sequesterRsrc --keepParent Runner.app OBD-Atlas-iOS-unsigned.zip
+      - name: Upload unsigned iOS build
+        uses: actions/upload-artifact@v4
+        with:
+          name: OBD-Atlas-iOS-unsigned
+          path: build/ios/iphoneos/OBD-Atlas-iOS-unsigned.zip
+          if-no-files-found: error
+
+  ios-testflight:
+    if: github.event_name != 'pull_request'
+    needs: ios-unsigned
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      KEYCHAIN_PASSWORD: temporary-ci-keychain-password
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -30,28 +65,78 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Flutter environment
-        run: |
-          flutter --version
-          xcodebuild -version
-
       - name: Resolve packages
         run: flutter pub get
 
-      - name: Analyze
-        run: flutter analyze
-
-      - name: Build unsigned iOS app
-        run: flutter build ios --release --no-codesign
-
-      - name: Package unsigned app
+      - name: Install Apple signing assets
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
         run: |
-          cd build/ios/iphoneos
-          ditto -c -k --sequesterRsrc --keepParent Runner.app OBD-Atlas-iOS-unsigned.zip
+          set -euo pipefail
+          CERTIFICATE_PATH="$RUNNER_TEMP/obd-atlas-distribution.p12"
+          PROFILE_PATH="$RUNNER_TEMP/obd-atlas.mobileprovision"
+          KEYCHAIN_PATH="$RUNNER_TEMP/obd-atlas-signing.keychain-db"
+          echo "$CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          PROFILE_UUID="$(security cms -D -i "$PROFILE_PATH" | /usr/libexec/PlistBuddy -c 'Print UUID' /dev/stdin)"
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
 
-      - name: Upload unsigned iOS build
+      - name: Create App Store export options
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.voltarians.obdatlas</key>
+              <string>OBD Atlas App Store</string>
+            </dict>
+          </dict>
+          </plist>
+          PLIST
+
+      - name: Build signed IPA
+        run: flutter build ipa --release --export-options-plist="$RUNNER_TEMP/ExportOptions.plist"
+
+      - name: Upload signed IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: OBD-Atlas-iOS-unsigned
-          path: build/ios/iphoneos/OBD-Atlas-iOS-unsigned.zip
+          name: OBD-Atlas-iOS-signed
+          path: build/ios/ipa/*.ipa
           if-no-files-found: error
+
+      - name: Install App Store Connect API key
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          printf '%s\n' "$ASC_PRIVATE_KEY" > "$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8"
+          chmod 600 "$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8"
+
+      - name: Upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          IPA_PATH="$(find build/ios/ipa -maxdepth 1 -name '*.ipa' -print -quit)"
+          test -n "$IPA_PATH"
+          xcrun altool --upload-app --type ios --file "$IPA_PATH" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
