@@ -4,17 +4,20 @@ class AndroidRfcommDevice {
   const AndroidRfcommDevice({
     required this.name,
     required this.address,
+    this.transport,
   });
 
   final String name;
   final String address;
+  final String? transport;
 
-  String get label => '${name.isEmpty ? 'Bluetooth SPP' : name} • $address';
+  String get label => '${name.isEmpty ? 'Bluetooth device' : name} • $address';
 
   factory AndroidRfcommDevice.fromMap(Map<Object?, Object?> map) =>
       AndroidRfcommDevice(
         name: (map['name'] as String?) ?? '',
         address: map['address']! as String,
+        transport: map['transport'] as String?,
       );
 }
 
@@ -37,6 +40,20 @@ class AtlasAndroidRfcomm {
   static Future<List<AndroidRfcommDevice>> pairedDevices() async {
     final raw =
         await _channel.invokeListMethod<Object?>('pairedDevices') ?? const [];
+    return raw
+        .whereType<Map<Object?, Object?>>()
+        .map(AndroidRfcommDevice.fromMap)
+        .toList(growable: false);
+  }
+
+  static Future<List<AndroidRfcommDevice>> probeClassicDevices({
+    double timeoutSeconds = 8,
+  }) async {
+    final raw = await _channel.invokeListMethod<Object?>(
+          'probeClassicDevices',
+          <String, Object?>{'timeoutSeconds': timeoutSeconds},
+        ) ??
+        const [];
     return raw
         .whereType<Map<Object?, Object?>>()
         .map(AndroidRfcommDevice.fromMap)
