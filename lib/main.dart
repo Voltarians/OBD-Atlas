@@ -186,10 +186,13 @@ class _ConnectPageState extends State<ConnectPage> {
       });
       if (ports.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'No vLinker/OBD Bluetooth device found. Pair the adapter in '
-              'Android or Windows first.',
+              Platform.isIOS
+                  ? 'No Core Bluetooth-accessible vLinker/OBD device was observed. '
+                    'On iPhone, start the probe and connect the adapter in Bluetooth Settings. '
+                    'Core Bluetooth Classic exposes GATT over BR/EDR; it does not expose a generic RFCOMM/SPP serial port.'
+                  : 'No vLinker/OBD Bluetooth device found. Pair the adapter in Android or Windows first.',
             ),
           ),
         );
@@ -343,7 +346,9 @@ class _ConnectPageState extends State<ConnectPage> {
                 ? '${ch1.adapterName} • ${ch1.state.name} • raw HS-CAN STM'
                 : Platform.isAndroid
                     ? 'Android Bluetooth RFCOMM/SPP • raw 500 kbit/s HS-CAN monitor'
-                    : 'Bluetooth/serial COM transport • raw 500 kbit/s HS-CAN monitor',
+                    : Platform.isIOS
+                        ? 'iOS Core Bluetooth Classic BR/EDR GATT discovery probe • RFCOMM/SPP is not exposed by Core Bluetooth'
+                        : 'Bluetooth/serial COM transport • raw 500 kbit/s HS-CAN monitor',
             icon: Icons.bluetooth,
           ),
           const SizedBox(height: 8),
@@ -355,7 +360,7 @@ class _ConnectPageState extends State<ConnectPage> {
               FilledButton.icon(
                 onPressed: ch1.connected || ch1Busy ? null : _scanVlinkerMs,
                 icon: const Icon(Icons.search),
-                label: const Text('Scan vLinker ports'),
+                label: Text(Platform.isIOS ? 'Probe iOS Bluetooth' : 'Scan vLinker ports'),
               ),
               SizedBox(
                 width: 240,
@@ -366,7 +371,9 @@ class _ConnectPageState extends State<ConnectPage> {
                   decoration: InputDecoration(
                     labelText: Platform.isAndroid
                         ? 'Paired vLinker MS'
-                        : 'vLinker MS COM port',
+                        : Platform.isIOS
+                            ? 'Core Bluetooth probe result'
+                            : 'vLinker MS COM port',
                   ),
                   items: _vlinkerPorts
                       .map((p) => DropdownMenuItem(value: p, child: Text(p, maxLines: 1, overflow: TextOverflow.ellipsis)))
@@ -377,13 +384,14 @@ class _ConnectPageState extends State<ConnectPage> {
                 ),
               ),
               FilledButton.icon(
-                onPressed: ch1.connected ||
+                onPressed: Platform.isIOS ||
+                        ch1.connected ||
                         ch1Busy ||
                         _selectedVlinkerPort == null
                     ? null
                     : _connectVlinkerMs,
                 icon: const Icon(Icons.link),
-                label: const Text('Connect vLinker MS'),
+                label: Text(Platform.isIOS ? 'SPP unavailable on iOS' : 'Connect vLinker MS'),
               ),
               if (vlinkerConnected)
                 FilledButton.tonalIcon(
