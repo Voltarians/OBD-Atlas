@@ -77,8 +77,9 @@ jobs:
           CERTIFICATE_PATH="$RUNNER_TEMP/obd-atlas-distribution.p12"
           PROFILE_PATH="$RUNNER_TEMP/obd-atlas.mobileprovision"
           KEYCHAIN_PATH="$RUNNER_TEMP/obd-atlas-signing.keychain-db"
-          echo "$CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
-          echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+          echo "Validating Apple signing assets..."
+          printf '%s' "$CERTIFICATE_BASE64" | tr -d '\\r\\n ' | base64 --decode > "$CERTIFICATE_PATH" || { echo "::error::APPLE_DISTRIBUTION_CERTIFICATE_BASE64 is not valid Base64."; exit 1; }
+          printf '%s' "$PROVISIONING_PROFILE_BASE64" | tr -d '\\r\\n ' | base64 --decode > "$PROFILE_PATH" || { echo "::error::APPLE_PROVISIONING_PROFILE_BASE64 is not valid Base64."; exit 1; }
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
