@@ -18,3 +18,5 @@ flutter:
       android:
         package: com.voltarians.atlas_android_rfcomm
         pluginClass: AtlasAndroidRfcommPlugin
+      ios:
+        pluginClass: AtlasAndroidRfcommPlugin
