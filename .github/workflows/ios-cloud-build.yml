@@ -83,7 +83,14 @@ jobs:
           printf '%s' "$PROVISIONING_PROFILE_BASE64" | tr -d '\\r\\n ' | base64 --decode > "$PROFILE_PATH" || { echo "::error::APPLE_PROVISIONING_PROFILE_BASE64 is not valid Base64."; exit 1; }
           echo "Decoded signing asset diagnostics:"
           echo "Certificate bytes: $(wc -c < "$CERTIFICATE_PATH" | tr -d ' ')"
-          echo "Certificate SHA-256: $(shasum -a 256 "$CERTIFICATE_PATH" | awk '{print $1}')"
+          CERTIFICATE_SHA256="$(shasum -a 256 "$CERTIFICATE_PATH" | awk '{print $1}')"
+          echo "Certificate SHA-256: $CERTIFICATE_SHA256"
+          EXPECTED_CERTIFICATE_SHA256="abef5895d7929ae1b7c389b082c1c148e597a729669592485741b0b008713417"
+          if [ "$CERTIFICATE_SHA256" != "$EXPECTED_CERTIFICATE_SHA256" ]; then
+            echo "::error::APPLE_DISTRIBUTION_CERTIFICATE_BASE64 decoded to the wrong certificate. Expected SHA-256 $EXPECTED_CERTIFICATE_SHA256 but received $CERTIFICATE_SHA256."
+            exit 1
+          fi
+          echo "Certificate fingerprint matches the verified local P12."
           echo "Provisioning profile bytes: $(wc -c < "$PROFILE_PATH" | tr -d ' ')"
           echo "Provisioning profile SHA-256: $(shasum -a 256 "$PROFILE_PATH" | awk '{print $1}')"
           echo "Validating PKCS#12 container with OpenSSL..."
