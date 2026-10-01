@@ -50,8 +50,7 @@ jobs:
           if-no-files-found: error
 
   ios-testflight:
-    if: github.event_name != 'pull_request'
-    needs: ios-unsigned
+    # Never expose signing secrets to pull-request runs. Run signing only on a\n    # trusted direct push to this repository branch or a manual dispatch.\n    if: >-\n      ${{ github.event_name == 'workflow_dispatch' ||\n          (github.event_name == 'push' && github.ref == 'refs/heads/feature/ios-testflight-foundation') }}\n    needs: ios-unsigned
     runs-on: macos-latest
     timeout-minutes: 30
     env:
