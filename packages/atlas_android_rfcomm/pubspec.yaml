@@ -1,0 +1,20 @@
+name: atlas_android_rfcomm
+version: 0.1.0
+publish_to: none
+
+description: Android Bluetooth RFCOMM/SPP transport for OBD Atlas.
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+  flutter: '>=3.22.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.voltarians.atlas_android_rfcomm
+        pluginClass: AtlasAndroidRfcommPlugin

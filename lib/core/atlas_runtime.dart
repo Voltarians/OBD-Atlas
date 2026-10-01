@@ -6,7 +6,6 @@ import 'package:atlas_gs_usb/atlas_gs_usb.dart';
 import 'package:flutter/foundation.dart';
 
 import '../adapters/atlas_adapter.dart';
-import '../adapters/android_vlinker_ms_adapter.dart';
 import '../adapters/canalystii_adapter.dart';
 import '../adapters/gs_usb_adapter.dart';
 import '../adapters/linux_uc2_adapter.dart';
@@ -14,9 +13,11 @@ import '../adapters/linux_uc2_pair_adapter.dart';
 import '../adapters/linux_obdlink_mx_adapter.dart';
 import '../adapters/lys_usbcan_adapter.dart';
 import '../adapters/slcan_adapter.dart';
+import '../adapters/vlinker_ms_adapter.dart';
 import '../adapters/socketcan_adapter.dart';
 import 'can_frame.dart';
 import 'capture_session.dart';
+import 'fleetcarma_signal_candidates.dart';
 import 'local_store.dart';
 import 'signal_discovery.dart';
 
@@ -71,10 +72,9 @@ class AtlasRuntime extends ChangeNotifier {
   bool get isCapturing => capture.hasOpenCapture;
 
   List<String> scanSlcanPorts() => SlcanAdapter.availablePorts();
+  Future<List<String>> scanVlinkerMsPorts() => VlinkerMsAdapter.availablePorts();
   Future<List<String>> scanLinuxObdlinkPorts() =>
       LinuxObdlinkMxAdapter.availablePorts();
-  Future<List<AndroidBluetoothDevice>> scanAndroidBluetoothDevices() =>
-      AndroidVlinkerMsAdapter.pairedDevices();
   Future<List<String>> scanSocketCanInterfaces() => SocketCanAdapter.availableInterfaces();
   Future<List<int>> scanLinuxUc2Devices() => LinuxUc2Adapter.availableDeviceIndices();
   String? get linuxUc2LibraryPath => LinuxUc2Adapter.findLibraryPath();
@@ -124,23 +124,23 @@ class AtlasRuntime extends ChangeNotifier {
     );
   }
 
-  Future<void> connectSocketCan(String interfaceName, {int channel = 1}) async {
-    await _connectAdapter(SocketCanAdapter(interfaceName, channel: channel), channel);
-  }
-
-  Future<void> connectAndroidVlinkerMs(
-    String address, {
-    String deviceName = 'vLinker MS',
+  Future<void> connectVlinkerMs(
+    String portName, {
     int channel = 1,
+    int baudRate = 115200,
   }) async {
     await _connectAdapter(
-      AndroidVlinkerMsAdapter(
-        address: address,
-        deviceName: deviceName,
+      VlinkerMsAdapter(
+        portName,
         channel: channel,
+        baudRate: baudRate,
       ),
       channel,
     );
+  }
+
+  Future<void> connectSocketCan(String interfaceName, {int channel = 1}) async {
+    await _connectAdapter(SocketCanAdapter(interfaceName, channel: channel), channel);
   }
 
   Future<void> connectLinuxObdlinkMx(
@@ -399,6 +399,7 @@ class AtlasRuntime extends ChangeNotifier {
     recentFrames.insert(0, frame);
     if (recentFrames.length > 500) recentFrames.removeLast();
     capture.writeLine(frame.toCandump());
+    FleetCarmaCandidateWorkspace.instance.observe(frame);
     if (capture.isRecording) discovery.observe(frame);
     // Do not rebuild the whole desktop UI once for every CAN frame.
     // The rate/UI timers publish the latest counters and recent-frame list.

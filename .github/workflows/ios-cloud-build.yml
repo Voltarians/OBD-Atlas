@@ -1,0 +1,227 @@
+name: iOS Cloud Build
+# Fresh run marker after GH CLI P12 secret update: 2026-10-01
+
+on:
+  push:
+    branches:
+      - feature/ios-testflight-foundation
+  pull_request:
+    paths:
+      - 'ios/**'
+      - 'lib/**'
+      - 'packages/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/ios-cloud-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-unsigned:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Flutter environment
+        run: |
+          flutter --version
+          xcodebuild -version
+      - name: Resolve packages
+        run: flutter pub get
+      - name: Analyze
+        run: flutter analyze
+      - name: Build unsigned iOS app
+        run: flutter build ios --release --no-codesign
+      - name: Package unsigned app
+        run: |
+          cd build/ios/iphoneos
+          ditto -c -k --sequesterRsrc --keepParent Runner.app OBD-Atlas-iOS-unsigned.zip
+      - name: Upload unsigned iOS build
+        uses: actions/upload-artifact@v4
+        with:
+          name: OBD-Atlas-iOS-unsigned
+          path: build/ios/iphoneos/OBD-Atlas-iOS-unsigned.zip
+          if-no-files-found: error
+
+  ios-testflight:
+    # Never expose signing secrets to pull-request runs. Run signing only on a\n    # trusted direct push to this repository branch or a manual dispatch.\n    if: >-\n      ${{ github.event_name == 'workflow_dispatch' ||\n          (github.event_name == 'push' && github.ref == 'refs/heads/feature/ios-testflight-foundation') }}\n    needs: ios-unsigned
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      KEYCHAIN_PASSWORD: temporary-ci-keychain-password
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve packages
+        run: flutter pub get
+
+      - name: Install Apple signing assets
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.APPLE_DISTRIBUTION_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          CERTIFICATE_PATH="$RUNNER_TEMP/obd-atlas-distribution.p12"
+          PROFILE_PATH="$RUNNER_TEMP/obd-atlas.mobileprovision"
+          KEYCHAIN_PATH="$RUNNER_TEMP/obd-atlas-signing.keychain-db"
+          echo "Validating Apple signing assets..."
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH" || { echo "::error::APPLE_DISTRIBUTION_P12_BASE64 is not valid Base64."; exit 1; }
+          printf '%s' "$PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH" || { echo "::error::APPLE_PROVISIONING_PROFILE_BASE64 is not valid Base64."; exit 1; }
+          echo "Decoded signing asset diagnostics:"
+          echo "Certificate bytes: $(wc -c < "$CERTIFICATE_PATH" | tr -d ' ')"
+          CERTIFICATE_SHA256="$(shasum -a 256 "$CERTIFICATE_PATH" | awk '{print $1}')"
+          echo "Certificate SHA-256: $CERTIFICATE_SHA256"
+          EXPECTED_CERTIFICATE_SHA256="abef5895d7929ae1b7c389b082c1c148e597a729669592485741b0b008713417"
+          if [ "$CERTIFICATE_SHA256" != "$EXPECTED_CERTIFICATE_SHA256" ]; then
+            echo "::error::APPLE_DISTRIBUTION_P12_BASE64 decoded to the wrong certificate. Expected SHA-256 $EXPECTED_CERTIFICATE_SHA256 but received $CERTIFICATE_SHA256."
+            exit 1
+          fi
+          echo "Certificate fingerprint matches the verified local P12."
+          echo "Provisioning profile bytes: $(wc -c < "$PROFILE_PATH" | tr -d ' ')"
+          echo "Provisioning profile SHA-256: $(shasum -a 256 "$PROFILE_PATH" | awk '{print $1}')"
+          echo "Validating PKCS#12 container with OpenSSL..."
+          if ! openssl pkcs12 -in "$CERTIFICATE_PATH" -passin env:CERTIFICATE_PASSWORD -info -noout 2>"$RUNNER_TEMP/p12-check.log"; then
+            sed -E 's/(MAC:|salt:|Iteration|PKCS7|Shrouded|Certificate bag|Key bag).*/\\1 [details omitted]/I' "$RUNNER_TEMP/p12-check.log"
+            echo "::error::OpenSSL could not read the decoded PKCS#12 certificate. Check the P12 bytes/password/algorithm compatibility."
+            exit 1
+          fi
+          echo "OpenSSL PKCS#12 validation passed."
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          security cms -D -i "$PROFILE_PATH" > "$RUNNER_TEMP/profile.plist"
+          PROFILE_UUID="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/profile.plist")"
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+
+      - name: Create App Store export options
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.voltarians.obdatlas</key>
+              <string>OBD Atlas App Store 2026</string>
+            </dict>
+          </dict>
+          </plist>
+          PLIST
+
+      - name: Configure Xcode signing
+        run: |
+          set -euo pipefail
+          PBXPROJ="ios/Runner.xcodeproj/project.pbxproj"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("ios/Runner.xcodeproj/project.pbxproj")
+          text = path.read_text()
+
+          # Remove project-level signing settings so stale iPhone Developer
+          # overrides cannot win over the Release/App Store configuration.
+          keys = [
+              "DEVELOPMENT_TEAM",
+              "CODE_SIGN_STYLE",
+              "CODE_SIGN_IDENTITY",
+              "PROVISIONING_PROFILE_SPECIFIER",
+          ]
+          for key in keys:
+              text = re.sub(
+                  rf'^\s*"?{re.escape(key)}(?:\[sdk=iphoneos\*\])?"?\s*=\s*[^;]*;\s*$',
+                  "",
+                  text,
+                  flags=re.MULTILINE,
+              )
+
+          # Keep the permanent bundle identifier.
+          text = re.sub(
+              r'(PRODUCT_BUNDLE_IDENTIFIER\s*=\s*)[^;]+;',
+              r'\g<1>com.voltarians.obdatlas;',
+              text,
+          )
+
+          # Inject explicit App Store signing into every buildSettings block.
+          # This guarantees Flutter's archive invocation sees the team and
+          # Apple Distribution identity, including the Release configuration.
+          marker = "PRODUCT_BUNDLE_IDENTIFIER = com.voltarians.obdatlas;"
+          signing = (
+              marker + "\n"
+              "\t\t\t\tDEVELOPMENT_TEAM = B3QHY9J2Q8;\n"
+              "\t\t\t\tCODE_SIGN_STYLE = Manual;\n"
+              '\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n'
+              '\t\t\t\t"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";\n'
+              '\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "OBD Atlas App Store 2026";'
+          )
+          text = text.replace(marker, signing)
+
+          path.write_text(text)
+          PY
+
+          echo "Resolved Runner Release signing:"
+          xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Release -showBuildSettings |
+            grep -E 'DEVELOPMENT_TEAM|PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER' |
+            sort -u
+
+          xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Release -showBuildSettings |
+            grep -q 'DEVELOPMENT_TEAM = B3QHY9J2Q8'
+          xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Release -showBuildSettings |
+            grep -q 'CODE_SIGN_IDENTITY = Apple Distribution'
+
+      - name: Build signed IPA
+        run: flutter build ipa --release --build-name=1.0.0 --build-number=${{ github.run_number }} --export-options-plist="$RUNNER_TEMP/ExportOptions.plist"
+
+      - name: Upload signed IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OBD-Atlas-iOS-signed
+          path: build/ios/ipa/*.ipa
+          if-no-files-found: error
+
+      - name: Install App Store Connect API key
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          KEY_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8"
+          printf '%s' "$ASC_PRIVATE_KEY" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          openssl pkey -in "$KEY_PATH" -noout >/dev/null
+          echo "App Store Connect API key PEM validated."
+
+      - name: Upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          IPA_PATH="$(find build/ios/ipa -maxdepth 1 -name '*.ipa' -print -quit)"
+          test -n "$IPA_PATH"
+          xcrun altool --upload-app --type ios --file "$IPA_PATH" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
