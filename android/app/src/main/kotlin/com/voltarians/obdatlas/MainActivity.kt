@@ -1,4 +1,4 @@
-package com.example.obd_atlas
+package com.voltarians.obdatlas
 
 import io.flutter.embedding.android.FlutterActivity
 
