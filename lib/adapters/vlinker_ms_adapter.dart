@@ -81,6 +81,19 @@ class VlinkerMsAdapter implements AtlasAdapter {
           .toList(growable: false);
     }
 
+    if (Platform.isIOS) {
+      final devices = await AtlasAndroidRfcomm.probeClassicDevices();
+      return devices
+          .where((device) {
+            final name = device.name.toLowerCase();
+            return name.contains('vlinker') ||
+                name.contains('obd') ||
+                name.contains('stn');
+          })
+          .map((device) => device.label)
+          .toList(growable: false);
+    }
+
     if (!Platform.isWindows) return const <String>[];
     try {
       final result = Process.runSync(
@@ -157,10 +170,18 @@ class VlinkerMsAdapter implements AtlasAdapter {
       return;
     }
 
+    if (Platform.isIOS) {
+      _setState(AtlasAdapterState.error);
+      throw UnsupportedError(
+        'The iOS Core Bluetooth Classic probe can observe BR/EDR devices that expose GATT, '
+        'but iOS does not expose the vLinker MS RFCOMM/SPP serial stream through Core Bluetooth.',
+      );
+    }
+
     if (!Platform.isWindows) {
       _setState(AtlasAdapterState.error);
       throw UnsupportedError(
-        'vLinker MS is currently supported on Windows and Android.',
+        'vLinker MS is currently supported on Windows and Android; iOS has a discovery-only Core Bluetooth Classic probe.',
       );
     }
 
