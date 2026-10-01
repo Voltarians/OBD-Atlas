@@ -1,5 +1,5 @@
 name: iOS Cloud Build
-# Fresh run marker after verified P12 secret refresh: 2026-10-01
+# Fresh run marker after GH CLI P12 secret update: 2026-10-01
 
 on:
   push:
