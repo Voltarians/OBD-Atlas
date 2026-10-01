@@ -50,10 +50,9 @@ android {
 
     buildTypes {
         release {
-            if (!keystorePropertiesFile.exists()) {
-                throw GradleException("Release signing requires android/key.properties. See docs/GOOGLE_PLAY_RELEASE.md.")
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
             }
-            signingConfig = signingConfigs.getByName("release")
         }
     }
 }
