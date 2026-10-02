@@ -311,6 +311,99 @@ class _ConnectPageState extends State<ConnectPage> {
       final slcanConnected = ch1.connected && ch1.adapter?.transport == 'SLCAN serial';
       final vlinkerConnected =
           ch1.connected && ch1.adapter?.transport == 'vLinker MS isolated serial';
+
+      if (Platform.isIOS) {
+        return PageShell(
+          title: 'Connect',
+          subtitle: 'iPhone/iPad transport status and Bluetooth adapter characterization.',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _StatusTile(
+                name: 'iOS transport',
+                detail:
+                    'Core Bluetooth BR/EDR GATT characterization is active. Generic RFCOMM/SPP serial is not exposed by iOS Core Bluetooth.',
+                icon: Icons.phone_iphone,
+              ),
+              const SizedBox(height: 12),
+              _StatusTile(
+                name: 'vLinker / OBD Bluetooth probe',
+                detail: _selectedVlinkerPort == null
+                    ? 'No compatible Core Bluetooth device characterized yet.'
+                    : 'Observed: $_selectedVlinkerPort',
+                icon: Icons.bluetooth_searching,
+              ),
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: ch1Busy ? null : _scanVlinkerMs,
+                icon: const Icon(Icons.bluetooth_searching),
+                label: const Text('PROBE IOS BLUETOOTH'),
+              ),
+              if (_vlinkerPorts.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  key: ValueKey('ios-vlinker-$_selectedVlinkerPort'),
+                  initialValue: _selectedVlinkerPort,
+                  decoration: const InputDecoration(
+                    labelText: 'Core Bluetooth characterization result',
+                  ),
+                  items: _vlinkerPorts
+                      .map(
+                        (p) => DropdownMenuItem(
+                          value: p,
+                          child: Text(
+                            p,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (v) => setState(() => _selectedVlinkerPort = v),
+                ),
+              ],
+              const SizedBox(height: 16),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: const [
+                      Text(
+                        'Atlas on iOS today',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'The complete Atlas workspace remains available for offline research, imported captures, signal discovery, DBC work, library review and evidence analysis. '
+                        'Desktop USB transports (CANable/gs_usb, CANalyst-II, LYS USB-CAN and SLCAN serial) are intentionally hidden on iOS instead of presenting controls that cannot open there.',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const _StatusTile(
+                name: 'Direct live CAN on iPhone',
+                detail:
+                    'Pending a verified iOS-compatible adapter transport. Bluetooth characterization is evidence gathering, not a claimed raw-CAN connection.',
+                icon: Icons.science_outlined,
+              ),
+              if (runtime.lastError != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  runtime.lastError!,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      }
+
       return PageShell(
         title: 'Connect',
         subtitle: 'Five-channel offline capture: CANable on CH1, CANalyst-II on CH2+CH3, LYS USBCAN-II on CH4+CH5.',
