@@ -5,11 +5,13 @@ class AndroidRfcommDevice {
     required this.name,
     required this.address,
     this.transport,
+    this.details = const <Object?, Object?>{},
   });
 
   final String name;
   final String address;
   final String? transport;
+  final Map<Object?, Object?> details;
 
   String get label => '${name.isEmpty ? 'Bluetooth device' : name} • $address';
 
@@ -18,6 +20,7 @@ class AndroidRfcommDevice {
         name: (map['name'] as String?) ?? '',
         address: map['address']! as String,
         transport: map['transport'] as String?,
+        details: map,
       );
 }
 
@@ -45,6 +48,9 @@ class AtlasAndroidRfcomm {
         .map(AndroidRfcommDevice.fromMap)
         .toList(growable: false);
   }
+
+  static Future<String> bluetoothState() async =>
+      await _channel.invokeMethod<String>('bluetoothState') ?? 'unknown';
 
   static Future<List<AndroidRfcommDevice>> probeClassicDevices({
     double timeoutSeconds = 8,
