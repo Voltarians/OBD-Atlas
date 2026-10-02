@@ -82,16 +82,13 @@ class VlinkerMsAdapter implements AtlasAdapter {
     }
 
     if (Platform.isIOS) {
-      final devices = await AtlasAndroidRfcomm.probeClassicDevices();
-      return devices
-          .where((device) {
-            final name = device.name.toLowerCase();
-            return name.contains('vlinker') ||
-                name.contains('obd') ||
-                name.contains('stn');
-          })
-          .map((device) => device.label)
-          .toList(growable: false);
+      // Deliberately unfiltered on iOS. This is a characterization build:
+      // preserve every Core Bluetooth-visible peer so an unexpected adapter
+      // name cannot hide useful evidence.
+      final devices = await AtlasAndroidRfcomm.probeClassicDevices(
+        timeoutSeconds: 12,
+      );
+      return devices.map((device) => device.label).toList(growable: false);
     }
 
     if (!Platform.isWindows) return const <String>[];
