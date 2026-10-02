@@ -129,7 +129,25 @@ class VehiclePage extends StatelessWidget {
     title: 'Vehicle Workspace',
     subtitle: 'Identify the vehicle, preserve research context, and keep every session tied to one machine.',
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(runtime.anyConnected ? 'Adapter connected. Vehicle identification has not been performed.' : 'Connect an adapter to begin vehicle discovery.'),
+      Text(
+        runtime.anyConnected
+            ? 'Adapter connected. Vehicle identification has not been performed.'
+            : Platform.isIOS
+                ? 'iOS research mode is ready. Import existing Atlas evidence now, or characterize an iPhone-compatible adapter from Connect.'
+                : 'Connect an adapter to begin vehicle discovery.',
+      ),
+      if (Platform.isIOS) ...[
+        const SizedBox(height: 12),
+        const Card(
+          child: ListTile(
+            leading: Icon(Icons.phone_iphone),
+            title: Text('iOS Atlas workspace'),
+            subtitle: Text(
+              'Vehicle identity, CAN decoding and evidence rules are shared with Atlas on other platforms. Live vehicle discovery remains gated on a verified iOS CAN transport.',
+            ),
+          ),
+        ),
+      ],
       const SizedBox(height: 12),
       Wrap(spacing: 12, runSpacing: 12, children: [
         const _MetricCard(label: 'Vehicle', value: 'Not identified', icon: Icons.directions_car),
@@ -311,6 +329,99 @@ class _ConnectPageState extends State<ConnectPage> {
       final slcanConnected = ch1.connected && ch1.adapter?.transport == 'SLCAN serial';
       final vlinkerConnected =
           ch1.connected && ch1.adapter?.transport == 'vLinker MS isolated serial';
+
+      if (Platform.isIOS) {
+        return PageShell(
+          title: 'Connect',
+          subtitle: 'iPhone/iPad transport status and Bluetooth adapter characterization.',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _StatusTile(
+                name: 'iOS transport',
+                detail:
+                    'Core Bluetooth BR/EDR GATT characterization is active. Generic RFCOMM/SPP serial is not exposed by iOS Core Bluetooth.',
+                icon: Icons.phone_iphone,
+              ),
+              const SizedBox(height: 12),
+              _StatusTile(
+                name: 'vLinker / OBD Bluetooth probe',
+                detail: _selectedVlinkerPort == null
+                    ? 'No compatible Core Bluetooth device characterized yet.'
+                    : 'Observed: $_selectedVlinkerPort',
+                icon: Icons.bluetooth_searching,
+              ),
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: ch1Busy ? null : _scanVlinkerMs,
+                icon: const Icon(Icons.bluetooth_searching),
+                label: const Text('PROBE IOS BLUETOOTH'),
+              ),
+              if (_vlinkerPorts.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  key: ValueKey('ios-vlinker-$_selectedVlinkerPort'),
+                  initialValue: _selectedVlinkerPort,
+                  decoration: const InputDecoration(
+                    labelText: 'Core Bluetooth characterization result',
+                  ),
+                  items: _vlinkerPorts
+                      .map(
+                        (p) => DropdownMenuItem(
+                          value: p,
+                          child: Text(
+                            p,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (v) => setState(() => _selectedVlinkerPort = v),
+                ),
+              ],
+              const SizedBox(height: 16),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: const [
+                      Text(
+                        'Atlas on iOS today',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'The complete Atlas workspace remains available for offline research, imported captures, signal discovery, DBC work, library review and evidence analysis. '
+                        'Desktop USB transports (CANable/gs_usb, CANalyst-II, LYS USB-CAN and SLCAN serial) are intentionally hidden on iOS instead of presenting controls that cannot open there.',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const _StatusTile(
+                name: 'Direct live CAN on iPhone',
+                detail:
+                    'Pending a verified iOS-compatible adapter transport. Bluetooth characterization is evidence gathering, not a claimed raw-CAN connection.',
+                icon: Icons.science_outlined,
+              ),
+              if (runtime.lastError != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  runtime.lastError!,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      }
+
       return PageShell(
         title: 'Connect',
         subtitle: 'Five-channel offline capture: CANable on CH1, CANalyst-II on CH2+CH3, LYS USBCAN-II on CH4+CH5.',
@@ -471,7 +582,7 @@ class _CapturePageState extends State<CapturePage> {
   void _mark(AtlasRuntime runtime) {
     final text = _markerLabel.text.trim();
     if (text.isEmpty || !runtime.capture.isRecording) return;
-    runtime.markCaptureEvent(text, source: 'windows-ui');
+    runtime.markCaptureEvent(text, source: Platform.isIOS ? 'ios-ui' : Platform.isAndroid ? 'android-ui' : 'desktop-ui');
     _markerLabel.clear();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Marked: $text')),
@@ -735,11 +846,25 @@ class _CapturePageState extends State<CapturePage> {
       final isStopping = phase == CapturePhase.stopping;
       final gmLive = GmLiveDiagnosticMonitor.analyze(runtime.recentFrames);
       return PageShell(
-        title: 'GM Tool / Passive Capture',
-        subtitle: 'Record raw CAN beside GDS2, SPS2 or DPS and write timestamped Atlas event markers into the same evidence stream.',
+        title: Platform.isIOS ? 'Capture & Evidence' : 'GM Tool / Passive Capture',
+        subtitle: Platform.isIOS
+            ? 'Review the shared capture workflow on iPhone. Live recording becomes available automatically when a verified iOS CAN transport is connected.'
+            : 'Record raw CAN beside GDS2, SPS2 or DPS and write timestamped Atlas event markers into the same evidence stream.',
         child: Card(child: Padding(
           padding: const EdgeInsets.all(20),
           child: Column(children: [
+            if (Platform.isIOS && !connected) ...[
+              const Card(
+                child: ListTile(
+                  leading: Icon(Icons.info_outline),
+                  title: Text('No verified live CAN transport connected'),
+                  subtitle: Text(
+                    'Capture controls remain safely disabled. Atlas Library, imported evidence and offline analysis still work on iPhone.',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             Icon(isRecording || isStopping ? Icons.stop_circle : Icons.fiber_manual_record, size: 56),
             const SizedBox(height: 12),
             Text(isStarting
@@ -869,6 +994,18 @@ class LiveDataPage extends StatelessWidget {
         title: 'Live Data',
         subtitle: 'Raw frame visibility first; decoding layers can bind to the same canonical stream later.',
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          if (Platform.isIOS && !runtime.anyConnected) ...[
+            const Card(
+              child: ListTile(
+                leading: Icon(Icons.phone_iphone),
+                title: Text('Live stream waiting for an iOS CAN transport'),
+                subtitle: Text(
+                  'The decoder and frame model are already shared with desktop and Android. No live values are fabricated while iPhone transport validation is incomplete.',
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           Wrap(spacing: 12, runSpacing: 12, children: [
             _MetricCard(label: 'Frames/s', value: '${runtime.framesPerSecond}', icon: Icons.speed),
             _MetricCard(label: 'Total frames', value: '${runtime.totalFrames}', icon: Icons.timeline),
@@ -928,9 +1065,11 @@ class _LibraryPageState extends State<LibraryPage> {
   @override
   Widget build(BuildContext context) => PageShell(
     title: 'Atlas Library',
-    subtitle: 'Local vehicle captures remain available with no internet connection.',
+    subtitle: Platform.isIOS
+        ? 'Import and review Atlas captures, candidate reports and research evidence locally on iPhone/iPad.'
+        : 'Local vehicle captures remain available with no internet connection.',
     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Align(alignment: Alignment.centerLeft, child: FilledButton.icon(onPressed: _import, icon: const Icon(Icons.file_open), label: const Text('Import capture / candidate report'))),
+      Align(alignment: Alignment.centerLeft, child: FilledButton.icon(onPressed: _import, icon: const Icon(Icons.file_open), label: Text(Platform.isIOS ? 'Import Atlas evidence' : 'Import capture / candidate report'))),
       const SizedBox(height: 12),
       Builder(builder: (context) {
         final workspace = FleetCarmaCandidateWorkspace.instance;
@@ -1000,17 +1139,51 @@ class _LibraryPageState extends State<LibraryPage> {
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
+
   @override
-  Widget build(BuildContext context) => const PageShell(
-    title: 'Settings • iOS BT Probe',
-    subtitle: 'Core application behavior is local by default. Internet services are not required for operation.',
-    child: Column(children: [
-      SwitchListTile(value: true, onChanged: null, title: Text('Offline-first mode'), subtitle: Text('Permanent architectural default')),
-      SwitchListTile(value: true, onChanged: null, title: Text('Preserve raw captures'), subtitle: Text('Keep source evidence before decoding')),
-      ListTile(leading: Icon(Icons.cloud_off), title: Text('Cloud dependency'), trailing: Text('NONE')),
-      ListTile(leading: Icon(Icons.info_outline), title: Text('Build'), trailing: Text('1.0.1 • iOS BT Probe')),
-    ]),
-  );
+  Widget build(BuildContext context) {
+    final ios = Platform.isIOS;
+    return PageShell(
+      title: ios ? 'Settings • iOS' : 'Settings',
+      subtitle:
+          'Core application behavior is local by default. Internet services are not required for operation.',
+      child: Column(
+        children: [
+          const SwitchListTile(
+            value: true,
+            onChanged: null,
+            title: Text('Offline-first mode'),
+            subtitle: Text('Permanent architectural default'),
+          ),
+          const SwitchListTile(
+            value: true,
+            onChanged: null,
+            title: Text('Preserve raw captures'),
+            subtitle: Text('Keep source evidence before decoding'),
+          ),
+          const ListTile(
+            leading: Icon(Icons.cloud_off),
+            title: Text('Cloud dependency'),
+            trailing: Text('NONE'),
+          ),
+          if (ios)
+            const ListTile(
+              leading: Icon(Icons.bluetooth),
+              title: Text('iOS Bluetooth status'),
+              subtitle: Text(
+                'Core Bluetooth characterization enabled; raw RFCOMM/SPP CAN transport is not claimed.',
+              ),
+              trailing: Text('PROBE'),
+            ),
+          ListTile(
+            leading: const Icon(Icons.info_outline),
+            title: const Text('Build'),
+            trailing: Text(ios ? '0.1.0-alpha.5 • iOS parity' : '0.1.0-alpha.5'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _MetricCard extends StatelessWidget {

@@ -1,8 +1,8 @@
 name: obd_atlas
-version: 0.1.0-alpha.5+9
+version: 0.1.0-alpha.6+10
 publish_to: none
 
-description: Offline-first OBD Atlas desktop and Android research frontend.
+description: Offline-first OBD Atlas research frontend for desktop, Android, and iOS.
 
 environment:
   sdk: '>=3.4.0 <4.0.0'
