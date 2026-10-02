@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/ios-corebluetooth-classic-probe
+      - feature/ios-current-parity
   workflow_dispatch:
 
 permissions:
@@ -173,13 +174,18 @@ jobs:
         env:
           ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+          ASC_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.appstoreconnect/private_keys"
           KEY_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8"
-          printf '%s' "$ASC_PRIVATE_KEY" > "$KEY_PATH"
+          if [ -n "${ASC_PRIVATE_KEY_BASE64:-}" ]; then
+            printf '%s' "$ASC_PRIVATE_KEY_BASE64" | base64 --decode > "$KEY_PATH"
+          else
+            printf '%s' "$ASC_PRIVATE_KEY" > "$KEY_PATH"
+          fi
           chmod 600 "$KEY_PATH"
-          openssl pkey -in "$KEY_PATH" -noout >/dev/null
+          grep -q "BEGIN PRIVATE KEY" "$KEY_PATH" || { echo "::error::App Store Connect key is not a PEM private key."; exit 1; }
 
       - name: Upload to TestFlight
         env:
