@@ -1002,13 +1002,13 @@ class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
   @override
   Widget build(BuildContext context) => const PageShell(
-    title: 'Settings',
+    title: 'Settings • iOS BT Probe',
     subtitle: 'Core application behavior is local by default. Internet services are not required for operation.',
     child: Column(children: [
       SwitchListTile(value: true, onChanged: null, title: Text('Offline-first mode'), subtitle: Text('Permanent architectural default')),
       SwitchListTile(value: true, onChanged: null, title: Text('Preserve raw captures'), subtitle: Text('Keep source evidence before decoding')),
       ListTile(leading: Icon(Icons.cloud_off), title: Text('Cloud dependency'), trailing: Text('NONE')),
-      ListTile(leading: Icon(Icons.info_outline), title: Text('Build'), trailing: Text('7')),
+      ListTile(leading: Icon(Icons.info_outline), title: Text('Build'), trailing: Text('1.0.1 • iOS BT Probe')),
     ]),
   );
 }
