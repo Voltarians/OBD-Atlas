@@ -1,0 +1,20 @@
+[Unit]
+Description=PCG-1 vLinker MS SAE PID 0142 voltage reader
+After=promethean-vlinker-ms-rfcomm.service promethean-pcg1-gateway.service
+Wants=promethean-vlinker-ms-rfcomm.service
+
+[Service]
+Type=simple
+User=monroe
+Group=monroe
+SupplementaryGroups=dialout
+RuntimeDirectory=promethean
+RuntimeDirectoryMode=0755
+ExecStart=/usr/bin/python3 /usr/local/lib/promethean/pcg1_pid0142_reader.py --port /dev/rfcomm0 --baud 115200 --interval 1.0 --state-file /run/promethean/vehicle_state.json
+Restart=always
+RestartSec=1
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

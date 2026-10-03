@@ -1,0 +1,19 @@
+[Unit]
+Description=PCG-1 Promethean Core vehicle-state gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=monroe
+Group=monroe
+RuntimeDirectory=promethean
+RuntimeDirectoryMode=0755
+ExecStart=/usr/bin/python3 /usr/local/lib/promethean/pcg1_core_gateway.py --host 0.0.0.0 --port 47001 --state-file /run/promethean/vehicle_state.json
+Restart=always
+RestartSec=1
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
