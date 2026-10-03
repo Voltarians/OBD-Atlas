@@ -312,7 +312,9 @@ class _ConnectPageState extends State<ConnectPage> {
       final lysConnected = ch4.connected && ch5.connected;
       final slcanConnected = ch1.connected && ch1.adapter?.transport == 'SLCAN serial';
       final vlinkerConnected =
-          ch1.connected && ch1.adapter?.transport == 'vLinker MS isolated serial';
+          ch1.connected && (ch1.adapter?.transport == 'vLinker MS isolated serial' ||
+              ch1.adapter?.transport == 'vLinker MS Android RFCOMM' ||
+              ch1.adapter?.transport == 'vLinker MS iOS BLE GATT');
       return PageShell(
         title: 'Connect',
         subtitle: 'Five-channel offline capture: CANable on CH1, CANalyst-II on CH2+CH3, LYS USBCAN-II on CH4+CH5.',
@@ -350,8 +352,8 @@ class _ConnectPageState extends State<ConnectPage> {
                     ? 'Android Bluetooth RFCOMM/SPP • raw 500 kbit/s HS-CAN monitor'
                     : Platform.isIOS
                         ? (_iosVlinkerProbeCompleted && _vlinkerPorts.isEmpty
-                            ? 'Unavailable on this device • no Core Bluetooth-accessible GATT interface observed • generic RFCOMM/SPP is not exposed by iOS'
-                            : 'Compatibility test only • checks for a Core Bluetooth-accessible GATT interface; this is not general Bluetooth Classic/SPP support')
+                            ? 'No BLE vLinker observed • set vLinker MS connection mode to BLE+BT, then probe again'
+                            : 'iOS BLE/GATT transport • vLinker MS must be configured for BLE+BT mode')
                         : 'Bluetooth/serial COM transport • raw 500 kbit/s HS-CAN monitor',
             icon: Icons.bluetooth,
           ),
@@ -364,7 +366,7 @@ class _ConnectPageState extends State<ConnectPage> {
               FilledButton.icon(
                 onPressed: ch1.connected || ch1Busy ? null : _scanVlinkerMs,
                 icon: const Icon(Icons.search),
-                label: Text(Platform.isIOS ? 'Probe iOS Bluetooth' : 'Scan vLinker ports'),
+                label: Text(Platform.isIOS ? 'Scan vLinker BLE' : 'Scan vLinker ports'),
               ),
               SizedBox(
                 width: 240,
@@ -388,14 +390,13 @@ class _ConnectPageState extends State<ConnectPage> {
                 ),
               ),
               FilledButton.icon(
-                onPressed: Platform.isIOS ||
-                        ch1.connected ||
+                onPressed: ch1.connected ||
                         ch1Busy ||
                         _selectedVlinkerPort == null
                     ? null
                     : _connectVlinkerMs,
                 icon: const Icon(Icons.link),
-                label: Text(Platform.isIOS ? 'Connection unavailable' : 'Connect vLinker MS'),
+                label: Text(Platform.isIOS ? 'Connect vLinker BLE' : 'Connect vLinker MS'),
               ),
               if (vlinkerConnected)
                 FilledButton.tonalIcon(
