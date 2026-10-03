@@ -1,0 +1,192 @@
+name: iOS Core Bluetooth Build
+
+on:
+  push:
+    branches:
+      - feature/ios-corebluetooth-classic-probe
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-unsigned:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate iOS host project
+        run: |
+          flutter create --platforms=ios --project-name obd_atlas .
+          /usr/libexec/PlistBuddy -c "Add :NSBluetoothAlwaysUsageDescription string OBD Atlas uses Bluetooth to discover and communicate with vehicle diagnostic adapters." ios/Runner/Info.plist ||           /usr/libexec/PlistBuddy -c "Set :NSBluetoothAlwaysUsageDescription OBD Atlas uses Bluetooth to discover and communicate with vehicle diagnostic adapters." ios/Runner/Info.plist
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("ios/Runner.xcodeproj/project.pbxproj")
+          s = p.read_text()
+          s = re.sub(r'(PRODUCT_BUNDLE_IDENTIFIER\s*=\s*)[^;]+;', r'\g<1>com.voltarians.obdatlas;', s)
+          p.write_text(s)
+          PY
+
+      - name: Resolve packages
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Build unsigned iOS app
+        run: flutter build ios --release --no-codesign
+
+      - name: Package unsigned app
+        run: |
+          cd build/ios/iphoneos
+          ditto -c -k --sequesterRsrc --keepParent Runner.app OBD-Atlas-iOS-CoreBluetooth-unsigned.zip
+
+      - name: Upload unsigned iOS build
+        uses: actions/upload-artifact@v4
+        with:
+          name: OBD-Atlas-iOS-CoreBluetooth-unsigned
+          path: build/ios/iphoneos/OBD-Atlas-iOS-CoreBluetooth-unsigned.zip
+          if-no-files-found: error
+
+  ios-testflight:
+    needs: ios-unsigned
+    runs-on: macos-latest
+    timeout-minutes: 35
+    env:
+      KEYCHAIN_PASSWORD: temporary-ci-keychain-password
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate iOS host project
+        run: |
+          flutter create --platforms=ios --project-name obd_atlas .
+          /usr/libexec/PlistBuddy -c "Add :NSBluetoothAlwaysUsageDescription string OBD Atlas uses Bluetooth to discover and communicate with vehicle diagnostic adapters." ios/Runner/Info.plist ||           /usr/libexec/PlistBuddy -c "Set :NSBluetoothAlwaysUsageDescription OBD Atlas uses Bluetooth to discover and communicate with vehicle diagnostic adapters." ios/Runner/Info.plist
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("ios/Runner.xcodeproj/project.pbxproj")
+          s = p.read_text()
+          s = re.sub(r'(PRODUCT_BUNDLE_IDENTIFIER\s*=\s*)[^;]+;', r'\g<1>com.voltarians.obdatlas;', s)
+          p.write_text(s)
+          PY
+          flutter pub get
+
+      - name: Install Apple signing assets
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.APPLE_DISTRIBUTION_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          CERTIFICATE_PATH="$RUNNER_TEMP/obd-atlas-distribution.p12"
+          PROFILE_PATH="$RUNNER_TEMP/obd-atlas.mobileprovision"
+          KEYCHAIN_PATH="$RUNNER_TEMP/obd-atlas-signing.keychain-db"
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          printf '%s' "$PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          security cms -D -i "$PROFILE_PATH" > "$RUNNER_TEMP/profile.plist"
+          PROFILE_UUID="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/profile.plist")"
+          PROFILE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$RUNNER_TEMP/profile.plist")"
+          PROFILE_APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$RUNNER_TEMP/profile.plist")"
+          echo "Provisioning profile: $PROFILE_NAME"
+          echo "Application identifier: $PROFILE_APP_ID"
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+
+      - name: Configure Xcode signing
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os, re
+          p = Path("ios/Runner.xcodeproj/project.pbxproj")
+          s = p.read_text()
+          keys = ["DEVELOPMENT_TEAM","CODE_SIGN_STYLE","CODE_SIGN_IDENTITY","PROVISIONING_PROFILE_SPECIFIER"]
+          for key in keys:
+              s = re.sub(rf'^\s*"?{re.escape(key)}(?:\[sdk=iphoneos\*\])?"?\s*=\s*[^;]*;\s*$', "", s, flags=re.MULTILINE)
+          s = re.sub(r'(PRODUCT_BUNDLE_IDENTIFIER\s*=\s*)[^;]+;', r'\g<1>com.voltarians.obdatlas;', s)
+          marker = "PRODUCT_BUNDLE_IDENTIFIER = com.voltarians.obdatlas;"
+          signing = (
+              marker + "\n"
+              "\t\t\t\tDEVELOPMENT_TEAM = B3QHY9J2Q8;\n"
+              "\t\t\t\tCODE_SIGN_STYLE = Manual;\n"
+              '\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n'
+              '\t\t\t\t"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";\n'
+              f'\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "{os.environ["PROFILE_NAME"]}";'
+          )
+          s = s.replace(marker, signing)
+          p.write_text(s)
+          PY
+
+      - name: Create App Store export options
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>teamID</key>
+            <string>B3QHY9J2Q8</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.voltarians.obdatlas</key>
+              <string>$PROFILE_NAME</string>
+            </dict>
+          </dict>
+          </plist>
+          PLIST
+
+      - name: Build signed IPA
+        run: flutter build ipa --release --build-name=1.0.1 --build-number=$((57 + ${{ github.run_number }})) --export-options-plist="$RUNNER_TEMP/ExportOptions.plist"
+
+      - name: Upload signed IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OBD-Atlas-iOS-CoreBluetooth-signed
+          path: build/ios/ipa/*.ipa
+          if-no-files-found: error
+
+      - name: Install App Store Connect API key
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          KEY_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8"
+          printf '%s' "$ASC_PRIVATE_KEY" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          openssl pkey -in "$KEY_PATH" -noout >/dev/null
+
+      - name: Upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          IPA_PATH="$(find build/ios/ipa -maxdepth 1 -name '*.ipa' -print -quit)"
+          test -n "$IPA_PATH"
+          xcrun altool --upload-app --type ios --file "$IPA_PATH" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"

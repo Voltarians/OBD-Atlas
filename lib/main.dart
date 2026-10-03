@@ -164,6 +164,7 @@ class _ConnectPageState extends State<ConnectPage> {
   bool _scanningCa = false;
   bool _probingLys = false;
   bool _lysAvailable = false;
+  bool _iosVlinkerProbeCompleted = false;
 
   void _scanSlcan() {
     final ports = AtlasRuntime.instance.scanSlcanPorts();
@@ -178,6 +179,7 @@ class _ConnectPageState extends State<ConnectPage> {
       final ports = await AtlasRuntime.instance.scanVlinkerMsPorts();
       if (!mounted) return;
       setState(() {
+        if (Platform.isIOS) _iosVlinkerProbeCompleted = true;
         _vlinkerPorts = ports;
         if (_selectedVlinkerPort == null ||
             !ports.contains(_selectedVlinkerPort)) {
@@ -186,10 +188,13 @@ class _ConnectPageState extends State<ConnectPage> {
       });
       if (ports.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'No vLinker/OBD Bluetooth device found. Pair the adapter in '
-              'Android or Windows first.',
+              Platform.isIOS
+                  ? 'No Core Bluetooth-accessible vLinker/OBD device was observed. '
+                    'On iPhone, start the probe and connect the adapter in Bluetooth Settings. '
+                    'Core Bluetooth Classic exposes GATT over BR/EDR; it does not expose a generic RFCOMM/SPP serial port.'
+                  : 'No vLinker/OBD Bluetooth device found. Pair the adapter in Android or Windows first.',
             ),
           ),
         );
@@ -307,7 +312,9 @@ class _ConnectPageState extends State<ConnectPage> {
       final lysConnected = ch4.connected && ch5.connected;
       final slcanConnected = ch1.connected && ch1.adapter?.transport == 'SLCAN serial';
       final vlinkerConnected =
-          ch1.connected && ch1.adapter?.transport == 'vLinker MS isolated serial';
+          ch1.connected && (ch1.adapter?.transport == 'vLinker MS isolated serial' ||
+              ch1.adapter?.transport == 'vLinker MS Android RFCOMM' ||
+              ch1.adapter?.transport == 'vLinker MS iOS BLE GATT');
       return PageShell(
         title: 'Connect',
         subtitle: 'Five-channel offline capture: CANable on CH1, CANalyst-II on CH2+CH3, LYS USBCAN-II on CH4+CH5.',
@@ -338,12 +345,16 @@ class _ConnectPageState extends State<ConnectPage> {
           ]),
           const SizedBox(height: 18),
           _StatusTile(
-            name: 'CH1 • vLinker MS',
+            name: Platform.isIOS ? 'vLinker MS • compatibility probe' : 'CH1 • vLinker MS',
             detail: vlinkerConnected
                 ? '${ch1.adapterName} • ${ch1.state.name} • raw HS-CAN STM'
                 : Platform.isAndroid
                     ? 'Android Bluetooth RFCOMM/SPP • raw 500 kbit/s HS-CAN monitor'
-                    : 'Bluetooth/serial COM transport • raw 500 kbit/s HS-CAN monitor',
+                    : Platform.isIOS
+                        ? (_iosVlinkerProbeCompleted && _vlinkerPorts.isEmpty
+                            ? 'No BLE vLinker observed • set vLinker MS connection mode to BLE+BT, then probe again'
+                            : 'iOS BLE/GATT transport • vLinker MS must be configured for BLE+BT mode')
+                        : 'Bluetooth/serial COM transport • raw 500 kbit/s HS-CAN monitor',
             icon: Icons.bluetooth,
           ),
           const SizedBox(height: 8),
@@ -355,7 +366,7 @@ class _ConnectPageState extends State<ConnectPage> {
               FilledButton.icon(
                 onPressed: ch1.connected || ch1Busy ? null : _scanVlinkerMs,
                 icon: const Icon(Icons.search),
-                label: const Text('Scan vLinker ports'),
+                label: Text(Platform.isIOS ? 'Scan vLinker BLE' : 'Scan vLinker ports'),
               ),
               SizedBox(
                 width: 240,
@@ -366,7 +377,9 @@ class _ConnectPageState extends State<ConnectPage> {
                   decoration: InputDecoration(
                     labelText: Platform.isAndroid
                         ? 'Paired vLinker MS'
-                        : 'vLinker MS COM port',
+                        : Platform.isIOS
+                            ? 'Compatibility probe result'
+                            : 'vLinker MS COM port',
                   ),
                   items: _vlinkerPorts
                       .map((p) => DropdownMenuItem(value: p, child: Text(p, maxLines: 1, overflow: TextOverflow.ellipsis)))
@@ -383,7 +396,7 @@ class _ConnectPageState extends State<ConnectPage> {
                     ? null
                     : _connectVlinkerMs,
                 icon: const Icon(Icons.link),
-                label: const Text('Connect vLinker MS'),
+                label: Text(Platform.isIOS ? 'Connect vLinker BLE' : 'Connect vLinker MS'),
               ),
               if (vlinkerConnected)
                 FilledButton.tonalIcon(
@@ -994,13 +1007,13 @@ class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
   @override
   Widget build(BuildContext context) => const PageShell(
-    title: 'Settings',
+    title: 'Settings • iOS BT Probe',
     subtitle: 'Core application behavior is local by default. Internet services are not required for operation.',
     child: Column(children: [
       SwitchListTile(value: true, onChanged: null, title: Text('Offline-first mode'), subtitle: Text('Permanent architectural default')),
       SwitchListTile(value: true, onChanged: null, title: Text('Preserve raw captures'), subtitle: Text('Keep source evidence before decoding')),
       ListTile(leading: Icon(Icons.cloud_off), title: Text('Cloud dependency'), trailing: Text('NONE')),
-      ListTile(leading: Icon(Icons.info_outline), title: Text('Build'), trailing: Text('7')),
+      ListTile(leading: Icon(Icons.info_outline), title: Text('Build'), trailing: Text('1.0.1 • iOS BT Probe')),
     ]),
   );
 }
