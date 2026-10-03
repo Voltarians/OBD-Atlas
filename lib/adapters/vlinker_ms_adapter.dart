@@ -50,7 +50,9 @@ class VlinkerMsAdapter implements AtlasAdapter {
   @override
   String get transport => Platform.isAndroid
       ? 'vLinker MS Android RFCOMM'
-      : 'vLinker MS isolated serial';
+      : Platform.isIOS
+          ? 'vLinker MS iOS BLE GATT'
+          : 'vLinker MS isolated serial';
 
   @override
   AtlasAdapterState get state => _state;
@@ -82,13 +84,18 @@ class VlinkerMsAdapter implements AtlasAdapter {
     }
 
     if (Platform.isIOS) {
-      // Deliberately unfiltered on iOS. This is a characterization build:
-      // preserve every Core Bluetooth-visible peer so an unexpected adapter
-      // name cannot hide useful evidence.
-      final devices = await AtlasAndroidRfcomm.probeClassicDevices(
-        timeoutSeconds: 12,
+      final devices = await AtlasAndroidRfcomm.scanBleDevices(
+        timeoutSeconds: 8,
       );
-      return devices.map((device) => device.label).toList(growable: false);
+      return devices
+          .where((device) {
+            final name = device.name.toLowerCase();
+            return name.contains('vlinker') ||
+                name.contains('obd') ||
+                name.contains('stn');
+          })
+          .map((device) => device.label)
+          .toList(growable: false);
     }
 
     if (!Platform.isWindows) return const <String>[];
@@ -132,6 +139,14 @@ class VlinkerMsAdapter implements AtlasAdapter {
     return match?.group(0)?.toUpperCase();
   }
 
+  static String? iosIdentifierFromLabel(String value) {
+    final match = RegExp(
+      r'[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}',
+      caseSensitive: false,
+    ).firstMatch(value);
+    return match?.group(0)?.toUpperCase();
+  }
+
   static String _encodePowerShellCommand(String command) {
     final bytes = <int>[];
     for (final codeUnit in command.codeUnits) {
@@ -168,17 +183,14 @@ class VlinkerMsAdapter implements AtlasAdapter {
     }
 
     if (Platform.isIOS) {
-      _setState(AtlasAdapterState.error);
-      throw UnsupportedError(
-        'The iOS Core Bluetooth Classic probe can observe BR/EDR devices that expose GATT, '
-        'but iOS does not expose the vLinker MS RFCOMM/SPP serial stream through Core Bluetooth.',
-      );
+      await _connectIosBle();
+      return;
     }
 
     if (!Platform.isWindows) {
       _setState(AtlasAdapterState.error);
       throw UnsupportedError(
-        'vLinker MS is currently supported on Windows and Android; iOS has a discovery-only Core Bluetooth Classic probe.',
+        'vLinker MS is currently supported on Windows serial, Android RFCOMM, and iOS BLE GATT.',
       );
     }
 
@@ -319,7 +331,7 @@ class VlinkerMsAdapter implements AtlasAdapter {
 
   Future<void> _write(String command) async {
     final bytes = Uint8List.fromList(ascii.encode('$command\r'));
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid || Platform.isIOS) {
       await AtlasAndroidRfcomm.write(bytes);
       return;
     }
@@ -381,6 +393,65 @@ class VlinkerMsAdapter implements AtlasAdapter {
         onTimeout: () => throw TimeoutException(
           'vLinker MS connected over Android RFCOMM but no HS-CAN frames '
           'were received. Confirm the vehicle bus is active.',
+        ),
+      );
+      _setState(AtlasAdapterState.connected);
+    } catch (_) {
+      await disconnect();
+      rethrow;
+    }
+  }
+
+  Future<void> _connectIosBle() async {
+    final granted = await AtlasAndroidRfcomm.requestConnectPermission();
+    if (!granted) {
+      _setState(AtlasAdapterState.error);
+      throw StateError(
+        'Bluetooth permission is required to connect the vLinker MS over BLE.',
+      );
+    }
+
+    final identifier = iosIdentifierFromLabel(portName);
+    if (identifier == null) {
+      _setState(AtlasAdapterState.error);
+      throw StateError('No iOS BLE peripheral identifier found in $portName');
+    }
+
+    _androidBytesSubscription = AtlasAndroidRfcomm.bytes.listen(
+      (bytes) => _onText(ascii.decode(bytes, allowInvalid: true)),
+      onError: (Object error, StackTrace stack) =>
+          _onTransportError(error, stack),
+    );
+
+    try {
+      await AtlasAndroidRfcomm.connect(identifier).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw TimeoutException(
+          'Timed out connecting to vLinker MS $identifier over iOS BLE GATT.',
+        ),
+      );
+
+      await _command('ATZ', timeout: const Duration(seconds: 4));
+      await _command('ATE0');
+      await _command('ATL0');
+      await _command('ATS0');
+      await _command('ATH1');
+      await _command('ATD0');
+      await _command('ATAL');
+      await _command('ATCFC0');
+      await _command('STP 31');
+      await _command('STCMM 0');
+      await _command('STFAC');
+      await _command('STFPA 000,000');
+
+      _monitoring = true;
+      await _write('STM');
+
+      await _firstFrame!.future.timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => throw TimeoutException(
+          'vLinker MS BLE GATT connected but no HS-CAN frames were received. '
+          'Confirm the adapter is in BT+BLE mode and the vehicle bus is active.',
         ),
       );
       _setState(AtlasAdapterState.connected);
@@ -507,7 +578,7 @@ class VlinkerMsAdapter implements AtlasAdapter {
   Future<void> disconnect() async {
     _disconnecting = true;
 
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid || Platform.isIOS) {
       if (_monitoring) {
         try {
           await AtlasAndroidRfcomm.write(
