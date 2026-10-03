@@ -345,6 +345,35 @@ public final class AtlasAndroidRfcommPlugin: NSObject, FlutterPlugin, FlutterStr
         }
     }
 
+    private func tryGenericSerialProfile(
+        peripheral: CBPeripheral,
+        service: CBService,
+        characteristics: [CBCharacteristic]
+    ) -> String? {
+        let candidates = characteristics.filter {
+            $0.properties.contains(.write) ||
+            $0.properties.contains(.writeWithoutResponse) ||
+            $0.properties.contains(.notify) ||
+            $0.properties.contains(.indicate)
+        }
+
+        let notify = candidates.first {
+            $0.properties.contains(.notify) || $0.properties.contains(.indicate)
+        }
+        let write = candidates.first {
+            $0.properties.contains(.writeWithoutResponse) || $0.properties.contains(.write)
+        }
+
+        guard let notifyCharacteristic = notify,
+              let writeCharacteristic = write else {
+            return nil
+        }
+
+        self.notifyCharacteristic = notifyCharacteristic
+        self.writeCharacteristic = writeCharacteristic
+        return "Auto GATT serial \(service.uuid.uuidString)"
+    }
+
     public func peripheral(
         _ peripheral: CBPeripheral,
         didDiscoverCharacteristicsFor service: CBService,
@@ -380,30 +409,42 @@ public final class AtlasAndroidRfcommPlugin: NSObject, FlutterPlugin, FlutterStr
         report["services"] = services
         reports[peripheral.identifier] = report
 
-        guard let profile = profiles.first(where: {
+        if let profile = profiles.first(where: {
             $0.service.uppercased() == serviceUUID
-        }) else {
-            return
+        }) {
+            for characteristic in service.characteristics ?? [] {
+                let uuid = characteristic.uuid.uuidString.uppercased()
+                if uuid == profile.notify.uppercased() &&
+                    (characteristic.properties.contains(.notify) ||
+                     characteristic.properties.contains(.indicate)) {
+                    notifyCharacteristic = characteristic
+                }
+                if uuid == profile.write.uppercased() &&
+                    (characteristic.properties.contains(.write) ||
+                     characteristic.properties.contains(.writeWithoutResponse)) {
+                    writeCharacteristic = characteristic
+                }
+            }
+
+            if let notify = notifyCharacteristic, writeCharacteristic != nil {
+                report["profile"] = profile.tag
+                reports[peripheral.identifier] = report
+                peripheral.setNotifyValue(true, for: notify)
+                return
+            }
         }
 
-        for characteristic in service.characteristics ?? [] {
-            let uuid = characteristic.uuid.uuidString.uppercased()
-            if uuid == profile.notify.uppercased() &&
-                (characteristic.properties.contains(.notify) ||
-                 characteristic.properties.contains(.indicate)) {
-                notifyCharacteristic = characteristic
-            }
-            if uuid == profile.write.uppercased() &&
-                (characteristic.properties.contains(.write) ||
-                 characteristic.properties.contains(.writeWithoutResponse)) {
-                writeCharacteristic = characteristic
-            }
-        }
-
-        if let notify = notifyCharacteristic, writeCharacteristic != nil {
-            report["profile"] = profile.tag
+        let deviceName = ((reports[peripheral.identifier]?["name"] as? String) ?? "").lowercased()
+        if deviceName.contains("kiwi"),
+           let genericProfile = tryGenericSerialProfile(
+                peripheral: peripheral,
+                service: service,
+                characteristics: service.characteristics ?? []) {
+            report["profile"] = genericProfile
             reports[peripheral.identifier] = report
-            peripheral.setNotifyValue(true, for: notify)
+            if let notify = notifyCharacteristic {
+                peripheral.setNotifyValue(true, for: notify)
+            }
         }
     }
 
