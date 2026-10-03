@@ -420,7 +420,8 @@ class _ConnectPageState extends State<ConnectPage> {
                       Text(
                         'Atlas uses BLE GATT on iPhone instead of Bluetooth SPP. '
                         'vLinker MS uses the known 18F0 / 2AF0 / 2AF1 profile. '
-                        'Kiwi 3 is identified by name and Atlas binds to its discovered notify/write GATT pair dynamically.',
+                        'Kiwi 3 uses the proven TruConnect characteristics from Voltarian: write 1CCE1EA8-BD34-4813-A00A-C76E028FADCB and notify CACC07FF-FFFF-4C48-8FAE-A9EF71B75E26. '
+                        'Atlas keeps dynamic GATT fallback only if a Kiwi firmware variant does not expose that pair.',
                       ),
                     ],
                   ),
