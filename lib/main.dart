@@ -164,6 +164,7 @@ class _ConnectPageState extends State<ConnectPage> {
   bool _scanningCa = false;
   bool _probingLys = false;
   bool _lysAvailable = false;
+  bool _iosVlinkerProbeCompleted = false;
 
   void _scanSlcan() {
     final ports = AtlasRuntime.instance.scanSlcanPorts();
@@ -178,6 +179,7 @@ class _ConnectPageState extends State<ConnectPage> {
       final ports = await AtlasRuntime.instance.scanVlinkerMsPorts();
       if (!mounted) return;
       setState(() {
+        if (Platform.isIOS) _iosVlinkerProbeCompleted = true;
         _vlinkerPorts = ports;
         if (_selectedVlinkerPort == null ||
             !ports.contains(_selectedVlinkerPort)) {
@@ -341,13 +343,15 @@ class _ConnectPageState extends State<ConnectPage> {
           ]),
           const SizedBox(height: 18),
           _StatusTile(
-            name: 'CH1 • vLinker MS',
+            name: Platform.isIOS ? 'vLinker MS • compatibility probe' : 'CH1 • vLinker MS',
             detail: vlinkerConnected
                 ? '${ch1.adapterName} • ${ch1.state.name} • raw HS-CAN STM'
                 : Platform.isAndroid
                     ? 'Android Bluetooth RFCOMM/SPP • raw 500 kbit/s HS-CAN monitor'
                     : Platform.isIOS
-                        ? 'iOS Core Bluetooth Classic BR/EDR GATT discovery probe • RFCOMM/SPP is not exposed by Core Bluetooth'
+                        ? (_iosVlinkerProbeCompleted && _vlinkerPorts.isEmpty
+                            ? 'Unavailable on this device • no Core Bluetooth-accessible GATT interface observed • generic RFCOMM/SPP is not exposed by iOS'
+                            : 'Compatibility test only • checks for a Core Bluetooth-accessible GATT interface; this is not general Bluetooth Classic/SPP support')
                         : 'Bluetooth/serial COM transport • raw 500 kbit/s HS-CAN monitor',
             icon: Icons.bluetooth,
           ),
@@ -372,7 +376,7 @@ class _ConnectPageState extends State<ConnectPage> {
                     labelText: Platform.isAndroid
                         ? 'Paired vLinker MS'
                         : Platform.isIOS
-                            ? 'Core Bluetooth probe result'
+                            ? 'Compatibility probe result'
                             : 'vLinker MS COM port',
                   ),
                   items: _vlinkerPorts
@@ -391,7 +395,7 @@ class _ConnectPageState extends State<ConnectPage> {
                     ? null
                     : _connectVlinkerMs,
                 icon: const Icon(Icons.link),
-                label: Text(Platform.isIOS ? 'SPP unavailable on iOS' : 'Connect vLinker MS'),
+                label: Text(Platform.isIOS ? 'Connection unavailable' : 'Connect vLinker MS'),
               ),
               if (vlinkerConnected)
                 FilledButton.tonalIcon(
