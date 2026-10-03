@@ -1,0 +1,19 @@
+#!/bin/sh
+# NetworkManager dispatcher hook for the temporary PCG-1 <-> Promethean Core
+# Wi-Fi development link.  The access point has shown unreliable peer ARP
+# discovery even though direct unicast works, so pin the VIM3 neighbor whenever
+# wlan0 comes up or renews DHCP.
+
+IFACE="$1"
+ACTION="$2"
+
+[ "$IFACE" = "wlan0" ] || exit 0
+
+case "$ACTION" in
+    up|dhcp4-change|connectivity-change)
+        /usr/sbin/ip neigh replace 192.168.10.239 \
+            lladdr 54:78:c9:e2:7b:40 nud permanent dev wlan0
+        ;;
+esac
+
+exit 0
