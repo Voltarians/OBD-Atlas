@@ -66,3 +66,16 @@ The current development connection uses Wi-Fi:
 - Promethean Core VIM3: `192.168.10.239`
 
 The protocol itself is ordinary TCP/IP so the later move to Ethernet does not require an application-protocol change.
+
+
+## Persist the temporary Wi-Fi peer mapping
+
+Install the NetworkManager dispatcher hook so PCG-1 restores the VIM3 neighbor entry after boot or DHCP renewal:
+
+```bash
+sudo install -m 0755 systemd/90-promethean-core-neighbor /etc/NetworkManager/dispatcher.d/90-promethean-core-neighbor
+sudo /etc/NetworkManager/dispatcher.d/90-promethean-core-neighbor wlan0 up
+ip neigh show dev wlan0
+```
+
+Promethean Core pins the reciprocal PCG-1 neighbor in its AAOS device configuration. Keep the PCG-1 Wi-Fi address reserved as `192.168.10.242` while this development workaround is in use.
