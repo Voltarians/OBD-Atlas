@@ -162,6 +162,35 @@ CREATE TABLE IF NOT EXISTS correlations (
         REFERENCES annotations(session_id, annotation_index) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS can_knowledge (
+    catalog_id TEXT NOT NULL,
+    vehicle_make TEXT NOT NULL,
+    vehicle_model TEXT NOT NULL,
+    vehicle_generation INTEGER NOT NULL,
+    logged_bus TEXT NOT NULL,
+    network TEXT NOT NULL,
+    network_confidence TEXT NOT NULL,
+    bitrate_kbps INTEGER NOT NULL,
+    arbitration_id INTEGER NOT NULL,
+    is_extended INTEGER NOT NULL,
+    structural_class TEXT NOT NULL,
+    semantic_status TEXT NOT NULL,
+    evidence_status TEXT NOT NULL,
+    source_capture TEXT NOT NULL,
+    notes TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    PRIMARY KEY (
+        catalog_id,
+        network,
+        bitrate_kbps,
+        arbitration_id,
+        source_capture
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_can_knowledge_network_id
+    ON can_knowledge(network, bitrate_kbps, arbitration_id);
+
 CREATE TABLE IF NOT EXISTS dbc_sources (
     source_id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
