@@ -1,4 +1,5 @@
 import CoreBluetooth
+import ExternalAccessory
 import Flutter
 import UIKit
 
@@ -16,6 +17,11 @@ public final class AtlasAndroidRfcommPlugin: NSObject, FlutterPlugin, FlutterStr
     private var activePeripheral: CBPeripheral?
     private var notifyCharacteristic: CBCharacteristic?
     private var writeCharacteristic: CBCharacteristic?
+
+    private var accessorySession: EASession?
+    private var accessoryInput: InputStream?
+    private var accessoryOutput: OutputStream?
+    private var accessoryReadBuffer = [UInt8](repeating: 0, count: 4096)
 
     private let profiles: [(service: String, notify: String, write: String, tag: String)] = [
         ("18F0", "2AF0", "2AF1", "vLinker 18F0"),
@@ -62,12 +68,20 @@ public final class AtlasAndroidRfcommPlugin: NSObject, FlutterPlugin, FlutterStr
             result(stateName(central?.state ?? .unknown))
         case "pairedDevices":
             result(reports.values.map { $0 })
+        case "mfiAccessories":
+            result(mfiAccessories())
+        case "connectMfi":
+            connectMfi(call, result: result)
         case "scanBleDevices", "probeClassicDevices":
             startBleScan(call, result: result)
         case "connect":
             connectBle(call, result: result)
         case "write":
-            writeBle(call, result: result)
+            if accessorySession != nil {
+                writeMfi(call, result: result)
+            } else {
+                writeBle(call, result: result)
+            }
         case "close":
             closeBle()
             result(nil)
@@ -218,6 +232,114 @@ public final class AtlasAndroidRfcommPlugin: NSObject, FlutterPlugin, FlutterStr
         result(nil)
     }
 
+    private func mfiAccessories() -> [[String: Any]] {
+        return EAAccessoryManager.shared().connectedAccessories.map { accessory in
+            return [
+                "name": accessory.name,
+                "address": String(accessory.connectionID),
+                "manufacturer": accessory.manufacturer,
+                "modelNumber": accessory.modelNumber,
+                "serialNumber": accessory.serialNumber,
+                "firmwareRevision": accessory.firmwareRevision,
+                "hardwareRevision": accessory.hardwareRevision,
+                "protocolStrings": accessory.protocolStrings,
+                "transport": "ios-mfi-external-accessory"
+            ]
+        }
+    }
+
+    private func connectMfi(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let connectionId = args["connectionId"] as? Int,
+              let protocolString = args["protocolString"] as? String else {
+            result(FlutterError(
+                code: "ARGUMENT",
+                message: "Missing MFi connectionId or protocolString.",
+                details: nil))
+            return
+        }
+
+        guard let accessory = EAAccessoryManager.shared().connectedAccessories.first(where: {
+            $0.connectionID == UInt32(connectionId)
+        }) else {
+            result(FlutterError(
+                code: "NOT_FOUND",
+                message: "Selected MFi accessory is no longer connected.",
+                details: nil))
+            return
+        }
+
+        guard accessory.protocolStrings.contains(protocolString) else {
+            result(FlutterError(
+                code: "PROTOCOL",
+                message: "Accessory does not advertise the selected MFi protocol.",
+                details: accessory.protocolStrings))
+            return
+        }
+
+        closeMfi()
+        guard let session = EASession(accessory: accessory, forProtocol: protocolString) else {
+            result(FlutterError(
+                code: "MFI_SESSION",
+                message: "iOS refused the External Accessory session. The protocol must be listed in UISupportedExternalAccessoryProtocols and authorized for this app.",
+                details: protocolString))
+            return
+        }
+
+        accessorySession = session
+        accessoryInput = session.inputStream
+        accessoryOutput = session.outputStream
+        accessoryInput?.delegate = self
+        accessoryOutput?.delegate = self
+        accessoryInput?.schedule(in: .main, forMode: .default)
+        accessoryOutput?.schedule(in: .main, forMode: .default)
+        accessoryInput?.open()
+        accessoryOutput?.open()
+        result(nil)
+    }
+
+    private func writeMfi(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let output = accessoryOutput else {
+            result(FlutterError(
+                code: "WRITE",
+                message: "MFi External Accessory output stream is not open.",
+                details: nil))
+            return
+        }
+        guard let typed = call.arguments as? FlutterStandardTypedData else {
+            result(FlutterError(code: "ARGUMENT", message: "Missing bytes.", details: nil))
+            return
+        }
+
+        let bytes = [UInt8](typed.data)
+        var written = 0
+        while written < bytes.count {
+            let count = bytes.withUnsafeBufferPointer { buffer -> Int in
+                guard let base = buffer.baseAddress else { return -1 }
+                return output.write(base.advanced(by: written), maxLength: bytes.count - written)
+            }
+            if count <= 0 {
+                result(FlutterError(
+                    code: "WRITE",
+                    message: output.streamError?.localizedDescription ?? "MFi write failed.",
+                    details: nil))
+                return
+            }
+            written += count
+        }
+        result(nil)
+    }
+
+    private func closeMfi() {
+        accessoryInput?.close()
+        accessoryOutput?.close()
+        accessoryInput?.remove(from: .main, forMode: .default)
+        accessoryOutput?.remove(from: .main, forMode: .default)
+        accessoryInput = nil
+        accessoryOutput = nil
+        accessorySession = nil
+    }
+
     private func closeBle() {
         central?.stopScan()
         scanTimeout?.cancel()
@@ -230,6 +352,7 @@ public final class AtlasAndroidRfcommPlugin: NSObject, FlutterPlugin, FlutterStr
         if connectResult != nil {
             failConnect(code: "CANCELLED", message: "BLE connection cancelled.")
         }
+        closeMfi()
         closeActivePeripheral()
     }
 
@@ -534,6 +657,33 @@ public final class AtlasAndroidRfcommPlugin: NSObject, FlutterPlugin, FlutterStr
         case .connecting: return "connecting"
         case .disconnecting: return "disconnecting"
         default: return "disconnected"
+        }
+    }
+}
+
+
+extension AtlasAndroidRfcommPlugin: StreamDelegate {
+    public func stream(_ aStream: Stream, handle eventCode: Stream.Event) {
+        guard aStream === accessoryInput else { return }
+        switch eventCode {
+        case .hasBytesAvailable:
+            guard let input = accessoryInput else { return }
+            while input.hasBytesAvailable {
+                let count = input.read(&accessoryReadBuffer, maxLength: accessoryReadBuffer.count)
+                if count > 0 {
+                    let data = Data(accessoryReadBuffer.prefix(count))
+                    eventSink?(FlutterStandardTypedData(bytes: data))
+                } else {
+                    break
+                }
+            }
+        case .errorOccurred:
+            eventSink?(FlutterError(
+                code: "MFI_READ",
+                message: aStream.streamError?.localizedDescription ?? "MFi stream error.",
+                details: nil))
+        default:
+            break
         }
     }
 }
