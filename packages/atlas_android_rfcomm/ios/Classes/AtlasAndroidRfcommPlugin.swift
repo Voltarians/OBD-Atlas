@@ -27,6 +27,9 @@ public final class AtlasAndroidRfcommPlugin: NSObject, FlutterPlugin, FlutterStr
          "Nordic UART")
     ]
 
+    private let kiwiWriteUuid = "1CCE1EA8-BD34-4813-A00A-C76E028FADCB"
+    private let kiwiNotifyUuid = "CACC07FF-FFFF-4C48-8FAE-A9EF71B75E26"
+
     public static func register(with registrar: FlutterPluginRegistrar) {
         let methodChannel = FlutterMethodChannel(
             name: "obd_atlas/android_rfcomm",
@@ -203,7 +206,15 @@ public final class AtlasAndroidRfcommPlugin: NSObject, FlutterPlugin, FlutterStr
             characteristic.properties.contains(.writeWithoutResponse)
                 ? .withoutResponse
                 : .withResponse
-        peripheral.writeValue(typed.data, for: characteristic, type: type)
+
+        let bytes = [UInt8](typed.data)
+        var offset = 0
+        while offset < bytes.count {
+            let end = min(offset + 20, bytes.count)
+            let chunk = Data(bytes[offset..<end])
+            peripheral.writeValue(chunk, for: characteristic, type: type)
+            offset = end
+        }
         result(nil)
     }
 
@@ -408,6 +419,28 @@ public final class AtlasAndroidRfcommPlugin: NSObject, FlutterPlugin, FlutterStr
         services.append(["uuid": service.uuid.uuidString, "characteristics": chars])
         report["services"] = services
         reports[peripheral.identifier] = report
+
+        let serviceCharacteristics = service.characteristics ?? []
+        let exactKiwiWrite = serviceCharacteristics.first {
+            $0.uuid.uuidString.uppercased() == kiwiWriteUuid &&
+            ($0.properties.contains(.write) ||
+             $0.properties.contains(.writeWithoutResponse))
+        }
+        let exactKiwiNotify = serviceCharacteristics.first {
+            $0.uuid.uuidString.uppercased() == kiwiNotifyUuid &&
+            ($0.properties.contains(.notify) ||
+             $0.properties.contains(.indicate))
+        }
+
+        if let kiwiWrite = exactKiwiWrite,
+           let kiwiNotify = exactKiwiNotify {
+            writeCharacteristic = kiwiWrite
+            notifyCharacteristic = kiwiNotify
+            report["profile"] = "Kiwi 3 TruConnect UART"
+            reports[peripheral.identifier] = report
+            peripheral.setNotifyValue(true, for: kiwiNotify)
+            return
+        }
 
         if let profile = profiles.first(where: {
             $0.service.uppercased() == serviceUUID
