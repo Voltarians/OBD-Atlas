@@ -59,6 +59,19 @@ void main() {
     );
   });
 
+  test('extracts iOS BLE peripheral identifier from scan label', () {
+    expect(
+      VlinkerMsAdapter.iosIdentifierFromLabel(
+        'vLinker MS • 01234567-89AB-CDEF-0123-456789ABCDEF',
+      ),
+      '01234567-89AB-CDEF-0123-456789ABCDEF',
+    );
+    expect(
+      VlinkerMsAdapter.iosIdentifierFromLabel('vLinker MS'),
+      isNull,
+    );
+  });
+
   test('reports terminal monitor errors', () {
     expect(
       VlinkerMsAdapter.monitorTerminalError('BUFFER FULL'),
