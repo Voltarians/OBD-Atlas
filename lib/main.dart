@@ -333,15 +333,15 @@ class _ConnectPageState extends State<ConnectPage> {
       if (Platform.isIOS) {
         return PageShell(
           title: 'Connect',
-          subtitle: 'iPhone/iPad BLE GATT transport for vLinker MS.',
+          subtitle: 'iPhone/iPad BLE GATT transport for vLinker MS and Kiwi 3.',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _StatusTile(
-                name: 'CH1 • vLinker MS BLE',
+                name: 'CH1 • iOS BLE OBD adapter',
                 detail: vlinkerConnected
                     ? '${ch1.adapterName} • ${ch1.state.name} • BLE GATT • raw HS-CAN STM'
-                    : 'Core Bluetooth BLE GATT • vLinker MS BT+BLE mode required',
+                    : 'Core Bluetooth BLE GATT • supports vLinker MS and Kiwi 3',
                 icon: Icons.bluetooth,
               ),
               const SizedBox(height: 12),
@@ -369,7 +369,7 @@ class _ConnectPageState extends State<ConnectPage> {
                         ? null
                         : _connectVlinkerMs,
                     icon: const Icon(Icons.link),
-                    label: const Text('CONNECT VLINKER MS'),
+                    label: const Text('CONNECT BLE ADAPTER'),
                   ),
                   if (vlinkerConnected)
                     FilledButton.tonalIcon(
@@ -413,14 +413,14 @@ class _ConnectPageState extends State<ConnectPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'vLinker MS iOS transport',
+                        'iOS BLE OBD transport',
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                       SizedBox(height: 8),
                       Text(
                         'Atlas uses BLE GATT on iPhone instead of Bluetooth SPP. '
-                        'Primary vLinker profile: service 18F0, notifications 2AF0, writes 2AF1. '
-                        'The adapter must be configured for BT+BLE mode.',
+                        'vLinker MS uses the known 18F0 / 2AF0 / 2AF1 profile. '
+                        'Kiwi 3 is identified by name and Atlas binds to its discovered notify/write GATT pair dynamically.',
                       ),
                     ],
                   ),
