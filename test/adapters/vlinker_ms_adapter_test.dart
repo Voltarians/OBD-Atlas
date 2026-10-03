@@ -72,6 +72,15 @@ void main() {
     );
   });
 
+  test('iOS BLE labels retain Kiwi 3 peripheral identifiers', () {
+    expect(
+      VlinkerMsAdapter.iosIdentifierFromLabel(
+        'Kiwi 3 • 89ABCDEF-0123-4567-89AB-CDEF01234567',
+      ),
+      '89ABCDEF-0123-4567-89AB-CDEF01234567',
+    );
+  });
+
   test('reports terminal monitor errors', () {
     expect(
       VlinkerMsAdapter.monitorTerminalError('BUFFER FULL'),
