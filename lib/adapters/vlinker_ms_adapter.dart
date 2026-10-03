@@ -45,7 +45,9 @@ class VlinkerMsAdapter implements AtlasAdapter {
   String get id => 'vlinker-ms:ch$channel:$portName';
 
   @override
-  String get displayName => 'CH$channel vLinker MS $portName';
+  String get displayName => Platform.isIOS && portName.toLowerCase().contains('kiwi')
+      ? 'CH$channel Kiwi 3 $portName'
+      : 'CH$channel vLinker MS $portName';
 
   @override
   String get transport => Platform.isAndroid
@@ -76,6 +78,7 @@ class VlinkerMsAdapter implements AtlasAdapter {
           .where((device) {
             final name = device.name.toLowerCase();
             return name.contains('vlinker') ||
+                name.contains('kiwi') ||
                 name.contains('obd') ||
                 name.contains('stn');
           })
@@ -427,7 +430,7 @@ class VlinkerMsAdapter implements AtlasAdapter {
       await AtlasAndroidRfcomm.connect(identifier).timeout(
         const Duration(seconds: 15),
         onTimeout: () => throw TimeoutException(
-          'Timed out connecting to vLinker MS $identifier over iOS BLE GATT.',
+          'Timed out connecting to $portName over iOS BLE GATT.',
         ),
       );
 
@@ -450,8 +453,8 @@ class VlinkerMsAdapter implements AtlasAdapter {
       await _firstFrame!.future.timeout(
         const Duration(seconds: 8),
         onTimeout: () => throw TimeoutException(
-          'vLinker MS BLE GATT connected but no HS-CAN frames were received. '
-          'Confirm the adapter is in BT+BLE mode and the vehicle bus is active.',
+          '${portName.toLowerCase().contains('kiwi') ? 'Kiwi 3' : 'vLinker MS'} BLE GATT connected but no HS-CAN frames were received. '
+          '${portName.toLowerCase().contains('kiwi') ? 'Confirm the Kiwi 3 is powered and the vehicle bus is active.' : 'Confirm the adapter is in BT+BLE mode and the vehicle bus is active.'}',
         ),
       );
       _setState(AtlasAdapterState.connected);
