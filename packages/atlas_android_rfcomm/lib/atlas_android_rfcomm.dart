@@ -66,6 +66,20 @@ class AtlasAndroidRfcomm {
         .toList(growable: false);
   }
 
+  static Future<List<AndroidRfcommDevice>> scanBleDevices({
+    double timeoutSeconds = 8,
+  }) async {
+    final raw = await _channel.invokeListMethod<Object?>(
+          'scanBleDevices',
+          <String, Object?>{'timeoutSeconds': timeoutSeconds},
+        ) ??
+        const [];
+    return raw
+        .whereType<Map<Object?, Object?>>()
+        .map(AndroidRfcommDevice.fromMap)
+        .toList(growable: false);
+  }
+
   static Future<void> connect(String address) =>
       _channel.invokeMethod<void>('connect', <String, Object?>{
         'address': address,
