@@ -7,6 +7,7 @@ Wants=promethean-vlinker-ms-rfcomm.service
 Type=simple
 User=monroe
 Group=monroe
+SupplementaryGroups=dialout
 RuntimeDirectory=promethean
 RuntimeDirectoryMode=0755
 ExecStart=/usr/bin/python3 /usr/local/lib/promethean/pcg1_pid0142_reader.py --port /dev/rfcomm0 --baud 115200 --interval 1.0 --state-file /run/promethean/vehicle_state.json
