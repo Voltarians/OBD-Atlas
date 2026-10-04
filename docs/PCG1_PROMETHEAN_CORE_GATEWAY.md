@@ -80,56 +80,87 @@ ip neigh show dev wlan0
 
 Promethean Core pins the reciprocal PCG-1 neighbor in its AAOS device configuration. Keep the PCG-1 Wi-Fi address reserved as `192.168.10.242` while this development workaround is in use.
 
+## Vehicle-data source
 
-## Live 12-V voltage from vLinker MS
+PCG-1 itself is the permanent vehicle interface. Promethean Core does not require a vLinker, ELM/STN adapter, or Bluetooth/RFCOMM path.
 
-The current validated source for the 12-V card is SAE Mode 01 PID 0x42
-(control-module voltage) read through the vLinker MS on the normal HS-CAN
-DLC pins 6/14 path.
+The production data path is:
 
-Multiple GM modules can answer PID 0x42 with slightly different local supply
-measurements. PCG-1 publishes the median valid response as
-`bus12_voltage_v`. This avoids selecting one ECU arbitrarily and preserves
-the individual samples in the state file for evidence.
-
-The vLinker MS used during this validation is:
-
-- Bluetooth address: `08:04:B4:3F:41:BD`
-- SPP/RFCOMM channel: `1`
-- Linux device: `/dev/rfcomm0`
-- serial rate: `115200`
-
-Install the reader and optional RFCOMM reconnect service:
-
-```bash
-sudo install -m 0755 tool/pcg1_pid0142_reader.py /usr/local/lib/promethean/pcg1_pid0142_reader.py
-sudo install -m 0644 systemd/promethean-pid0142.service /etc/systemd/system/promethean-pid0142.service
-sudo install -m 0644 systemd/promethean-vlinker-ms-rfcomm.service /etc/systemd/system/promethean-vlinker-ms-rfcomm.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now promethean-vlinker-ms-rfcomm.service
-sudo systemctl enable --now promethean-pid0142.service
+```text
+Volt CAN / SWCAN / LIN
+        ↓
+PCG-1 direct bus interfaces
+        ↓
+OBD Atlas / PCG-1 decoding
+        ↓
+/run/promethean/vehicle_state.json
+        ↓
+TCP 47001 newline-delimited JSON
+        ↓
+Promethean Core VIM3 HMI
 ```
 
-Check the live value:
+Only values backed by PCG-1 vehicle evidence are written to the state file and forwarded to the HMI. Unknown values stay absent.
 
-```bash
-journalctl -u promethean-pid0142.service -n 20 --no-pager
-cat /run/promethean/vehicle_state.json
+The gateway currently accepts these top-level fields for the Core dashboard:
+
+```text
+bus12_voltage_v
+apm_output_voltage_v
+apm_current_a
+apm_power_w
+apm_temperature_c
+apm_state
+dc_dc_state
+
+hv_pack_voltage_v
+hv_pack_current_a
+hv_pack_power_kw
+hv_soc_pct
+hv_cell_min_v
+hv_cell_max_v
+hv_cell_delta_mv
+hv_temp_min_c
+hv_temp_max_c
+isolation_kohm
+hvil_state
+contactor_state
+
+drive_power_kw
+regen_power_kw
+charger_power_kw
+charging_state
+
+battery_coolant_temp_c
+power_electronics_coolant_temp_c
+engine_coolant_temp_c
+
+motor_a_rpm
+motor_b_rpm
+drive_torque_nm
+inverter_temperature_c
+vehicle_speed_mph
+drive_state
+
+dtc_count
+active_dtcs
+network_modules_online
+network_modules_expected
+offline_modules
 ```
 
-Expected state fields include:
+These fields are the PCG-1-to-HMI presentation contract. They do not imply that every decoder is already validated. Each field should appear only after Atlas/PCG-1 has a validated source for it.
 
-```json
-{
-  "bus12_voltage_v": 13.533,
-  "bus12_voltage_source": "sae_mode01_pid_0142_median",
-  "bus12_pid0142_sample_count": 7,
-  "bus12_pid0142_samples_v": [13.513,13.535,13.447,13.533,13.293,13.576,13.554]
-}
-```
+## Core dashboard mapping
 
-Promethean Core already consumes `bus12_voltage_v`, so no HMI protocol change
-is required for this value to appear in the **12 V BUS** card.
+The intended Core cards consume the gateway fields directly:
 
-The PID 0x42 reader does not populate APM output voltage, current, power, or
-state. Those remain unknown until separately validated from vehicle evidence.
+- **Vehicle Health** — HV battery spread, 12-V status, isolation, DTC count, network/module status.
+- **HV Battery** — pack voltage/current/power, SOC, cell min/max/delta, battery temperature, contactor/HVIL state.
+- **12 V / APM** — 12-V bus, APM output voltage/current/power/temperature/state.
+- **Energy Flow** — pack, drive, regen, charger and APM power.
+- **Thermal** — battery, power-electronics and engine coolant temperatures.
+- **DTC Health** — DTC count/list, isolation, HVIL and network status.
+- **Drive Unit** — motor speeds, torque, inverter temperature and vehicle speed.
+
+Wi-Fi is the current development transport. The planned Gigabit Ethernet link uses the same TCP/47001 protocol, so no HMI application-protocol change is required.
