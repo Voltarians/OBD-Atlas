@@ -65,6 +65,12 @@ FLOAT_FIELDS = {
     "vehicle_speed_mph",
 }
 INT_FIELDS = {
+    "bus_can5_unique_ids",
+    "bus_can4_unique_ids",
+    "bus_can3_unique_ids",
+    "bus_can2_unique_ids",
+    "bus_can1_unique_ids",
+    "bus_can0_unique_ids",
     "dtc_count",
     "network_modules_online",
     "network_modules_expected",
