@@ -612,6 +612,18 @@ class DirectStatePublisher:
             "future_lin_interfaces_configured": len(FUTURE_LIN_INTERFACES),
             "future_lin_interfaces_online": 0,
             "future_lin_status": "reserved_not_installed",
+            "validated_primary_bus": self.primary_interface,
+            "validated_hv_bus": self.hv_interface,
+            "validated_primary_bus_receiving": self.primary_interface in self.bus_last_seen,
+            "validated_hv_bus_receiving": self.hv_interface in self.bus_last_seen,
+            "validated_signal_bus_health": (
+                "validated_sources_live"
+                if (
+                    self.primary_interface in self.bus_last_seen
+                    and self.hv_interface in self.bus_last_seen
+                )
+                else "validated_source_missing"
+            ),
         }
         for name in [n for n, _, _ in UC2_LOGICAL_CHANNELS] + [SWCAN_LOGICAL_CHANNEL]:
             health[f"bus_{name}_available"] = self.bus_available.get(name, False)
