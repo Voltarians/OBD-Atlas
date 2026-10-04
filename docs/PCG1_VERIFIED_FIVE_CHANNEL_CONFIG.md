@@ -183,3 +183,8 @@ The current OVMS Volt/Ampera implementation independently validates additional p
 - `0x1F5`: complete PRNDL mapping 1=P, 2=R, 3=N, 4=D, 5=L
 
 These remain read-only, bus-qualified to `can1`, and carry source-reference provenance in Core state.
+
+
+## Required UC2 native open order
+
+PCG-1 now always opens UC2 native device 1 before device 0. The only permitted open sequence is `1->0`. Runtime recovery also reopens the pair in `1->0`; `0->1` is no longer attempted.
