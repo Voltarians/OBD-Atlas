@@ -159,6 +159,40 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         self.assertAlmostEqual(decoded["system_12v_soc_pct"], 70.196, places=3)
         self.assertNotIn("system_12v_current_a", decoded)
 
+    def test_passive_swcan_energy_metric_decoders(self):
+        ev = module.decode_swcan_energy_metrics(
+            0x0176 << 13,
+            bytes.fromhex("0005000000000000"),
+        )
+        self.assertAlmostEqual(ev["electric_range_km"], 10.0, places=3)
+        self.assertAlmostEqual(ev["electric_range_miles"], 6.214, places=3)
+
+        fuel = module.decode_swcan_energy_metrics(
+            0x0224 << 13,
+            bytes.fromhex("000003E800000000"),
+        )
+        self.assertAlmostEqual(fuel["fuel_range_km"], 15.625, places=3)
+
+        energy = module.decode_swcan_energy_metrics(
+            0x0141 << 13,
+            bytes.fromhex("0000006400000000"),
+        )
+        self.assertAlmostEqual(
+            energy["drive_cycle_electric_energy_used_kwh"],
+            10.0,
+            places=3,
+        )
+
+        distance = module.decode_swcan_energy_metrics(
+            0x0225 << 13,
+            bytes.fromhex("0140000000000000"),
+        )
+        self.assertAlmostEqual(
+            distance["drive_cycle_battery_distance_km"],
+            10.0,
+            places=3,
+        )
+
     def test_passive_driving_signals_are_bus_qualified(self):
         publisher = module.DirectStatePublisher(
             state_file=Path("/tmp/unused-state.json"),
