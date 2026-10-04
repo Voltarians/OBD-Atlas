@@ -360,6 +360,23 @@ def decode_swcan_energy_metrics(can_id: int, data: bytes) -> dict[str, Any]:
     return updates
 
 
+def decode_soc_candidate_0x206(data: bytes) -> dict[str, Any]:
+    """Record the community-reported 0x206 SOC/energy candidate without promotion.
+
+    Atlas already uses 0x206 on the validated HV bus as one member of the
+    multiplexed cell-voltage family, so this candidate must remain bus-qualified
+    and evidence-only until an independent SOC reference proves a mapping.
+    """
+    if len(data) < 2:
+        return {}
+    raw16 = (int(data[0]) << 8) | int(data[1])
+    return {
+        "raw_hex": data.hex().upper(),
+        "raw_u16_be": raw16,
+        "community_energy_quarter_kwh_candidate": round(raw16 * 0.25, 3),
+    }
+
+
 def decode_pack_voltage(data: bytes) -> dict[str, Any]:
     if len(data) < 2:
         return {}
@@ -757,6 +774,22 @@ class DirectStatePublisher:
                 self.logical_network_frames.get(logical_network, 0) + 1
             )
             self.logical_network_last_seen[logical_network] = now
+
+        # Passive SOC discovery evidence. Community material labels 0x206 as
+        # "Battery_SOC_or_energy" on a vehicle high-speed network, but Atlas has
+        # independently validated 0x206 on can2 as a multiplexed cell-voltage
+        # frame. Record every physical-bus occurrence without promoting it to
+        # hv_soc_pct. This lets on-car evidence resolve the ID reuse safely.
+        if can_id == 0x206 and interface != SWCAN_LOGICAL_CHANNEL:
+            candidate = decode_soc_candidate_0x206(data)
+            if candidate:
+                prefix = f"soc_candidate_0x206_{interface}_"
+                updates.update({prefix + key: value for key, value in candidate.items()})
+                updates[prefix + "status"] = "candidate_not_validated"
+                updates[prefix + "reference"] = (
+                    "atlas_community_vehicle_can_candidate_0x206"
+                )
+                updates[prefix + "updated_utc"] = now
 
         # Decode only on the validated physical bus. CAN IDs are reused across
         # multiple Volt networks, so ID-family matches alone are not sufficient
