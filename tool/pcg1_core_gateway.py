@@ -24,6 +24,8 @@ DEFAULT_PORT = 47001
 DEFAULT_INTERVAL = 1.0
 
 FLOAT_FIELDS = {
+    "direct_can_warmup_remaining_s",
+    "direct_can_uptime_s",
     # 12-V / APM
     "bus12_voltage_v",
     "apm_output_voltage_v",
@@ -148,6 +150,7 @@ STRING_LIST_FIELDS = {
     "validated_id_source_evidence",
 }
 BOOL_FIELDS = {
+    "direct_can_warmup_active",
     "validated_primary_bus_receiving",
     "validated_hv_bus_receiving",
     "validated_primary_signal_evidence",
