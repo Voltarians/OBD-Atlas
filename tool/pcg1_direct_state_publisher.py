@@ -5,11 +5,13 @@ PCG-1 uses a mixed receive backend:
 - Atlas logical can0..can3: two dual-channel LYS/UC2 USBCAN2 adapters through
   the verified ARM64 libusbcan.so receive API.
 - Atlas logical can4: RH02/candleLight SWCAN through Linux SocketCAN can0.
-- PCG-1 has a sixth CAN-capable route in the architecture, but it is not a
-  sixth independent SocketCAN interface and is not opened here.
-- The known 125 kbit/s BICM network is on the secondary DLC and is tracked as
-  a logical vehicle network; its exact concurrent acquisition route is kept
-  separate until that mapping is validated.
+- Five physical vehicle buses are directly acquired by PCG-1: four 500 kbit/s
+  classic CAN buses plus one 33,333 bit/s SWCAN bus.
+- A sixth known vehicle bus exists internally: the 125 kbit/s BICM/BECM
+  internal CAN. It is hidden from the current five-bus PCG-1 acquisition path
+  and is not counted as a sixth directly acquired interface.
+- PCG-1 also retains a reserved CAN-capable channel in the hardware
+  architecture; that reserved channel is not the hidden BICM bus.
 
 This process is receive-only. It never calls VCI_Transmit and never sends a
 SocketCAN frame.
@@ -46,6 +48,9 @@ RESERVED_CAN_CHANNEL = "can5"
 CURRENT_PHYSICAL_VEHICLE_BUSES_EXPECTED = 5
 CURRENT_500K_PHYSICAL_BUSES_EXPECTED = 4
 CURRENT_SWCAN_PHYSICAL_BUSES_EXPECTED = 1
+KNOWN_HIDDEN_INTERNAL_BUSES = 1
+TOTAL_KNOWN_VEHICLE_BUSES = 6
+HIDDEN_INTERNAL_BUS_NAME = "bicm_internal_125k"
 CAN_CAPABLE_CHANNEL_COUNT = 6
 FUTURE_LIN_INTERFACES = ("lin0", "lin1", "lin2")
 
@@ -68,9 +73,8 @@ CELL_IDS = {0x200: 0, 0x202: 1, 0x204: 2, 0x206: 3}
 
 # Logical-network classification is intentionally independent of the physical
 # acquisition channel. Only ID families already validated by this project are
-# classified here. Unknown IDs remain unclassified until evidence promotes
-# them; this leaves room for the suspected sixth logical network carried on an
-# existing physical CAN channel.
+# classified here. The hidden 125 kbit/s BICM/BECM internal CAN is modeled
+# separately from the five directly acquired physical buses.
 PRIMARY_POWERTRAIN_IDS = frozenset({0x1D4, 0x1D6})
 HV_ENERGY_MANAGEMENT_IDS = frozenset({0x200, 0x202, 0x204, 0x206, 0x210, 0x302})
 LOGICAL_NETWORKS = (
@@ -575,6 +579,11 @@ class DirectStatePublisher:
             "physical_vehicle_buses_expected": CURRENT_PHYSICAL_VEHICLE_BUSES_EXPECTED,
             "physical_500k_buses_expected": CURRENT_500K_PHYSICAL_BUSES_EXPECTED,
             "physical_swcan_buses_expected": CURRENT_SWCAN_PHYSICAL_BUSES_EXPECTED,
+            "known_hidden_internal_buses": KNOWN_HIDDEN_INTERNAL_BUSES,
+            "total_known_vehicle_buses": TOTAL_KNOWN_VEHICLE_BUSES,
+            "hidden_internal_bus_name": HIDDEN_INTERNAL_BUS_NAME,
+            "hidden_internal_bus_bitrate": 125000,
+            "hidden_internal_bus_status": "known_internal_not_directly_acquired",
             "physical_vehicle_buses_with_traffic": len(self.bus_last_seen),
             "physical_vehicle_bus_health": (
                 "all_expected_buses_live"
