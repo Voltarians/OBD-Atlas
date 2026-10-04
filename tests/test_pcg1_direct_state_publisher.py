@@ -41,6 +41,21 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         self.assertEqual(decoded["apm_hv_input_current_a"], -7.0)
         self.assertEqual(decoded["apm_current_a"], -5.0)
 
+    def test_logical_network_classifier_uses_validated_id_families(self):
+        self.assertEqual(
+            module.classify_logical_network("can1", 0x1D4),
+            "primary_powertrain",
+        )
+        self.assertEqual(
+            module.classify_logical_network("can2", 0x210),
+            "hv_energy_management",
+        )
+        self.assertEqual(
+            module.classify_logical_network("can4", 0x123),
+            "swcan",
+        )
+        self.assertIsNone(module.classify_logical_network("can0", 0x589))
+
     def test_default_configuration_matches_verified_pcg1_topology(self):
         self.assertEqual(
             module.UC2_LOGICAL_CHANNELS,
