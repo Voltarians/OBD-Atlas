@@ -158,3 +158,16 @@ The installed connector/pin mapping corresponds to the community-documented Gen-
 | `can4` | Primary X84 pin 1 + reference ground | Body Electrical / low-speed SWCAN |
 
 These are physical topology labels, not decoder-selection rules. Live evidence shows that some IDs are gatewayed/reused across physical buses. Current evidence-backed decoder sources remain APM on `can3` and the validated passive battery measurement decoder on `can2`.
+
+
+## Passive driving signals promoted from can1
+
+The live `can1` traffic has the same 105-ID signature as the published EVtools/OVMS Gen-1 Volt primary monitor stream. The following passive signals are promoted with source-bus provenance and no transmission:
+
+- `0x0C9`, byte 5: accelerator raw 0-254 and normalized percent
+- `0x0F1`, byte 2: brake raw value
+- `0x135`, byte 1: drive position (Park, Neutral, Drive/Low, Reverse)
+- `0x1F5`, byte 4: PRNDL raw value; only documented Park/Reverse values are named, unknown values remain raw
+- `0x3E9`, bytes 1-2: vehicle speed in 1/100 mph
+
+Engine RPM and the old `0x206` battery-SOC note are not promoted yet because the available public references do not provide enough confidence in scaling/meaning for the project's evidence policy.
