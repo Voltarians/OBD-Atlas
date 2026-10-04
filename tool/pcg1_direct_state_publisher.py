@@ -185,19 +185,35 @@ class DirectStatePublisher:
         self.sockets: list[socket.socket] = []
         self.bus_frames: dict[str, int] = {name: 0 for name in interfaces}
         self.bus_last_seen: dict[str, str] = {}
+        self.bus_open: dict[str, bool] = {name: False for name in interfaces}
         self.pending: dict[str, Any] = {}
         self.future_lin_interfaces = FUTURE_LIN_INTERFACES
 
-    def _open_can(self, interface: str) -> None:
+    def _open_can(self, interface: str) -> bool:
         sock = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
-        sock.bind((interface,))
+        try:
+            sock.bind((interface,))
+        except OSError as error:
+            sock.close()
+            print(
+                f"PCG-1 direct state publisher: {interface} unavailable: {error}",
+                flush=True,
+            )
+            self.bus_open[interface] = False
+            return False
         sock.setblocking(False)
         self.selector.register(sock, selectors.EVENT_READ, interface)
         self.sockets.append(sock)
+        self.bus_open[interface] = True
+        return True
 
     def start(self) -> None:
+        opened = 0
         for interface in self.interfaces:
-            self._open_can(interface)
+            if self._open_can(interface):
+                opened += 1
+        if opened == 0:
+            raise RuntimeError("no configured SocketCAN interfaces are available")
 
     def close(self) -> None:
         for sock in self.sockets:
@@ -309,12 +325,16 @@ class DirectStatePublisher:
                 if now_mono >= next_health:
                     health: dict[str, Any] = {
                         "direct_can_interfaces_online": len(self.bus_last_seen),
+                        "direct_can_interfaces_available": sum(
+                            1 for value in self.bus_open.values() if value
+                        ),
                         "direct_can_interfaces_configured": len(self.interfaces),
                         "future_lin_interfaces_configured": len(self.future_lin_interfaces),
                         "future_lin_interfaces_online": 0,
                         "future_lin_status": "reserved_not_installed",
                     }
                     for name in self.interfaces:
+                        health[f"bus_{name}_available"] = self.bus_open.get(name, False)
                         health[f"bus_{name}_frames"] = self.bus_frames.get(name, 0)
                         if name in self.bus_last_seen:
                             health[f"bus_{name}_last_seen_utc"] = self.bus_last_seen[name]
