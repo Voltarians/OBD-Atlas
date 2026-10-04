@@ -41,6 +41,27 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         self.assertEqual(decoded["apm_hv_input_current_a"], -7.0)
         self.assertEqual(decoded["apm_current_a"], -5.0)
 
+    def test_degraded_cell_measurements_are_not_filtered_or_clipped(self):
+        publisher = module.DirectStatePublisher(
+            state_file=Path("/tmp/unused-state.json"),
+            uc2_library=Path("/tmp/unused-libusbcan.so"),
+        )
+        publisher.cells = {index: 3.86 for index in range(96)}
+        publisher.cells[16] = 1.3625
+        publisher.cells[4] = 2.23
+        publisher.cells[17] = 2.67
+        publisher.cells[6] = 3.88
+
+        summary = publisher._battery_summary()
+
+        self.assertEqual(summary["hv_cell_measurement_slots_complete"], 96)
+        self.assertEqual(summary["hv_cell_min_v"], 1.3625)
+        self.assertEqual(summary["hv_cell_max_v"], 3.88)
+        self.assertEqual(summary["hv_cell_delta_mv"], 2517.5)
+        self.assertEqual(summary["hv_cell_slots_v"][16], 1.3625)
+        self.assertEqual(summary["hv_cell_slots_v"][4], 2.23)
+        self.assertEqual(summary["hv_cell_slots_v"][17], 2.67)
+
     def test_logical_network_classifier_uses_validated_id_families(self):
         self.assertEqual(
             module.classify_logical_network("can1", 0x1D4),
