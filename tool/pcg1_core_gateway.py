@@ -27,9 +27,13 @@ FLOAT_FIELDS = {
     # 12-V / APM
     "bus12_voltage_v",
     "apm_output_voltage_v",
+    "apm_requested_voltage_v",
     "apm_current_a",
     "apm_power_w",
     "apm_temperature_c",
+    "apm_hv_input_current_a",
+    "apm_temperature_1_c",
+    "apm_temperature_2_c",
 
     # High-voltage battery
     "hv_pack_voltage_v",
@@ -64,6 +68,10 @@ INT_FIELDS = {
     "dtc_count",
     "network_modules_online",
     "network_modules_expected",
+    "direct_can_interfaces_online",
+    "apm_status_raw",
+    "apm_counter_raw",
+    "hv_cell_measurement_slots_complete",
 }
 STRING_FIELDS = {
     "apm_state",
@@ -72,10 +80,19 @@ STRING_FIELDS = {
     "contactor_state",
     "charging_state",
     "drive_state",
+    "apm_command_source_bus",
+    "apm_stats_source_bus",
+    "hv_pack_voltage_source_bus",
+    "hv_cell_slots_source_bus",
+    "hv_temperature_slots_source_bus",
 }
 STRING_LIST_FIELDS = {
     "active_dtcs",
     "offline_modules",
+}
+FLOAT_LIST_FIELDS = {
+    "hv_cell_slots_v",
+    "hv_temperature_slots_c",
 }
 
 
@@ -120,6 +137,17 @@ def normalize_state(raw: Any) -> dict[str, Any]:
             ]
             if cleaned:
                 out[key] = cleaned
+
+    for key in FLOAT_LIST_FIELDS:
+        value = source.get(key)
+        if isinstance(value, list):
+            cleaned_numbers = [
+                float(item)
+                for item in value
+                if isinstance(item, (int, float)) and not isinstance(item, bool)
+            ]
+            if len(cleaned_numbers) == len(value):
+                out[key] = cleaned_numbers
 
     apm = source.get("apm")
     if isinstance(apm, dict):
