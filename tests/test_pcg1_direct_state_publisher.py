@@ -48,6 +48,7 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         )
         self.assertEqual(module.DEFAULT_PRIMARY_INTERFACE, "can1")
         self.assertEqual(module.DEFAULT_HV_INTERFACE, "can2")
+        self.assertEqual(module.FUTURE_LIN_INTERFACES, ("lin0", "lin1", "lin2"))
 
 
 if __name__ == "__main__":
