@@ -43,7 +43,9 @@ UC2_LOGICAL_CHANNELS = (
 )
 SWCAN_LOGICAL_CHANNEL = "can4"
 RESERVED_CAN_CHANNEL = "can5"
-CURRENT_VEHICLE_NETWORK_COUNT = 5
+CURRENT_PHYSICAL_VEHICLE_BUSES_EXPECTED = 5
+CURRENT_500K_PHYSICAL_BUSES_EXPECTED = 4
+CURRENT_SWCAN_PHYSICAL_BUSES_EXPECTED = 1
 CAN_CAPABLE_CHANNEL_COUNT = 6
 FUTURE_LIN_INTERFACES = ("lin0", "lin1", "lin2")
 
@@ -512,7 +514,16 @@ class DirectStatePublisher:
                 1 for value in self.bus_available.values() if value
             ),
             "direct_can_interfaces_configured": CAN_CAPABLE_CHANNEL_COUNT,
-            "current_vehicle_can_networks_configured": CURRENT_VEHICLE_NETWORK_COUNT,
+            "current_vehicle_can_networks_configured": CURRENT_PHYSICAL_VEHICLE_BUSES_EXPECTED,
+            "physical_vehicle_buses_expected": CURRENT_PHYSICAL_VEHICLE_BUSES_EXPECTED,
+            "physical_500k_buses_expected": CURRENT_500K_PHYSICAL_BUSES_EXPECTED,
+            "physical_swcan_buses_expected": CURRENT_SWCAN_PHYSICAL_BUSES_EXPECTED,
+            "physical_vehicle_buses_with_traffic": len(self.bus_last_seen),
+            "physical_vehicle_bus_health": (
+                "all_expected_buses_live"
+                if len(self.bus_last_seen) >= CURRENT_PHYSICAL_VEHICLE_BUSES_EXPECTED
+                else "missing_expected_bus_traffic"
+            ),
             "reserved_can_channel": RESERVED_CAN_CHANNEL,
             "reserved_can_channel_status": "assignable_not_independent_volt_bus",
             "bicm_bus_bitrate": 125000,
