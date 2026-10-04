@@ -1,0 +1,19 @@
+[Unit]
+Description=PCG-1 direct vehicle-state publisher for Promethean Core
+After=network.target
+Before=promethean-pcg1-gateway.service
+
+[Service]
+Type=simple
+User=monroe
+Group=monroe
+RuntimeDirectory=promethean
+RuntimeDirectoryMode=0755
+ExecStart=/usr/bin/python3 /usr/local/lib/promethean/pcg1_direct_state_publisher.py --primary-interface can3 --hv-interface can0 --state-file /run/promethean/vehicle_state.json
+Restart=always
+RestartSec=1
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
