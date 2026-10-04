@@ -72,6 +72,7 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         self.assertEqual(module.CURRENT_500K_PHYSICAL_BUSES_EXPECTED, 4)
         self.assertEqual(module.CURRENT_SWCAN_PHYSICAL_BUSES_EXPECTED, 1)
         self.assertEqual(module.CAN_CAPABLE_CHANNEL_COUNT, 6)
+        self.assertEqual(module.UC2_OPEN_ORDERS, ((0, 1), (1, 0)))
         self.assertEqual(module.DEFAULT_PRIMARY_INTERFACE, "can1")
         self.assertEqual(module.DEFAULT_HV_INTERFACE, "can2")
         self.assertEqual(module.UC2_RECEIVE_BURST_LIMIT, 64)
