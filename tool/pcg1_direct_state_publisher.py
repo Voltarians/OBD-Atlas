@@ -52,7 +52,8 @@ DEFAULT_HV_INTERFACE = "can2"
 
 DEVICE_TYPE = 4  # ZLG/LYS USBCAN2
 U32_ERROR = 0xFFFFFFFF
-UC2_BATCH_SIZE = 128
+UC2_RECEIVE_BURST_LIMIT = 64
+UC2_RECEIVE_WAIT_MS = 100
 TIMING_500K = (0x00, 0x1C)
 
 CAN_EFF_FLAG = 0x80000000
@@ -247,7 +248,7 @@ class DirectStatePublisher:
         self.library: C.CDLL | None = None
         self.opened_devices: list[int] = []
         self.uc2_buffers = {
-            name: (VciCanObj * UC2_BATCH_SIZE)()
+            name: VciCanObj()
             for name, _, _ in UC2_LOGICAL_CHANNELS
         }
         self.swcan_socket: socket.socket | None = None
@@ -403,21 +404,35 @@ class DirectStatePublisher:
     def _poll_uc2(self) -> bool:
         got_any = False
         for name, device, channel in UC2_LOGICAL_CHANNELS:
-            pending = self.receive_num(DEVICE_TYPE, device, channel)
-            if pending == U32_ERROR:
-                continue
-            requested = min(int(pending), UC2_BATCH_SIZE)
-            if requested <= 0:
-                continue
             buffer = self.uc2_buffers[name]
-            received = self.receive(
-                DEVICE_TYPE, device, channel, buffer, requested, 0
-            )
-            if received == U32_ERROR:
-                continue
-            for frame in buffer[: int(received)]:
+            drained = 0
+            while drained < UC2_RECEIVE_BURST_LIMIT:
+                pending = self.receive_num(DEVICE_TYPE, device, channel)
+                if pending == U32_ERROR or pending == 0:
+                    break
+
+                # Match the PCG-1 receive policy already validated in Atlas:
+                # request exactly one frame with a positive timeout. Larger
+                # zero-timeout reads have been observed to return zero while
+                # the native queue continues to grow.
+                received = self.receive(
+                    DEVICE_TYPE,
+                    device,
+                    channel,
+                    C.byref(buffer),
+                    1,
+                    UC2_RECEIVE_WAIT_MS,
+                )
+                if received == U32_ERROR or received == 0:
+                    break
+                if received != 1:
+                    break
+
+                frame = buffer
+                drained += 1
                 if frame.RemoteFlag or frame.ExternFlag or frame.DataLen > 8:
                     continue
+
                 self._handle(
                     name,
                     int(frame.ID) & CAN_SFF_MASK,
