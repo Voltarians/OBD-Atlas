@@ -57,6 +57,8 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         self.assertEqual(module.CAN_CAPABLE_CHANNEL_COUNT, 6)
         self.assertEqual(module.DEFAULT_PRIMARY_INTERFACE, "can1")
         self.assertEqual(module.DEFAULT_HV_INTERFACE, "can2")
+        self.assertEqual(module.UC2_RECEIVE_BURST_LIMIT, 64)
+        self.assertEqual(module.UC2_RECEIVE_WAIT_MS, 100)
         self.assertEqual(module.FUTURE_LIN_INTERFACES, ("lin0", "lin1", "lin2"))
 
 
