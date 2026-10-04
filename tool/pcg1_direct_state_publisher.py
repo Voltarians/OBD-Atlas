@@ -192,6 +192,69 @@ def decode_apm_stats(data: bytes) -> dict[str, Any]:
     }
 
 
+def decode_legacy_accelerator(data: bytes) -> dict[str, Any]:
+    if len(data) < 5:
+        return {}
+    raw = int(data[4])
+    return {
+        "accelerator_raw": raw,
+        "accelerator_pct": round(raw * 100.0 / 254.0, 3),
+        "accelerator_updated_utc": _utc_now(),
+    }
+
+
+def decode_legacy_brake(data: bytes) -> dict[str, Any]:
+    if len(data) < 2:
+        return {}
+    return {
+        "brake_raw": int(data[1]),
+        "brake_updated_utc": _utc_now(),
+    }
+
+
+def decode_legacy_drive_position(data: bytes) -> dict[str, Any]:
+    if len(data) < 1:
+        return {}
+    raw = int(data[0])
+    state = {
+        0: "PARK",
+        1: "NEUTRAL",
+        2: "DRIVE_OR_LOW",
+        3: "REVERSE",
+    }.get(raw, f"RAW_0x{raw:02X}")
+    return {
+        "drive_position_raw": raw,
+        "drive_position": state,
+        "drive_position_updated_utc": _utc_now(),
+    }
+
+
+def decode_legacy_shift_position(data: bytes) -> dict[str, Any]:
+    if len(data) < 4:
+        return {}
+    raw = int(data[3])
+    state = {
+        1: "PARK",
+        2: "REVERSE",
+    }.get(raw, f"RAW_0x{raw:02X}")
+    return {
+        "shift_position_raw": raw,
+        "shift_position": state,
+        "shift_position_updated_utc": _utc_now(),
+    }
+
+
+def decode_legacy_vehicle_speed(data: bytes) -> dict[str, Any]:
+    if len(data) < 2:
+        return {}
+    raw = (int(data[0]) << 8) | int(data[1])
+    return {
+        "vehicle_speed_raw": raw,
+        "vehicle_speed_mph": round(raw / 100.0, 2),
+        "vehicle_speed_updated_utc": _utc_now(),
+    }
+
+
 def decode_pack_voltage(data: bytes) -> dict[str, Any]:
     if len(data) < 2:
         return {}
@@ -512,6 +575,26 @@ class DirectStatePublisher:
             updates.update(decode_apm_stats(data))
             updates["apm_stats_source_bus"] = interface
             updates["apm_stats_source_network"] = "primary_powertrain"
+        elif interface == "can1" and can_id == 0x0C9:
+            updates.update(decode_legacy_accelerator(data))
+            updates["accelerator_source_bus"] = interface
+            updates["accelerator_source_reference"] = "evtools_primary_105_id_stream"
+        elif interface == "can1" and can_id == 0x0F1:
+            updates.update(decode_legacy_brake(data))
+            updates["brake_source_bus"] = interface
+            updates["brake_source_reference"] = "evtools_primary_105_id_stream"
+        elif interface == "can1" and can_id == 0x135:
+            updates.update(decode_legacy_drive_position(data))
+            updates["drive_position_source_bus"] = interface
+            updates["drive_position_source_reference"] = "evtools_primary_105_id_stream"
+        elif interface == "can1" and can_id == 0x1F5:
+            updates.update(decode_legacy_shift_position(data))
+            updates["shift_position_source_bus"] = interface
+            updates["shift_position_source_reference"] = "evtools_primary_105_id_stream"
+        elif interface == "can1" and can_id == 0x3E9:
+            updates.update(decode_legacy_vehicle_speed(data))
+            updates["vehicle_speed_source_bus"] = interface
+            updates["vehicle_speed_source_reference"] = "evtools_primary_105_id_stream"
         elif interface == self.hv_interface and can_id == 0x210:
             updates.update(decode_pack_voltage(data))
             updates["hv_pack_voltage_source_bus"] = interface
