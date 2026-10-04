@@ -185,3 +185,42 @@ The first evidence-backed values published without any diagnostic dongle are:
 - **Network health:** all six SocketCAN interfaces are counted and timestamped by the publisher.
 
 Candidate pack current and unvalidated APM/HV semantics remain excluded until their evidence gates are met.
+
+
+## Future LIN expansion
+
+Promethean Core reserves three future LIN channels as first-class PCG-1 inputs:
+
+```text
+lin0
+lin1
+lin2
+```
+
+They are not claimed as installed or active on the present PCG-1 hardware. The current gateway publishes:
+
+```text
+future_lin_interfaces_configured = 3
+future_lin_interfaces_online = 0
+future_lin_status = reserved_not_installed
+```
+
+When LIN transceivers and capture support are added, the same PCG-1 state pipeline will carry validated LIN-derived values into the HMI. LIN ownership remains on PCG-1; the VIM3 will not talk directly to LIN devices.
+
+The eventual vehicle-network architecture is therefore:
+
+```text
+6 CAN/CAN-FD-class channels
+3 LIN channels
+1 SWCAN path
+        ↓
+PCG-1 acquisition / Atlas decoding
+        ↓
+normalized vehicle state
+        ↓
+TCP 47001
+        ↓
+Promethean Core HMI
+```
+
+Each LIN-derived value must preserve its source channel and remain absent until the corresponding signal has been validated.
