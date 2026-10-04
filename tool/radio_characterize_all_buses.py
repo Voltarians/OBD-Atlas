@@ -148,6 +148,10 @@ class FiveBusCapture:
     def open(self) -> None:
         timing0, timing1 = TIMING_500K
 
+        # Match the proven direct-state publisher sequence exactly:
+        # 1) open BOTH native devices in required order 1 -> 0
+        # 2) init CAN1 then CAN0 for each device
+        # 3) start CAN1 then CAN0 for each device
         for device in DEVICE_OPEN_ORDER:
             result = self.open_device(DEVICE_TYPE, device, 0)
             if result != 1:
@@ -157,32 +161,39 @@ class FiveBusCapture:
                 )
             self.opened.append(device)
 
-            for channel in PER_DEVICE_CHANNEL_ORDER:
-                cfg = VciInitConfig(
-                    0,
-                    0xFFFFFFFF,
-                    0,
-                    1,
-                    timing0,
-                    timing1,
-                    1,  # listen-only
-                )
-                result = self.init_can(
-                    DEVICE_TYPE, device, channel, C.byref(cfg)
-                )
-                if result != 1:
-                    raise RuntimeError(
-                        f"VCI_InitCAN(device={device}, channel={channel}) "
-                        f"returned {result}"
-                    )
+        init_sequence = [
+            (device, channel)
+            for device in DEVICE_OPEN_ORDER
+            for channel in PER_DEVICE_CHANNEL_ORDER
+        ]
 
-                result = self.start_can(DEVICE_TYPE, device, channel)
-                if result != 1:
-                    raise RuntimeError(
-                        f"VCI_StartCAN(device={device}, channel={channel}) "
-                        f"returned {result}"
-                    )
-                self.started.append((device, channel))
+        for device, channel in init_sequence:
+            cfg = VciInitConfig(
+                0,
+                0xFFFFFFFF,
+                0,
+                1,
+                timing0,
+                timing1,
+                1,  # listen-only
+            )
+            result = self.init_can(
+                DEVICE_TYPE, device, channel, C.byref(cfg)
+            )
+            if result != 1:
+                raise RuntimeError(
+                    f"VCI_InitCAN(device={device}, channel={channel}) "
+                    f"returned {result}"
+                )
+
+        for device, channel in init_sequence:
+            result = self.start_can(DEVICE_TYPE, device, channel)
+            if result != 1:
+                raise RuntimeError(
+                    f"VCI_StartCAN(device={device}, channel={channel}) "
+                    f"returned {result}"
+                )
+            self.started.append((device, channel))
 
         self.swcan = socket.socket(socket.PF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
         self.swcan.bind((self.swcan_interface,))
