@@ -309,11 +309,28 @@ class FiveBusCapture:
 def summarize(samples: list[bytes]) -> dict[str, Any]:
     counts = Counter(samples)
     most_common, most_common_count = counts.most_common(1)[0]
+
+    payload_transitions = 0
+    byte_transition_counts: Counter[int] = Counter()
+    previous: bytes | None = None
+
+    for payload in samples:
+        if previous is not None and payload != previous:
+            payload_transitions += 1
+            for i in range(max(len(previous), len(payload))):
+                av = previous[i] if i < len(previous) else -1
+                bv = payload[i] if i < len(payload) else -1
+                if av != bv:
+                    byte_transition_counts[i] += 1
+        previous = payload
+
     return {
         "count": len(samples),
         "unique_payloads": len(counts),
         "most_common": most_common,
         "most_common_count": most_common_count,
+        "payload_transitions": payload_transitions,
+        "byte_transition_counts": dict(sorted(byte_transition_counts.items())),
         "variants": [
             {"payload": payload.hex().upper(), "count": count}
             for payload, count in counts.most_common(8)
@@ -376,8 +393,30 @@ def compare(
             diffs = byte_diffs(b["most_common"], a["most_common"])
             count_delta = a["count"] - b["count"]
             unique_delta = a["unique_payloads"] - b["unique_payloads"]
+            transition_delta = (
+                a["payload_transitions"] - b["payload_transitions"]
+            )
 
-            if diffs or count_delta or unique_delta:
+            byte_transition_delta: dict[int, int] = {}
+            for index in set(b["byte_transition_counts"]) | set(a["byte_transition_counts"]):
+                delta = (
+                    a["byte_transition_counts"].get(index, 0)
+                    - b["byte_transition_counts"].get(index, 0)
+                )
+                if delta:
+                    byte_transition_delta[int(index)] = int(delta)
+
+            positive_byte_transition_delta = sum(
+                delta for delta in byte_transition_delta.values() if delta > 0
+            )
+
+            if (
+                diffs
+                or count_delta
+                or unique_delta
+                or transition_delta
+                or byte_transition_delta
+            ):
                 changed.append({
                     "bus": bus,
                     "can_id": f"0x{can_id:08X}",
@@ -390,6 +429,11 @@ def compare(
                     "baseline_unique_payloads": b["unique_payloads"],
                     "action_unique_payloads": a["unique_payloads"],
                     "unique_payload_delta": unique_delta,
+                    "baseline_payload_transitions": b["payload_transitions"],
+                    "action_payload_transitions": a["payload_transitions"],
+                    "payload_transition_delta": transition_delta,
+                    "byte_transition_delta": byte_transition_delta,
+                    "positive_byte_transition_delta": positive_byte_transition_delta,
                     "byte_diffs": diffs,
                     "baseline_variants": b["variants"],
                     "action_variants": a["variants"],
@@ -397,9 +441,10 @@ def compare(
 
     changed.sort(
         key=lambda item: (
+            -max(item.get("payload_transition_delta", 0), 0),
+            -item.get("positive_byte_transition_delta", 0),
             -len(item.get("byte_diffs", [])),
             -abs(item.get("unique_payload_delta", 0)),
-            -abs(item.get("count_delta", 0)),
             item["bus"],
             item["can_id"],
         )
@@ -474,6 +519,23 @@ def main() -> int:
                         f"  byte {d['byte']}: "
                         f"{d['baseline']:02X} -> {d['action']:02X} "
                         f"(xor {d['xor']:02X})"
+                    )
+                if item["payload_transition_delta"]:
+                    print(
+                        "  payload-transition delta: "
+                        f"{item['payload_transition_delta']:+d}"
+                    )
+                if item["byte_transition_delta"]:
+                    ranked = sorted(
+                        item["byte_transition_delta"].items(),
+                        key=lambda kv: (-kv[1], kv[0]),
+                    )
+                    print(
+                        "  byte-transition deltas: "
+                        + ", ".join(
+                            f"b{index}={delta:+d}"
+                            for index, delta in ranked[:8]
+                        )
                     )
                 if item["unique_payload_delta"]:
                     print(
