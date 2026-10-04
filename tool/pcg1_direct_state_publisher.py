@@ -77,6 +77,7 @@ CELL_IDS = {0x200: 0, 0x202: 1, 0x204: 2, 0x206: 3}
 # separately from the five directly acquired physical buses.
 PRIMARY_POWERTRAIN_IDS = frozenset({0x1D4, 0x1D6})
 HV_ENERGY_MANAGEMENT_IDS = frozenset({0x200, 0x202, 0x204, 0x206, 0x210, 0x302})
+SOURCE_EVIDENCE_IDS = tuple(sorted(PRIMARY_POWERTRAIN_IDS | HV_ENERGY_MANAGEMENT_IDS))
 LOGICAL_NETWORKS = (
     "primary_powertrain",
     "hv_energy_management",
@@ -279,6 +280,10 @@ class DirectStatePublisher:
         self.logical_network_frames = {name: 0 for name in LOGICAL_NETWORKS}
         self.logical_network_last_seen: dict[str, str] = {}
         self.unclassified_frames = 0
+        self.id_source_frames = {
+            can_id: {name: 0 for name in logical}
+            for can_id in SOURCE_EVIDENCE_IDS
+        }
 
         self.library: C.CDLL | None = None
         self.opened_devices: list[int] = []
@@ -466,6 +471,9 @@ class DirectStatePublisher:
         self.bus_frames[interface] = self.bus_frames.get(interface, 0) + 1
         self.bus_last_seen[interface] = now
 
+        if can_id in self.id_source_frames and interface in self.id_source_frames[can_id]:
+            self.id_source_frames[can_id][interface] += 1
+
         logical_network = classify_logical_network(interface, can_id)
         if logical_network is None:
             self.unclassified_frames += 1
@@ -632,6 +640,21 @@ class DirectStatePublisher:
                 health[f"bus_{name}_last_seen_utc"] = self.bus_last_seen[name]
         health[f"bus_{RESERVED_CAN_CHANNEL}_available"] = False
         health[f"bus_{RESERVED_CAN_CHANNEL}_frames"] = 0
+
+        source_evidence: list[str] = []
+        for can_id in SOURCE_EVIDENCE_IDS:
+            counts = self.id_source_frames[can_id]
+            parts = [
+                f"{bus}={count}"
+                for bus, count in counts.items()
+                if count > 0
+            ]
+            if parts:
+                source_evidence.append(
+                    f"0x{can_id:03X}:" + ",".join(parts)
+                )
+        if source_evidence:
+            health["validated_id_source_evidence"] = source_evidence
 
         for network in LOGICAL_NETWORKS:
             health[f"logical_network_{network}_frames"] = self.logical_network_frames.get(
