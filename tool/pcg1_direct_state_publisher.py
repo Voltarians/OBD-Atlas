@@ -70,6 +70,7 @@ UC2_RECEIVE_BURST_LIMIT = 64
 UC2_RECEIVE_WAIT_MS = 100
 TIMING_500K = (0x00, 0x1C)
 UC2_OPEN_ORDERS = ((0, 1), (1, 0))
+HEALTH_WARMUP_SECONDS = 15.0
 
 CAN_EFF_FLAG = 0x80000000
 CAN_RTR_FLAG = 0x40000000
@@ -302,6 +303,7 @@ class DirectStatePublisher:
             for name, _, _ in UC2_LOGICAL_CHANNELS
         }
         self.swcan_socket: socket.socket | None = None
+        self.started_monotonic = time.monotonic()
 
     def _open_uc2(self) -> None:
         if not self.uc2_library_path.is_file():
@@ -419,6 +421,7 @@ class DirectStatePublisher:
     def start(self) -> None:
         self._open_uc2()
         self._open_swcan()
+        self.started_monotonic = time.monotonic()
 
     def close(self) -> None:
         if self.swcan_socket is not None:
@@ -595,6 +598,25 @@ class DirectStatePublisher:
         return got_any
 
     def _queue_health(self) -> None:
+        warmup_active = (
+            time.monotonic() - self.started_monotonic
+        ) < HEALTH_WARMUP_SECONDS
+        all_physical_live = (
+            len(self.bus_last_seen) >= CURRENT_PHYSICAL_VEHICLE_BUSES_EXPECTED
+        )
+        primary_signal_evidence = (
+            self.id_source_frames[0x1D4].get(self.primary_interface, 0) > 0
+            and self.id_source_frames[0x1D6].get(self.primary_interface, 0) > 0
+        )
+        hv_signal_evidence = (
+            self.id_source_frames[0x210].get(self.hv_interface, 0) > 0
+            and self.id_source_frames[0x302].get(self.hv_interface, 0) > 0
+            and all(
+                self.id_source_frames[can_id].get(self.hv_interface, 0) > 0
+                for can_id in CELL_IDS
+            )
+        )
+
         health: dict[str, Any] = {
             "direct_can_interfaces_online": len(self.bus_last_seen),
             "direct_can_interfaces_available": sum(
@@ -613,8 +635,12 @@ class DirectStatePublisher:
             "physical_vehicle_buses_with_traffic": len(self.bus_last_seen),
             "physical_vehicle_bus_health": (
                 "all_expected_buses_live"
-                if len(self.bus_last_seen) >= CURRENT_PHYSICAL_VEHICLE_BUSES_EXPECTED
-                else "missing_expected_bus_traffic"
+                if all_physical_live
+                else (
+                    "starting_waiting_for_bus_traffic"
+                    if warmup_active
+                    else "missing_expected_bus_traffic"
+                )
             ),
             "uc2_open_strategy": "auto_0_1_then_1_0",
             "uc2_open_order": (
@@ -642,31 +668,16 @@ class DirectStatePublisher:
             "validated_hv_bus": self.hv_interface,
             "validated_primary_bus_receiving": self.primary_interface in self.bus_last_seen,
             "validated_hv_bus_receiving": self.hv_interface in self.bus_last_seen,
-            "validated_primary_signal_evidence": (
-                self.id_source_frames[0x1D4].get(self.primary_interface, 0) > 0
-                and self.id_source_frames[0x1D6].get(self.primary_interface, 0) > 0
-            ),
-            "validated_hv_signal_evidence": (
-                self.id_source_frames[0x210].get(self.hv_interface, 0) > 0
-                and self.id_source_frames[0x302].get(self.hv_interface, 0) > 0
-                and all(
-                    self.id_source_frames[can_id].get(self.hv_interface, 0) > 0
-                    for can_id in CELL_IDS
-                )
-            ),
+            "validated_primary_signal_evidence": primary_signal_evidence,
+            "validated_hv_signal_evidence": hv_signal_evidence,
             "validated_signal_bus_health": (
                 "validated_sources_live"
-                if (
-                    self.id_source_frames[0x1D4].get(self.primary_interface, 0) > 0
-                    and self.id_source_frames[0x1D6].get(self.primary_interface, 0) > 0
-                    and self.id_source_frames[0x210].get(self.hv_interface, 0) > 0
-                    and self.id_source_frames[0x302].get(self.hv_interface, 0) > 0
-                    and all(
-                        self.id_source_frames[can_id].get(self.hv_interface, 0) > 0
-                        for can_id in CELL_IDS
-                    )
+                if primary_signal_evidence and hv_signal_evidence
+                else (
+                    "starting_waiting_for_signal_evidence"
+                    if warmup_active
+                    else "validated_source_missing"
                 )
-                else "validated_source_missing"
             ),
         }
         for name in [n for n, _, _ in UC2_LOGICAL_CHANNELS] + [SWCAN_LOGICAL_CHANNEL]:
