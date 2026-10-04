@@ -12,18 +12,24 @@ From the OBD-Atlas checkout:
 
 ```bash
 sudo install -d /usr/local/lib/promethean
+sudo install -m 0755 tool/pcg1_direct_state_publisher.py /usr/local/lib/promethean/pcg1_direct_state_publisher.py
 sudo install -m 0755 tool/pcg1_core_gateway.py /usr/local/lib/promethean/pcg1_core_gateway.py
+sudo install -m 0644 systemd/promethean-pcg1-direct-state.service /etc/systemd/system/promethean-pcg1-direct-state.service
 sudo install -m 0644 systemd/promethean-pcg1-gateway.service /etc/systemd/system/promethean-pcg1-gateway.service
 sudo systemctl daemon-reload
+sudo systemctl enable --now promethean-pcg1-direct-state.service
 sudo systemctl enable --now promethean-pcg1-gateway.service
 ```
 
 Check it:
 
 ```bash
+systemctl status promethean-pcg1-direct-state.service --no-pager
 systemctl status promethean-pcg1-gateway.service --no-pager
 ss -ltnp | grep 47001
+journalctl -u promethean-pcg1-direct-state.service -n 50 --no-pager
 journalctl -u promethean-pcg1-gateway.service -n 50 --no-pager
+cat /run/promethean/vehicle_state.json
 ```
 
 ## State-file schema
@@ -83,6 +89,8 @@ Promethean Core pins the reciprocal PCG-1 neighbor in its AAOS device configurat
 ## Vehicle-data source
 
 PCG-1 itself is the permanent vehicle interface. Promethean Core does not require a vLinker, ELM/STN adapter, or Bluetooth/RFCOMM path.
+
+The direct state publisher listens to all six current SocketCAN interfaces, `can0` through `can5`. Network-specific decoders remain scoped to their established networks: `can1` is Primary Powertrain and `can2` is HV Energy Management in the current PCG-1 mapping. The other four buses are still observed for health and are available for additional validated decoders.
 
 The production data path is:
 
@@ -164,3 +172,16 @@ The intended Core cards consume the gateway fields directly:
 - **Drive Unit** — motor speeds, torque, inverter temperature and vehicle speed.
 
 Wi-Fi is the current development transport. The planned Gigabit Ethernet link uses the same TCP/47001 protocol, so no HMI application-protocol change is required.
+
+
+## Initial live direct-CAN card sources
+
+The first evidence-backed values published without any diagnostic dongle are:
+
+- **12 V / APM:** 0x1D4 command state/requested voltage and 0x1D6 APM sensed low-voltage, output current, calculated output power, temperatures, HV input current and counter. `bus12_voltage_v` comes directly from the validated 0x1D6 low-voltage sensed field.
+- **HV Battery:** confirmed 0x210 pack voltage.
+- **HV Battery cell health:** the 0x200/0x202/0x204/0x206 multiplex structure is accumulated across all 96 passive measurement slots; Core receives min, max, delta and the 96-slot vector only when all 96 slots have been observed.
+- **Battery thermal:** 0x302 is accumulated into the nine passive temperature slots and Core receives min/max plus the nine-slot vector when both mux groups have been observed.
+- **Network health:** all six SocketCAN interfaces are counted and timestamped by the publisher.
+
+Candidate pack current and unvalidated APM/HV semantics remain excluded until their evidence gates are met.
