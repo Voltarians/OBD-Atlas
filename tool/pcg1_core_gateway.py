@@ -71,6 +71,8 @@ INT_FIELDS = {
     "direct_can_interfaces_online",
     "direct_can_interfaces_available",
     "direct_can_interfaces_configured",
+    "current_vehicle_can_networks_configured",
+    "bicm_bus_bitrate",
     "future_lin_interfaces_configured",
     "future_lin_interfaces_online",
     "apm_status_raw",
@@ -91,6 +93,10 @@ STRING_FIELDS = {
     "hv_temperature_slots_source_bus",
     "bus12_voltage_source",
     "future_lin_status",
+    "reserved_can_channel",
+    "reserved_can_channel_status",
+    "bicm_bus_location",
+    "bicm_bus_status",
 }
 STRING_LIST_FIELDS = {
     "active_dtcs",
