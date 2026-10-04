@@ -90,7 +90,7 @@ Promethean Core pins the reciprocal PCG-1 neighbor in its AAOS device configurat
 
 PCG-1 itself is the permanent vehicle interface. Promethean Core does not require a vLinker, ELM/STN adapter, or Bluetooth/RFCOMM path.
 
-The direct state publisher listens to all six current SocketCAN interfaces, `can0` through `can5`. Network-specific decoders remain scoped to their established networks: `can1` is Primary Powertrain and `can2` is HV Energy Management in the current PCG-1 mapping. The other four buses are still observed for health and are available for additional validated decoders.
+The direct state publisher uses the verified mixed PCG-1 receive path rather than pretending every logical Atlas bus is a Linux SocketCAN interface. Atlas logical `can0` through `can3` are the four channels from the two LYS/UC2 USBCAN2 adapters through the ARM64 `libusbcan.so` API. Atlas logical `can4` is the RH02/candleLight SWCAN adapter exposed by Linux as SocketCAN `can0`. The sixth CAN-capable route remains reserved/assignable in the PCG-1 architecture and is not a sixth independent Volt DLC bus. Network-specific decoders remain scoped to the established Atlas logical networks: `can1` is Primary Powertrain and `can2` is HV Energy Management.
 
 The production data path is:
 
@@ -182,7 +182,8 @@ The first evidence-backed values published without any diagnostic dongle are:
 - **HV Battery:** confirmed 0x210 pack voltage.
 - **HV Battery cell health:** the 0x200/0x202/0x204/0x206 multiplex structure is accumulated across all 96 passive measurement slots; Core receives min, max, delta and the 96-slot vector only when all 96 slots have been observed.
 - **Battery thermal:** 0x302 is accumulated into the nine passive temperature slots and Core receives min/max plus the nine-slot vector when both mux groups have been observed.
-- **Network health:** all six SocketCAN interfaces are counted and timestamped by the publisher.
+- **Network health:** the four UC2 channels plus the RH02 SWCAN channel are counted and timestamped under the established Atlas logical names `can0` through `can4`. The sixth CAN-capable route is reported as reserved rather than falsely opened as Linux `can5`.
+- **BICM network:** the known 125 kbit/s BICM bus is located on the secondary DLC. It is tracked as a logical vehicle network while its exact concurrent acquisition route is kept separate until that routing is validated.
 
 Candidate pack current and unvalidated APM/HV semantics remain excluded until their evidence gates are met.
 
@@ -210,9 +211,10 @@ When LIN transceivers and capture support are added, the same PCG-1 state pipeli
 The eventual vehicle-network architecture is therefore:
 
 ```text
-6 CAN/CAN-FD-class channels
-3 LIN channels
-1 SWCAN path
+PCG-1 CAN-capable routing: 6 channels total
+Current Volt acquisition: 4 UC2 CAN channels + 1 SWCAN channel
+Known embedded/logical network: 125 kbit/s BICM on secondary DLC
+Future expansion: 3 LIN channels
         ↓
 PCG-1 acquisition / Atlas decoding
         ↓
