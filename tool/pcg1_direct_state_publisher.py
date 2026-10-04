@@ -598,9 +598,9 @@ class DirectStatePublisher:
         return got_any
 
     def _queue_health(self) -> None:
-        warmup_active = (
-            time.monotonic() - self.started_monotonic
-        ) < HEALTH_WARMUP_SECONDS
+        uptime_s = max(0.0, time.monotonic() - self.started_monotonic)
+        warmup_active = uptime_s < HEALTH_WARMUP_SECONDS
+        warmup_remaining_s = max(0.0, HEALTH_WARMUP_SECONDS - uptime_s)
         all_physical_live = (
             len(self.bus_last_seen) >= CURRENT_PHYSICAL_VEHICLE_BUSES_EXPECTED
         )
@@ -619,6 +619,9 @@ class DirectStatePublisher:
 
         health: dict[str, Any] = {
             "direct_can_interfaces_online": len(self.bus_last_seen),
+            "direct_can_uptime_s": round(uptime_s, 3),
+            "direct_can_warmup_active": warmup_active,
+            "direct_can_warmup_remaining_s": round(warmup_remaining_s, 3),
             "direct_can_interfaces_available": sum(
                 1 for value in self.bus_available.values() if value
             ),
