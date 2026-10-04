@@ -78,16 +78,10 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         self.assertIsNone(module.classify_logical_network("can0", 0x589))
 
     def test_legacy_passive_driving_signal_decoders(self):
-        self.assertEqual(
-            module.decode_legacy_vehicle_speed(bytes([0x0B, 0xAC])),
-            {
-                "vehicle_speed_raw": 2988,
-                "vehicle_speed_mph": 29.88,
-                "vehicle_speed_updated_utc": module.decode_legacy_vehicle_speed(
-                    bytes([0x0B, 0xAC])
-                )["vehicle_speed_updated_utc"],
-            },
-        )
+        speed = module.decode_legacy_vehicle_speed(bytes([0x0B, 0xAC]))
+        self.assertEqual(speed["vehicle_speed_raw"], 2988)
+        self.assertEqual(speed["vehicle_speed_mph"], 29.88)
+        self.assertIn("vehicle_speed_updated_utc", speed)
 
         accelerator = module.decode_legacy_accelerator(
             bytes([0x00, 0x00, 0x00, 0x00, 0xFE])
