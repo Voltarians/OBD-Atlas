@@ -69,7 +69,7 @@ U32_ERROR = 0xFFFFFFFF
 UC2_RECEIVE_BURST_LIMIT = 64
 UC2_RECEIVE_WAIT_MS = 100
 TIMING_500K = (0x00, 0x1C)
-UC2_OPEN_ORDERS = ((0, 1), (1, 0))
+UC2_OPEN_ORDERS = ((1, 0),)
 HEALTH_WARMUP_SECONDS = 15.0
 UC2_RUNTIME_RECOVERY_LIMIT = 1
 
@@ -584,14 +584,7 @@ class DirectStatePublisher:
             )
             raise PartialUc2TrafficError(reason)
 
-        current = self.uc2_open_order
-        alternate_first = (
-            (1, 0) if current == (0, 1) else (0, 1)
-        )
-        alternate_orders = (
-            alternate_first,
-            (0, 1) if alternate_first == (1, 0) else (1, 0),
-        )
+        recovery_orders = UC2_OPEN_ORDERS
 
         self.uc2_runtime_recovery_count += 1
         self.uc2_runtime_recovery_reason = (
@@ -602,14 +595,14 @@ class DirectStatePublisher:
         )
         print(
             "PCG-1 direct state publisher: partial UC2 traffic detected; "
-            f"active={active} silent={silent}; retrying with alternate open order",
+            f"active={active} silent={silent}; reopening UC2 in required 1->0 order",
             flush=True,
         )
 
         self._close_uc2()
         self._reset_uc2_runtime_telemetry()
         time.sleep(0.25)
-        self._open_uc2(alternate_orders)
+        self._open_uc2(recovery_orders)
         self.started_monotonic = time.monotonic()
         return True
 
@@ -858,7 +851,7 @@ class DirectStatePublisher:
                     else "missing_expected_bus_traffic"
                 )
             ),
-            "uc2_open_strategy": "auto_0_1_then_1_0",
+            "uc2_open_strategy": "required_1_0_only",
             "uc2_runtime_recovery_count": self.uc2_runtime_recovery_count,
             "uc2_runtime_recovery_reason": self.uc2_runtime_recovery_reason,
             "uc2_open_order": (
