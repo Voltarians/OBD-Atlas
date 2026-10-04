@@ -63,6 +63,21 @@ CAN_SFF_MASK = 0x000007FF
 
 CELL_IDS = {0x200: 0, 0x202: 1, 0x204: 2, 0x206: 3}
 
+# Logical-network classification is intentionally independent of the physical
+# acquisition channel. Only ID families already validated by this project are
+# classified here. Unknown IDs remain unclassified until evidence promotes
+# them; this leaves room for the suspected sixth logical network carried on an
+# existing physical CAN channel.
+PRIMARY_POWERTRAIN_IDS = frozenset({0x1D4, 0x1D6})
+HV_ENERGY_MANAGEMENT_IDS = frozenset({0x200, 0x202, 0x204, 0x206, 0x210, 0x302})
+LOGICAL_NETWORKS = (
+    "primary_powertrain",
+    "hv_energy_management",
+    "swcan",
+    "bicm_125k",
+    "sixth_id_defined_pending",
+)
+
 
 class VciInitConfig(C.Structure):
     _fields_ = [
@@ -111,6 +126,17 @@ def _motorola(data: bytes, start_bit: int, length: int, *, signed: bool = False)
 
 def _signed8(value: int) -> int:
     return value - 256 if value & 0x80 else value
+
+
+def classify_logical_network(interface: str, can_id: int) -> str | None:
+    """Return only evidence-backed logical-network classifications."""
+    if interface == SWCAN_LOGICAL_CHANNEL:
+        return "swcan"
+    if can_id in PRIMARY_POWERTRAIN_IDS:
+        return "primary_powertrain"
+    if can_id in HV_ENERGY_MANAGEMENT_IDS:
+        return "hv_energy_management"
+    return None
 
 
 def decode_apm_command(data: bytes) -> dict[str, Any]:
@@ -244,6 +270,9 @@ class DirectStatePublisher:
         self.bus_last_seen: dict[str, str] = {}
         self.bus_available = {name: False for name in logical}
         self.bus_available[RESERVED_CAN_CHANNEL] = False
+        self.logical_network_frames = {name: 0 for name in LOGICAL_NETWORKS}
+        self.logical_network_last_seen: dict[str, str] = {}
+        self.unclassified_frames = 0
 
         self.library: C.CDLL | None = None
         self.opened_devices: list[int] = []
@@ -375,26 +404,40 @@ class DirectStatePublisher:
         self.bus_frames[interface] = self.bus_frames.get(interface, 0) + 1
         self.bus_last_seen[interface] = now
 
+        logical_network = classify_logical_network(interface, can_id)
+        if logical_network is None:
+            self.unclassified_frames += 1
+        else:
+            self.logical_network_frames[logical_network] = (
+                self.logical_network_frames.get(logical_network, 0) + 1
+            )
+            self.logical_network_last_seen[logical_network] = now
+
         if interface == self.primary_interface and can_id == 0x1D4:
             updates.update(decode_apm_command(data))
             updates["apm_command_source_bus"] = interface
+            updates["apm_command_source_network"] = "primary_powertrain"
         elif interface == self.primary_interface and can_id == 0x1D6:
             updates.update(decode_apm_stats(data))
             updates["apm_stats_source_bus"] = interface
+            updates["apm_stats_source_network"] = "primary_powertrain"
         elif interface == self.hv_interface and can_id == 0x210:
             updates.update(decode_pack_voltage(data))
             updates["hv_pack_voltage_source_bus"] = interface
+            updates["hv_pack_voltage_source_network"] = "hv_energy_management"
         elif interface == self.hv_interface and can_id in CELL_IDS:
             self.cells.update(decode_cell_block(can_id, data))
             summary = self._battery_summary()
             if summary:
                 summary["hv_cell_slots_source_bus"] = interface
+                summary["hv_cell_slots_source_network"] = "hv_energy_management"
                 updates.update(summary)
         elif interface == self.hv_interface and can_id == 0x302:
             self.temps.update(decode_battery_temps(data))
             summary = self._battery_summary()
             if summary:
                 summary["hv_temperature_slots_source_bus"] = interface
+                summary["hv_temperature_slots_source_network"] = "hv_energy_management"
                 updates.update(summary)
 
         if updates:
@@ -475,7 +518,10 @@ class DirectStatePublisher:
             "reserved_can_channel_status": "assignable_not_independent_volt_bus",
             "bicm_bus_bitrate": 125000,
             "bicm_bus_location": "secondary_dlc",
-            "bicm_bus_status": "known_logical_bus_route_pending",
+            "bicm_bus_status": "known_logical_network_id_route_pending",
+            "logical_network_classifier": "id_family_v1",
+            "sixth_logical_network_status": "id_defined_pending_evidence",
+            "unclassified_can_frames": self.unclassified_frames,
             "future_lin_interfaces_configured": len(FUTURE_LIN_INTERFACES),
             "future_lin_interfaces_online": 0,
             "future_lin_status": "reserved_not_installed",
@@ -487,6 +533,15 @@ class DirectStatePublisher:
                 health[f"bus_{name}_last_seen_utc"] = self.bus_last_seen[name]
         health[f"bus_{RESERVED_CAN_CHANNEL}_available"] = False
         health[f"bus_{RESERVED_CAN_CHANNEL}_frames"] = 0
+
+        for network in LOGICAL_NETWORKS:
+            health[f"logical_network_{network}_frames"] = self.logical_network_frames.get(
+                network, 0
+            )
+            if network in self.logical_network_last_seen:
+                health[f"logical_network_{network}_last_seen_utc"] = (
+                    self.logical_network_last_seen[network]
+                )
         self._queue(health)
 
     def run_forever(self) -> None:
