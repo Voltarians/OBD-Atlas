@@ -135,6 +135,11 @@ class FiveBusCapture:
         )
         self.start_can = bind(self.lib, "VCI_StartCAN", [u32, u32, u32])
         self.reset_can = bind(self.lib, "VCI_ResetCAN", [u32, u32, u32])
+        self.receive_num = bind(
+            self.lib,
+            "VCI_GetReceiveNum",
+            [u32, u32, u32],
+        )
         self.receive = bind(
             self.lib,
             "VCI_Receive",
@@ -233,26 +238,46 @@ class FiveBusCapture:
             activity = False
 
             for logical, device, channel in UC2_CHANNELS:
-                received = self.receive(
-                    DEVICE_TYPE,
-                    device,
-                    channel,
-                    buffer,
-                    1,
-                    0,
-                )
-                if received == U32_ERROR:
-                    raise RuntimeError(
-                        f"VCI_Receive failed on {logical} "
-                        f"(device={device}, channel={channel})"
+                drained = 0
+                while drained < 64:
+                    pending = self.receive_num(
+                        DEVICE_TYPE, device, channel
                     )
-                if received == 1:
-                    frame = buffer[0]
-                    if not frame.RemoteFlag:
-                        dlc = min(int(frame.DataLen), 8)
-                        frames[logical][int(frame.ID)].append(
-                            bytes(frame.Data[:dlc])
+                    if pending == U32_ERROR:
+                        raise RuntimeError(
+                            f"VCI_GetReceiveNum failed on {logical} "
+                            f"(device={device}, channel={channel})"
                         )
+                    if pending == 0:
+                        break
+
+                    # Match the proven PCG-1 publisher receive path exactly:
+                    # one frame per native call with a positive timeout.
+                    received = self.receive(
+                        DEVICE_TYPE,
+                        device,
+                        channel,
+                        buffer,
+                        1,
+                        100,
+                    )
+                    if received == U32_ERROR:
+                        raise RuntimeError(
+                            f"VCI_Receive failed on {logical} "
+                            f"(device={device}, channel={channel})"
+                        )
+                    if received != 1:
+                        break
+
+                    frame = buffer[0]
+                    drained += 1
+                    if frame.RemoteFlag or frame.ExternFlag or frame.DataLen > 8:
+                        continue
+
+                    dlc = min(int(frame.DataLen), 8)
+                    frames[logical][int(frame.ID) & 0x7FF].append(
+                        bytes(frame.Data[:dlc])
+                    )
                     activity = True
 
             if self.swcan is not None:
