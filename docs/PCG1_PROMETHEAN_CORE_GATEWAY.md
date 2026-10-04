@@ -226,3 +226,30 @@ Promethean Core HMI
 ```
 
 Each LIN-derived value must preserve its source channel and remain absent until the corresponding signal has been validated.
+
+
+## Physical channels versus logical networks
+
+PCG-1 no longer assumes that one acquisition channel equals one vehicle network.
+
+Every received frame now has two independent concepts:
+
+- **Physical acquisition source**: Atlas logical `can0`..`can4`, backed by a UC2 channel or the RH02 SWCAN interface.
+- **Logical network**: classified from validated arbitration-ID families when evidence supports the classification.
+
+Initial evidence-backed logical classifications are:
+
+```text
+0x1D4, 0x1D6                         -> primary_powertrain
+0x200,0x202,0x204,0x206,0x210,0x302 -> hv_energy_management
+frames on Atlas logical can4         -> swcan
+```
+
+Unknown arbitration IDs remain unclassified. The suspected sixth network is represented as
+`sixth_id_defined_pending` and will not be promoted until its arbitration-ID set is identified
+from captures. The 125 kbit/s BICM network remains recorded as located on the secondary DLC,
+with its ID/routing relationship pending validation.
+
+Core receives both physical-source provenance and logical-network provenance for promoted
+signals. This allows a logical sub-network carried within an existing acquisition channel to
+be represented without inventing another Linux CAN interface.
