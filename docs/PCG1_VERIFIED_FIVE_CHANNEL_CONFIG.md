@@ -88,3 +88,20 @@ physical_vehicle_bus_health = all_expected_buses_live
 ```
 
 This is the acceptance gate for the physical PCG-1 acquisition layer. Higher-level signal decoding remains independently evidence-gated.
+
+
+## Degraded 2011 battery validation
+
+The 2026-10-04 five-bus Core validation was performed on a badly degraded 2011 Chevrolet Volt. The low battery measurement-slot values observed during that session are vehicle evidence, not decoder artifacts.
+
+The live Core state included:
+
+- confirmed pack voltage approximately 362.375 V
+- all 96 passive battery measurement slots populated
+- minimum measurement slot 1.3625 V
+- maximum measurement slot 3.88 V
+- spread 2517.5 mV
+- additional severely depressed slots including approximately 2.23 V and 2.67 V
+- all nine passive battery temperature slots populated
+
+Promethean Core and Voltarian must preserve and report these low measurements exactly as decoded. Do not clip, suppress, replace, or reject a measurement solely because it is outside the expected healthy-cell range. Missing/invalid transport evidence must be handled separately from a genuinely low measured voltage.
