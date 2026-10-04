@@ -253,6 +253,25 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         self.assertEqual(publisher.bus_frames["can0"], 0)
         self.assertEqual(publisher.bus_frames["can1"], 0)
 
+    def test_partial_uc2_failure_after_recovery_requests_clean_restart(self):
+        publisher = module.DirectStatePublisher(
+            state_file=Path("/tmp/unused-state.json"),
+            uc2_library=Path("/tmp/unused-libusbcan.so"),
+        )
+        publisher.uc2_runtime_recovery_count = module.UC2_RUNTIME_RECOVERY_LIMIT
+        publisher.bus_frames["can0"] = 100
+        publisher.bus_frames["can1"] = 100
+        publisher.bus_frames["can2"] = 0
+        publisher.bus_frames["can3"] = 0
+
+        with self.assertRaises(module.PartialUc2TrafficError):
+            publisher._recover_partial_uc2()
+
+        self.assertIn(
+            "partial UC2 traffic persisted",
+            publisher.uc2_runtime_recovery_reason,
+        )
+
     def test_health_reports_warmup_timing(self):
         publisher = module.DirectStatePublisher(
             state_file=Path("/tmp/unused-state.json"),
