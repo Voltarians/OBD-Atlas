@@ -22,6 +22,15 @@ class Pcg1CoreGatewayTests(unittest.TestCase):
             "apm_current_a": 18.7,
             "apm_power_w": 270,
             "apm_state": "ACTIVE",
+            "hv_pack_voltage_v": 361.8,
+            "hv_soc_pct": 58.2,
+            "hv_cell_delta_mv": 21.0,
+            "isolation_kohm": 1450.0,
+            "motor_a_rpm": 1640.0,
+            "vehicle_speed_mph": 22.0,
+            "dtc_count": 2,
+            "network_modules_online": 28,
+            "active_dtcs": ["P0AFA", "P1E00"],
             "unvalidated_guess": 1234,
         })
         self.assertEqual(state["bus12_voltage_v"], 12.64)
@@ -29,6 +38,15 @@ class Pcg1CoreGatewayTests(unittest.TestCase):
         self.assertEqual(state["apm_current_a"], 18.7)
         self.assertEqual(state["apm_power_w"], 270.0)
         self.assertEqual(state["apm_state"], "ACTIVE")
+        self.assertEqual(state["hv_pack_voltage_v"], 361.8)
+        self.assertEqual(state["hv_soc_pct"], 58.2)
+        self.assertEqual(state["hv_cell_delta_mv"], 21.0)
+        self.assertEqual(state["isolation_kohm"], 1450.0)
+        self.assertEqual(state["motor_a_rpm"], 1640.0)
+        self.assertEqual(state["vehicle_speed_mph"], 22.0)
+        self.assertEqual(state["dtc_count"], 2)
+        self.assertEqual(state["network_modules_online"], 28)
+        self.assertEqual(state["active_dtcs"], ["P0AFA", "P1E00"])
         self.assertNotIn("unvalidated_guess", state)
 
     def test_state_file_preserves_last_valid_state(self):
