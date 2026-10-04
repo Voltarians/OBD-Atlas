@@ -128,6 +128,7 @@ STRING_FIELDS = {
 STRING_LIST_FIELDS = {
     "active_dtcs",
     "offline_modules",
+    "validated_id_source_evidence",
 }
 BOOL_FIELDS = {
     "validated_primary_bus_receiving",
