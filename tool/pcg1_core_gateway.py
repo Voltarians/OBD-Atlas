@@ -71,6 +71,7 @@ FLOAT_FIELDS = {
     "vehicle_speed_mph",
 }
 INT_FIELDS = {
+    "uc2_runtime_recovery_count",
     "odometer_raw",
     "motor_rpm",
     "vehicle_speed_raw",
@@ -111,6 +112,7 @@ INT_FIELDS = {
     "hv_cell_measurement_slots_complete",
 }
 STRING_FIELDS = {
+    "uc2_runtime_recovery_reason",
     "coolant_temperature_source_reference",
     "coolant_temperature_source_bus",
     "ambient_temperature_source_reference",
