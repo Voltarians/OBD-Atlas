@@ -196,10 +196,15 @@ def decode_legacy_accelerator(data: bytes) -> dict[str, Any]:
     if len(data) < 5:
         return {}
     raw = int(data[4])
+    rpm_raw = ((int(data[1]) << 8) | int(data[2])) >> 2
     return {
         "accelerator_raw": raw,
         "accelerator_pct": round(raw * 100.0 / 254.0, 3),
+        "vehicle_on": (int(data[0]) & 0xC0) != 0,
+        "motor_rpm": rpm_raw,
         "accelerator_updated_utc": _utc_now(),
+        "vehicle_on_updated_utc": _utc_now(),
+        "motor_rpm_updated_utc": _utc_now(),
     }
 
 
@@ -236,6 +241,9 @@ def decode_legacy_shift_position(data: bytes) -> dict[str, Any]:
     state = {
         1: "PARK",
         2: "REVERSE",
+        3: "NEUTRAL",
+        4: "DRIVE",
+        5: "LOW",
     }.get(raw, f"RAW_0x{raw:02X}")
     return {
         "shift_position_raw": raw,
@@ -252,6 +260,32 @@ def decode_legacy_vehicle_speed(data: bytes) -> dict[str, Any]:
         "vehicle_speed_raw": raw,
         "vehicle_speed_mph": round(raw / 100.0, 2),
         "vehicle_speed_updated_utc": _utc_now(),
+    }
+
+
+def decode_legacy_odometer(data: bytes) -> dict[str, Any]:
+    if len(data) < 4:
+        return {}
+    raw = (
+        (int(data[0]) << 24)
+        | (int(data[1]) << 16)
+        | (int(data[2]) << 8)
+        | int(data[3])
+    )
+    return {
+        "odometer_raw": raw,
+        "odometer_miles": round(raw / 64.0, 3),
+        "odometer_updated_utc": _utc_now(),
+    }
+
+
+def decode_legacy_ambient_coolant(data: bytes) -> dict[str, Any]:
+    if len(data) < 5:
+        return {}
+    return {
+        "ambient_temperature_c": round(int(data[4]) / 2.0 - 40.0, 3),
+        "coolant_temperature_c": round(float(int(data[2]) - 40), 3),
+        "ambient_coolant_updated_utc": _utc_now(),
     }
 
 
@@ -578,7 +612,11 @@ class DirectStatePublisher:
         elif interface == "can1" and can_id == 0x0C9:
             updates.update(decode_legacy_accelerator(data))
             updates["accelerator_source_bus"] = interface
-            updates["accelerator_source_reference"] = "evtools_primary_105_id_stream"
+            updates["accelerator_source_reference"] = "ovms_voltampera_0x0c9"
+            updates["vehicle_on_source_bus"] = interface
+            updates["vehicle_on_source_reference"] = "ovms_voltampera_0x0c9"
+            updates["motor_rpm_source_bus"] = interface
+            updates["motor_rpm_source_reference"] = "ovms_voltampera_0x0c9"
         elif interface == "can1" and can_id == 0x0F1:
             updates.update(decode_legacy_brake(data))
             updates["brake_source_bus"] = interface
@@ -591,10 +629,20 @@ class DirectStatePublisher:
             updates.update(decode_legacy_shift_position(data))
             updates["shift_position_source_bus"] = interface
             updates["shift_position_source_reference"] = "evtools_primary_105_id_stream"
+        elif interface == "can1" and can_id == 0x120:
+            updates.update(decode_legacy_odometer(data))
+            updates["odometer_source_bus"] = interface
+            updates["odometer_source_reference"] = "ovms_voltampera_0x120"
         elif interface == "can1" and can_id == 0x3E9:
             updates.update(decode_legacy_vehicle_speed(data))
             updates["vehicle_speed_source_bus"] = interface
             updates["vehicle_speed_source_reference"] = "evtools_primary_105_id_stream"
+        elif interface == "can1" and can_id == 0x4C1:
+            updates.update(decode_legacy_ambient_coolant(data))
+            updates["ambient_temperature_source_bus"] = interface
+            updates["ambient_temperature_source_reference"] = "ovms_voltampera_0x4c1"
+            updates["coolant_temperature_source_bus"] = interface
+            updates["coolant_temperature_source_reference"] = "ovms_voltampera_0x4c1"
         elif interface == self.hv_interface and can_id == 0x210:
             updates.update(decode_pack_voltage(data))
             updates["hv_pack_voltage_source_bus"] = interface
