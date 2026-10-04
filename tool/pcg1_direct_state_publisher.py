@@ -321,6 +321,45 @@ def decode_system_12v_sensor(data: bytes) -> dict[str, Any]:
     return updates
 
 
+def decode_swcan_energy_metrics(can_id: int, data: bytes) -> dict[str, Any]:
+    """Decode passive low-speed GMLAN energy/range broadcasts.
+
+    The 13-bit message PID is carried in bits 13..25 of the extended SWCAN
+    arbitration ID. Decodes follow the public OVMS Volt/Ampera mappings.
+    """
+    pid = (can_id >> 13) & 0x1FFF
+    updates: dict[str, Any] = {}
+
+    if pid == 0x0176 and len(data) >= 2:
+        # HMI_Hybrid_Vehicle_Status_LS: EV range shown by the cluster.
+        km = round(_motorola(data, 0, 16) * 0.015625, 3)
+        updates["electric_range_km"] = km
+        updates["electric_range_miles"] = round(km / 1.609344, 3)
+    elif pid == 0x0224 and len(data) >= 4:
+        # Fuel_Level_Status_LS: gasoline range. Zero means unavailable/not yet computed.
+        raw = _motorola(data, 8, 17)
+        if raw > 0:
+            km = round(raw * 0.015625, 3)
+            updates["fuel_range_km"] = km
+            updates["fuel_range_miles"] = round(km / 1.609344, 3)
+    elif pid == 0x0141 and len(data) >= 8:
+        # Energy_Storage_System_LS: electric energy used since last full-charge reset.
+        updates["drive_cycle_electric_energy_used_kwh"] = round(
+            _motorola(data, 21, 14) * 0.1, 3
+        )
+    elif pid == 0x0225 and len(data) >= 8:
+        # Drive_Cycle_Efficiency_LS: distance driven on battery energy.
+        km = round(_motorola(data, 7, 17) * 0.015625, 3)
+        updates["drive_cycle_battery_distance_km"] = km
+        updates["drive_cycle_battery_distance_miles"] = round(
+            km / 1.609344, 3
+        )
+
+    if updates:
+        updates["energy_metrics_updated_utc"] = _utc_now()
+    return updates
+
+
 def decode_pack_voltage(data: bytes) -> dict[str, Any]:
     if len(data) < 2:
         return {}
@@ -408,6 +447,10 @@ class DirectStatePublisher:
         self.cells: dict[int, float] = {}
         self.temps: dict[str, float] = {}
         self.pending: dict[str, Any] = {}
+        self.drive_cycle_electric_energy_used_kwh: float | None = None
+        self.drive_cycle_battery_distance_miles: float | None = None
+        self.electric_range_miles: float | None = None
+        self.fuel_range_miles: float | None = None
 
         logical = [name for name, _, _ in UC2_LOGICAL_CHANNELS] + [SWCAN_LOGICAL_CHANNEL]
         self.bus_frames = {name: 0 for name in logical}
@@ -768,6 +811,41 @@ class DirectStatePublisher:
             updates["system_12v_source_reference"] = (
                 "ovms_voltampera_swcan_0x10248040_intelligent_battery_sensor"
             )
+        elif interface == SWCAN_LOGICAL_CHANNEL and can_id & CAN_EFF_MASK:
+            energy = decode_swcan_energy_metrics(can_id, data)
+            if energy:
+                updates.update(energy)
+                updates["energy_metrics_source_bus"] = interface
+                updates["energy_metrics_source_reference"] = "ovms_voltampera_passive_swcan"
+
+                if "electric_range_miles" in energy:
+                    self.electric_range_miles = float(energy["electric_range_miles"])
+                if "fuel_range_miles" in energy:
+                    self.fuel_range_miles = float(energy["fuel_range_miles"])
+                if "drive_cycle_electric_energy_used_kwh" in energy:
+                    self.drive_cycle_electric_energy_used_kwh = float(
+                        energy["drive_cycle_electric_energy_used_kwh"]
+                    )
+                if "drive_cycle_battery_distance_miles" in energy:
+                    self.drive_cycle_battery_distance_miles = float(
+                        energy["drive_cycle_battery_distance_miles"]
+                    )
+
+                if self.electric_range_miles is not None and self.fuel_range_miles is not None:
+                    updates["total_range_miles"] = round(
+                        self.electric_range_miles + self.fuel_range_miles, 3
+                    )
+
+                if (
+                    self.drive_cycle_electric_energy_used_kwh is not None
+                    and self.drive_cycle_electric_energy_used_kwh > 0
+                    and self.drive_cycle_battery_distance_miles is not None
+                ):
+                    updates["electric_efficiency_mi_per_kwh"] = round(
+                        self.drive_cycle_battery_distance_miles
+                        / self.drive_cycle_electric_energy_used_kwh,
+                        3,
+                    )
         elif interface == self.hv_interface and can_id == 0x210:
             updates.update(decode_pack_voltage(data))
             updates["hv_pack_voltage_source_bus"] = interface
