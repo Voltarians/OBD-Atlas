@@ -475,31 +475,35 @@ class DirectStatePublisher:
             )
             self.logical_network_last_seen[logical_network] = now
 
-        if interface == self.primary_interface and can_id == 0x1D4:
+        # Decode by the validated logical-network/ID family, not by a fixed
+        # UC2 native-device-derived bus number. The LYS vendor library can
+        # enumerate the two adapters in a different native order across boots.
+        # Always preserve the actual physical source bus in telemetry.
+        if logical_network == "primary_powertrain" and can_id == 0x1D4:
             updates.update(decode_apm_command(data))
             updates["apm_command_source_bus"] = interface
-            updates["apm_command_source_network"] = "primary_powertrain"
-        elif interface == self.primary_interface and can_id == 0x1D6:
+            updates["apm_command_source_network"] = logical_network
+        elif logical_network == "primary_powertrain" and can_id == 0x1D6:
             updates.update(decode_apm_stats(data))
             updates["apm_stats_source_bus"] = interface
-            updates["apm_stats_source_network"] = "primary_powertrain"
-        elif interface == self.hv_interface and can_id == 0x210:
+            updates["apm_stats_source_network"] = logical_network
+        elif logical_network == "hv_energy_management" and can_id == 0x210:
             updates.update(decode_pack_voltage(data))
             updates["hv_pack_voltage_source_bus"] = interface
-            updates["hv_pack_voltage_source_network"] = "hv_energy_management"
-        elif interface == self.hv_interface and can_id in CELL_IDS:
+            updates["hv_pack_voltage_source_network"] = logical_network
+        elif logical_network == "hv_energy_management" and can_id in CELL_IDS:
             self.cells.update(decode_cell_block(can_id, data))
             summary = self._battery_summary()
             if summary:
                 summary["hv_cell_slots_source_bus"] = interface
-                summary["hv_cell_slots_source_network"] = "hv_energy_management"
+                summary["hv_cell_slots_source_network"] = logical_network
                 updates.update(summary)
-        elif interface == self.hv_interface and can_id == 0x302:
+        elif logical_network == "hv_energy_management" and can_id == 0x302:
             self.temps.update(decode_battery_temps(data))
             summary = self._battery_summary()
             if summary:
                 summary["hv_temperature_slots_source_bus"] = interface
-                summary["hv_temperature_slots_source_network"] = "hv_energy_management"
+                summary["hv_temperature_slots_source_network"] = logical_network
                 updates.update(summary)
 
         if updates:
