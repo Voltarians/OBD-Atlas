@@ -130,6 +130,27 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
             )
             self.assertEqual(decoded_shift["shift_position"], state)
 
+    def test_system_12v_sensor_decode_and_bus_qualification(self):
+        decoded = module.decode_system_12v_sensor(
+            bytes([0x00, 0x00, 0x6C, 0xD1, 0x00, 0x02])
+        )
+        self.assertAlmostEqual(decoded["system_12v_voltage_v"], 13.8, places=3)
+        self.assertAlmostEqual(decoded["system_12v_soc_pct"], 81.961, places=3)
+        self.assertAlmostEqual(decoded["system_12v_current_a"], 1.0, places=3)
+
+        publisher = module.DirectStatePublisher(
+            state_file=Path("/tmp/unused-state.json"),
+            uc2_library=Path("/tmp/unused-libusbcan.so"),
+        )
+        publisher._handle("can1", 0x10248040, bytes([0, 0, 0x6C, 0xD1, 0, 2]))
+        self.assertNotIn("system_12v_voltage_v", publisher.pending)
+
+        publisher._handle("can4", 0x10248040, bytes([0, 0, 0x6C, 0xD1, 0, 2]))
+        self.assertEqual(publisher.pending["system_12v_source_bus"], "can4")
+        self.assertAlmostEqual(
+            publisher.pending["system_12v_voltage_v"], 13.8, places=3
+        )
+
     def test_passive_driving_signals_are_bus_qualified(self):
         publisher = module.DirectStatePublisher(
             state_file=Path("/tmp/unused-state.json"),
