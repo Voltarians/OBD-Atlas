@@ -24,6 +24,7 @@ DEFAULT_PORT = 47001
 DEFAULT_INTERVAL = 1.0
 
 FLOAT_FIELDS = {
+    "accelerator_pct",
     "direct_can_warmup_remaining_s",
     "direct_can_uptime_s",
     # 12-V / APM
@@ -67,6 +68,11 @@ FLOAT_FIELDS = {
     "vehicle_speed_mph",
 }
 INT_FIELDS = {
+    "vehicle_speed_raw",
+    "shift_position_raw",
+    "drive_position_raw",
+    "brake_raw",
+    "accelerator_raw",
     "bus_can5_unique_ids",
     "bus_can4_unique_ids",
     "bus_can3_unique_ids",
@@ -100,6 +106,18 @@ INT_FIELDS = {
     "hv_cell_measurement_slots_complete",
 }
 STRING_FIELDS = {
+    "vehicle_speed_source_reference",
+    "vehicle_speed_source_bus",
+    "shift_position_source_reference",
+    "shift_position_source_bus",
+    "drive_position_source_reference",
+    "drive_position_source_bus",
+    "brake_source_reference",
+    "brake_source_bus",
+    "accelerator_source_reference",
+    "accelerator_source_bus",
+    "shift_position",
+    "drive_position",
     "physical_bus_role_can4",
     "physical_bus_role_can3",
     "physical_bus_role_can2",
