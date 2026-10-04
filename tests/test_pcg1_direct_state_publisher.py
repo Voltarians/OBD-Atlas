@@ -102,6 +102,24 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
             places=3,
         )
 
+    def test_health_reports_validated_signal_source_buses(self):
+        publisher = module.DirectStatePublisher(
+            state_file=Path("/tmp/unused-state.json"),
+            uc2_library=Path("/tmp/unused-libusbcan.so"),
+        )
+        publisher.bus_last_seen["can1"] = "2026-10-04T00:00:00Z"
+        publisher.bus_last_seen["can2"] = "2026-10-04T00:00:00Z"
+        publisher._queue_health()
+
+        self.assertEqual(publisher.pending["validated_primary_bus"], "can1")
+        self.assertEqual(publisher.pending["validated_hv_bus"], "can2")
+        self.assertTrue(publisher.pending["validated_primary_bus_receiving"])
+        self.assertTrue(publisher.pending["validated_hv_bus_receiving"])
+        self.assertEqual(
+            publisher.pending["validated_signal_bus_health"],
+            "validated_sources_live",
+        )
+
     def test_default_configuration_matches_verified_pcg1_topology(self):
         self.assertEqual(
             module.UC2_LOGICAL_CHANNELS,
