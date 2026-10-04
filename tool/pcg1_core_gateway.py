@@ -133,6 +133,8 @@ STRING_LIST_FIELDS = {
 BOOL_FIELDS = {
     "validated_primary_bus_receiving",
     "validated_hv_bus_receiving",
+    "validated_primary_signal_evidence",
+    "validated_hv_signal_evidence",
 }
 
 FLOAT_LIST_FIELDS = {
