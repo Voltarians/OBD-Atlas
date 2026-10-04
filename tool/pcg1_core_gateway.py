@@ -24,6 +24,9 @@ DEFAULT_PORT = 47001
 DEFAULT_INTERVAL = 1.0
 
 FLOAT_FIELDS = {
+    "coolant_temperature_c",
+    "ambient_temperature_c",
+    "odometer_miles",
     "accelerator_pct",
     "direct_can_warmup_remaining_s",
     "direct_can_uptime_s",
@@ -68,6 +71,8 @@ FLOAT_FIELDS = {
     "vehicle_speed_mph",
 }
 INT_FIELDS = {
+    "odometer_raw",
+    "motor_rpm",
     "vehicle_speed_raw",
     "shift_position_raw",
     "drive_position_raw",
@@ -106,6 +111,16 @@ INT_FIELDS = {
     "hv_cell_measurement_slots_complete",
 }
 STRING_FIELDS = {
+    "coolant_temperature_source_reference",
+    "coolant_temperature_source_bus",
+    "ambient_temperature_source_reference",
+    "ambient_temperature_source_bus",
+    "odometer_source_reference",
+    "odometer_source_bus",
+    "motor_rpm_source_reference",
+    "motor_rpm_source_bus",
+    "vehicle_on_source_reference",
+    "vehicle_on_source_bus",
     "vehicle_speed_source_reference",
     "vehicle_speed_source_bus",
     "shift_position_source_reference",
@@ -168,6 +183,7 @@ STRING_LIST_FIELDS = {
     "validated_id_source_evidence",
 }
 BOOL_FIELDS = {
+    "vehicle_on",
     "direct_can_warmup_active",
     "validated_primary_bus_receiving",
     "validated_hv_bus_receiving",
