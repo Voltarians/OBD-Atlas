@@ -53,6 +53,13 @@ TOTAL_KNOWN_VEHICLE_BUSES = 6
 HIDDEN_INTERNAL_BUS_NAME = "bicm_internal_125k"
 CAN_CAPABLE_CHANNEL_COUNT = 6
 FUTURE_LIN_INTERFACES = ("lin0", "lin1", "lin2")
+PHYSICAL_BUS_ROLES = {
+    "can0": "high_voltage_energy_management",
+    "can1": "high_voltage_powertrain_expansion",
+    "can2": "chassis_expansion",
+    "can3": "primary_powertrain",
+    "can4": "body_electrical_swcan",
+}
 
 DEFAULT_PRIMARY_INTERFACE = "can3"
 DEFAULT_HV_INTERFACE = "can2"
@@ -626,6 +633,11 @@ class DirectStatePublisher:
             "future_lin_interfaces_configured": len(FUTURE_LIN_INTERFACES),
             "future_lin_interfaces_online": 0,
             "future_lin_status": "reserved_not_installed",
+            "physical_bus_role_can0": PHYSICAL_BUS_ROLES["can0"],
+            "physical_bus_role_can1": PHYSICAL_BUS_ROLES["can1"],
+            "physical_bus_role_can2": PHYSICAL_BUS_ROLES["can2"],
+            "physical_bus_role_can3": PHYSICAL_BUS_ROLES["can3"],
+            "physical_bus_role_can4": PHYSICAL_BUS_ROLES["can4"],
             "validated_primary_bus": self.primary_interface,
             "validated_hv_bus": self.hv_interface,
             "validated_primary_bus_receiving": self.primary_interface in self.bus_last_seen,
