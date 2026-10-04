@@ -57,6 +57,7 @@ U32_ERROR = 0xFFFFFFFF
 UC2_RECEIVE_BURST_LIMIT = 64
 UC2_RECEIVE_WAIT_MS = 100
 TIMING_500K = (0x00, 0x1C)
+UC2_OPEN_ORDERS = ((0, 1), (1, 0))
 
 CAN_EFF_FLAG = 0x80000000
 CAN_RTR_FLAG = 0x40000000
@@ -277,6 +278,7 @@ class DirectStatePublisher:
 
         self.library: C.CDLL | None = None
         self.opened_devices: list[int] = []
+        self.uc2_open_order: tuple[int, int] | None = None
         self.uc2_buffers = {
             name: VciCanObj()
             for name, _, _ in UC2_LOGICAL_CHANNELS
@@ -308,23 +310,78 @@ class DirectStatePublisher:
             [u32, u32, u32, C.POINTER(VciCanObj), u32, C.c_int32],
         )
 
-        # Match the proven Atlas sequence: open both devices, initialize all
-        # four controllers in passive mode, then start all four.
-        for device in (0, 1):
-            if self.open_device(DEVICE_TYPE, device, 0) != 1:
-                raise RuntimeError(f"VCI_OpenDevice failed for UC2 device {device}")
-            self.opened_devices.append(device)
+        # The vendor library's native device indices are not stable enough to
+        # assume that device 0 must always be opened first. Atlas has recovered
+        # a five-bus session after device 0 failed and device 1 was selected.
+        # Keep the physical/logical mapping fixed, but try both native open
+        # orders before giving up.
+        last_error: RuntimeError | None = None
+        for open_order in UC2_OPEN_ORDERS:
+            self.opened_devices.clear()
+            try:
+                for device in open_order:
+                    if self.open_device(DEVICE_TYPE, device, 0) != 1:
+                        raise RuntimeError(
+                            f"VCI_OpenDevice failed for UC2 device {device} "
+                            f"using order {open_order[0]}->{open_order[1]}"
+                        )
+                    self.opened_devices.append(device)
 
-        timing0, timing1 = TIMING_500K
-        for _name, device, channel in UC2_LOGICAL_CHANNELS:
-            config = VciInitConfig(0, 0xFFFFFFFF, 0, 1, timing0, timing1, 1)
-            if self.init_can(DEVICE_TYPE, device, channel, C.byref(config)) != 1:
-                raise RuntimeError(f"VCI_InitCAN failed for UC2 device {device} CAN{channel}")
+                timing0, timing1 = TIMING_500K
+                for _name, device, channel in UC2_LOGICAL_CHANNELS:
+                    config = VciInitConfig(
+                        0, 0xFFFFFFFF, 0, 1, timing0, timing1, 1
+                    )
+                    if (
+                        self.init_can(
+                            DEVICE_TYPE, device, channel, C.byref(config)
+                        )
+                        != 1
+                    ):
+                        raise RuntimeError(
+                            f"VCI_InitCAN failed for UC2 device {device} "
+                            f"CAN{channel} using order "
+                            f"{open_order[0]}->{open_order[1]}"
+                        )
 
-        for name, device, channel in UC2_LOGICAL_CHANNELS:
-            if self.start_can(DEVICE_TYPE, device, channel) != 1:
-                raise RuntimeError(f"VCI_StartCAN failed for UC2 device {device} CAN{channel}")
-            self.bus_available[name] = True
+                for name, device, channel in UC2_LOGICAL_CHANNELS:
+                    if self.start_can(DEVICE_TYPE, device, channel) != 1:
+                        raise RuntimeError(
+                            f"VCI_StartCAN failed for UC2 device {device} "
+                            f"CAN{channel} using order "
+                            f"{open_order[0]}->{open_order[1]}"
+                        )
+                    self.bus_available[name] = True
+
+                self.uc2_open_order = open_order
+                print(
+                    "PCG-1 direct state publisher: UC2 native open order "
+                    f"{open_order[0]}->{open_order[1]} succeeded",
+                    flush=True,
+                )
+                return
+            except RuntimeError as error:
+                last_error = error
+                for device in reversed(self.opened_devices):
+                    for channel in (1, 0):
+                        try:
+                            self.reset_can(DEVICE_TYPE, device, channel)
+                        except Exception:
+                            pass
+                    try:
+                        self.close_device(DEVICE_TYPE, device)
+                    except Exception:
+                        pass
+                self.opened_devices.clear()
+                for name, _device, _channel in UC2_LOGICAL_CHANNELS:
+                    self.bus_available[name] = False
+                print(
+                    f"PCG-1 direct state publisher: {error}; retrying alternate UC2 order",
+                    flush=True,
+                )
+                time.sleep(0.25)
+
+        raise last_error or RuntimeError("unable to open UC2 pair")
 
     def _open_swcan(self) -> None:
         sock = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
@@ -523,6 +580,12 @@ class DirectStatePublisher:
                 "all_expected_buses_live"
                 if len(self.bus_last_seen) >= CURRENT_PHYSICAL_VEHICLE_BUSES_EXPECTED
                 else "missing_expected_bus_traffic"
+            ),
+            "uc2_open_strategy": "auto_0_1_then_1_0",
+            "uc2_open_order": (
+                None
+                if self.uc2_open_order is None
+                else f"{self.uc2_open_order[0]}->{self.uc2_open_order[1]}"
             ),
             "reserved_can_channel": RESERVED_CAN_CHANNEL,
             "reserved_can_channel_status": "assignable_not_independent_volt_bus",
