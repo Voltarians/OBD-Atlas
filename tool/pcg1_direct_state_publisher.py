@@ -67,8 +67,11 @@ def decode_apm_command(data: bytes) -> dict[str, Any]:
     if len(data) < 2:
         return {}
     requested_v = data[1] * 0.0787402
+    state_raw = int(data[0])
+    state = "OFF" if state_raw == 0 else "ON" if state_raw == 160 else f"RAW_0x{state_raw:02X}"
     return {
-        "apm_status_raw": int(data[0]),
+        "apm_status_raw": state_raw,
+        "apm_state": state,
         "apm_requested_voltage_v": round(requested_v, 3),
         "apm_command_updated_utc": _utc_now(),
     }
@@ -87,6 +90,8 @@ def decode_apm_stats(data: bytes) -> dict[str, Any]:
         "apm_status_raw": int(data[0]),
         "apm_hv_input_current_a": round(hv_input_current_a, 3),
         "apm_output_voltage_v": round(lv_sensed_voltage_v, 3),
+        "bus12_voltage_v": round(lv_sensed_voltage_v, 3),
+        "bus12_voltage_source": "apm_0x1d6_low_voltage_sensed",
         "apm_current_a": round(lv_output_current_a, 3),
         "apm_power_w": round(lv_sensed_voltage_v * lv_output_current_a, 3),
         "apm_temperature_c": round(max(temp1_c, temp2_c), 3),
