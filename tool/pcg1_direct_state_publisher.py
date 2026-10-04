@@ -1,24 +1,26 @@
 #!/usr/bin/env python3
-"""Publish evidence-backed direct PCG-1 CAN values for Promethean Core.
+"""Publish evidence-backed direct PCG-1 vehicle values for Promethean Core.
 
-This process reads SocketCAN directly from the vehicle networks already wired to
-PCG-1. It does not use an ELM/STN/vLinker adapter and it does not transmit CAN.
+PCG-1 uses a mixed receive backend:
+- Atlas logical can0..can3: two dual-channel LYS/UC2 USBCAN2 adapters through
+  the verified ARM64 libusbcan.so receive API.
+- Atlas logical can4: RH02/candleLight SWCAN through Linux SocketCAN can0.
+- PCG-1 has a sixth CAN-capable route in the architecture, but it is not a
+  sixth independent SocketCAN interface and is not opened here.
+- The known 125 kbit/s BICM network is on the secondary DLC and is tracked as
+  a logical vehicle network; its exact concurrent acquisition route is kept
+  separate until that mapping is validated.
 
-Validated/currently accepted inputs:
-- Primary HS GMLAN: APM command/status 0x1D4 and APM stats 0x1D6.
-- HV Energy Management: 0x210 pack voltage, 0x200/202/204/206 96 passive
-  battery-voltage measurement slots, and 0x302 nine battery temperatures.
-
-Candidate pack current, ambiguous charger fields, and unvalidated semantics are
-deliberately not promoted into the Core state file.
+This process is receive-only. It never calls VCI_Transmit and never sends a
+SocketCAN frame.
 """
 
 from __future__ import annotations
 
 import argparse
+import ctypes as C
 import json
 import os
-import selectors
 import socket
 import struct
 import tempfile
@@ -28,10 +30,30 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_STATE_FILE = Path("/run/promethean/vehicle_state.json")
-DEFAULT_INTERFACES = ("can0", "can1", "can2", "can3", "can4", "can5")
+DEFAULT_UC2_LIBRARY = Path.home() / "promethean/rust-can-zlg-lib/library/linux/aarch64/libusbcan.so"
+DEFAULT_SWCAN_INTERFACE = "can0"
+
+# Atlas logical names are retained so existing evidence, captures and signal
+# mappings do not change when the acquisition backend changes.
+UC2_LOGICAL_CHANNELS = (
+    ("can0", 0, 0),
+    ("can1", 0, 1),
+    ("can2", 1, 0),
+    ("can3", 1, 1),
+)
+SWCAN_LOGICAL_CHANNEL = "can4"
+RESERVED_CAN_CHANNEL = "can5"
+CURRENT_VEHICLE_NETWORK_COUNT = 5
+CAN_CAPABLE_CHANNEL_COUNT = 6
 FUTURE_LIN_INTERFACES = ("lin0", "lin1", "lin2")
+
 DEFAULT_PRIMARY_INTERFACE = "can1"
 DEFAULT_HV_INTERFACE = "can2"
+
+DEVICE_TYPE = 4  # ZLG/LYS USBCAN2
+U32_ERROR = 0xFFFFFFFF
+UC2_BATCH_SIZE = 128
+TIMING_500K = (0x00, 0x1C)
 
 CAN_EFF_FLAG = 0x80000000
 CAN_RTR_FLAG = 0x40000000
@@ -39,6 +61,32 @@ CAN_ERR_FLAG = 0x20000000
 CAN_SFF_MASK = 0x000007FF
 
 CELL_IDS = {0x200: 0, 0x202: 1, 0x204: 2, 0x206: 3}
+
+
+class VciInitConfig(C.Structure):
+    _fields_ = [
+        ("AccCode", C.c_uint32),
+        ("AccMask", C.c_uint32),
+        ("Reserved", C.c_uint32),
+        ("Filter", C.c_uint8),
+        ("Timing0", C.c_uint8),
+        ("Timing1", C.c_uint8),
+        ("Mode", C.c_uint8),
+    ]
+
+
+class VciCanObj(C.Structure):
+    _fields_ = [
+        ("ID", C.c_uint32),
+        ("TimeStamp", C.c_uint32),
+        ("TimeFlag", C.c_uint8),
+        ("SendType", C.c_uint8),
+        ("RemoteFlag", C.c_uint8),
+        ("ExternFlag", C.c_uint8),
+        ("DataLen", C.c_uint8),
+        ("Data", C.c_uint8 * 8),
+        ("Reserved", C.c_uint8 * 3),
+    ]
 
 
 def _utc_now() -> str:
@@ -81,7 +129,6 @@ def decode_apm_command(data: bytes) -> dict[str, Any]:
 def decode_apm_stats(data: bytes) -> dict[str, Any]:
     if len(data) < 7:
         return {}
-    # Project-validated DBC candidates from the primary DLC 6/14 path.
     hv_input_current_a = _signed8(data[1]) * 0.15 - 7.0
     lv_sensed_voltage_v = data[2] * 0.0787402
     temp1_c = float(data[3]) - 40.0
@@ -106,9 +153,8 @@ def decode_apm_stats(data: bytes) -> dict[str, Any]:
 def decode_pack_voltage(data: bytes) -> dict[str, Any]:
     if len(data) < 2:
         return {}
-    voltage = _motorola(data, 7, 12) * 0.125
     return {
-        "hv_pack_voltage_v": round(voltage, 3),
+        "hv_pack_voltage_v": round(_motorola(data, 7, 12) * 0.125, 3),
         "hv_pack_voltage_updated_utc": _utc_now(),
     }
 
@@ -124,7 +170,7 @@ def decode_cell_block(can_id: int, data: bytes) -> dict[int, float]:
         _motorola(data, 39, 12) * 0.00125,
     )
     slot_base = block * 24 + bank * 3
-    return {slot_base + i: round(v, 5) for i, v in enumerate(values)}
+    return {slot_base + i: round(value, 5) for i, value in enumerate(values)}
 
 
 def decode_battery_temps(data: bytes) -> dict[str, float]:
@@ -167,62 +213,124 @@ def _atomic_write(path: Path, updates: dict[str, Any]) -> None:
             pass
 
 
+def _bind(library: C.CDLL, name: str, args: list[Any], result: Any = C.c_uint32):
+    fn = getattr(library, name)
+    fn.argtypes = args
+    fn.restype = result
+    return fn
+
+
 class DirectStatePublisher:
     def __init__(
         self,
-        interfaces: list[str],
         state_file: Path,
+        uc2_library: Path,
+        swcan_interface: str = DEFAULT_SWCAN_INTERFACE,
         primary_interface: str = DEFAULT_PRIMARY_INTERFACE,
         hv_interface: str = DEFAULT_HV_INTERFACE,
     ) -> None:
-        self.interfaces = interfaces
         self.state_file = state_file
+        self.uc2_library_path = uc2_library
+        self.swcan_interface = swcan_interface
         self.primary_interface = primary_interface
         self.hv_interface = hv_interface
-        self.selector = selectors.DefaultSelector()
         self.cells: dict[int, float] = {}
         self.temps: dict[str, float] = {}
-        self.sockets: list[socket.socket] = []
-        self.bus_frames: dict[str, int] = {name: 0 for name in interfaces}
-        self.bus_last_seen: dict[str, str] = {}
-        self.bus_open: dict[str, bool] = {name: False for name in interfaces}
         self.pending: dict[str, Any] = {}
-        self.future_lin_interfaces = FUTURE_LIN_INTERFACES
 
-    def _open_can(self, interface: str) -> bool:
+        logical = [name for name, _, _ in UC2_LOGICAL_CHANNELS] + [SWCAN_LOGICAL_CHANNEL]
+        self.bus_frames = {name: 0 for name in logical}
+        self.bus_last_seen: dict[str, str] = {}
+        self.bus_available = {name: False for name in logical}
+        self.bus_available[RESERVED_CAN_CHANNEL] = False
+
+        self.library: C.CDLL | None = None
+        self.opened_devices: list[int] = []
+        self.uc2_buffers = {
+            name: (VciCanObj * UC2_BATCH_SIZE)()
+            for name, _, _ in UC2_LOGICAL_CHANNELS
+        }
+        self.swcan_socket: socket.socket | None = None
+
+    def _open_uc2(self) -> None:
+        if not self.uc2_library_path.is_file():
+            raise RuntimeError(f"UC2 library not found: {self.uc2_library_path}")
+
+        if C.sizeof(VciInitConfig) != 16 or C.sizeof(VciCanObj) != 24:
+            raise RuntimeError("unexpected ControlCAN ctypes layout")
+
+        self.library = C.CDLL(str(self.uc2_library_path))
+        u32 = C.c_uint32
+        self.open_device = _bind(self.library, "VCI_OpenDevice", [u32, u32, u32])
+        self.close_device = _bind(self.library, "VCI_CloseDevice", [u32, u32])
+        self.init_can = _bind(
+            self.library,
+            "VCI_InitCAN",
+            [u32, u32, u32, C.POINTER(VciInitConfig)],
+        )
+        self.start_can = _bind(self.library, "VCI_StartCAN", [u32, u32, u32])
+        self.reset_can = _bind(self.library, "VCI_ResetCAN", [u32, u32, u32])
+        self.receive_num = _bind(self.library, "VCI_GetReceiveNum", [u32, u32, u32])
+        self.receive = _bind(
+            self.library,
+            "VCI_Receive",
+            [u32, u32, u32, C.POINTER(VciCanObj), u32, C.c_int32],
+        )
+
+        # Match the proven Atlas sequence: open both devices, initialize all
+        # four controllers in passive mode, then start all four.
+        for device in (0, 1):
+            if self.open_device(DEVICE_TYPE, device, 0) != 1:
+                raise RuntimeError(f"VCI_OpenDevice failed for UC2 device {device}")
+            self.opened_devices.append(device)
+
+        timing0, timing1 = TIMING_500K
+        for _name, device, channel in UC2_LOGICAL_CHANNELS:
+            config = VciInitConfig(0, 0xFFFFFFFF, 0, 1, timing0, timing1, 1)
+            if self.init_can(DEVICE_TYPE, device, channel, C.byref(config)) != 1:
+                raise RuntimeError(f"VCI_InitCAN failed for UC2 device {device} CAN{channel}")
+
+        for name, device, channel in UC2_LOGICAL_CHANNELS:
+            if self.start_can(DEVICE_TYPE, device, channel) != 1:
+                raise RuntimeError(f"VCI_StartCAN failed for UC2 device {device} CAN{channel}")
+            self.bus_available[name] = True
+
+    def _open_swcan(self) -> None:
         sock = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
         try:
-            sock.bind((interface,))
+            sock.bind((self.swcan_interface,))
         except OSError as error:
             sock.close()
             print(
-                f"PCG-1 direct state publisher: {interface} unavailable: {error}",
+                f"PCG-1 direct state publisher: SWCAN {self.swcan_interface} unavailable: {error}",
                 flush=True,
             )
-            self.bus_open[interface] = False
-            return False
+            return
         sock.setblocking(False)
-        self.selector.register(sock, selectors.EVENT_READ, interface)
-        self.sockets.append(sock)
-        self.bus_open[interface] = True
-        return True
+        self.swcan_socket = sock
+        self.bus_available[SWCAN_LOGICAL_CHANNEL] = True
 
     def start(self) -> None:
-        opened = 0
-        for interface in self.interfaces:
-            if self._open_can(interface):
-                opened += 1
-        if opened == 0:
-            raise RuntimeError("no configured SocketCAN interfaces are available")
+        self._open_uc2()
+        self._open_swcan()
 
     def close(self) -> None:
-        for sock in self.sockets:
-            try:
-                self.selector.unregister(sock)
-            except Exception:
-                pass
-            sock.close()
-        self.selector.close()
+        if self.swcan_socket is not None:
+            self.swcan_socket.close()
+            self.swcan_socket = None
+        if self.library is not None:
+            for device in reversed(self.opened_devices):
+                for channel in (1, 0):
+                    try:
+                        self.reset_can(DEVICE_TYPE, device, channel)
+                    except Exception:
+                        pass
+                try:
+                    self.close_device(DEVICE_TYPE, device)
+                except Exception:
+                    pass
+        self.opened_devices.clear()
+        self.library = None
 
     def _battery_summary(self) -> dict[str, Any]:
         updates: dict[str, Any] = {}
@@ -239,11 +347,13 @@ class DirectStatePublisher:
                 "hv_cell_slots_updated_utc": _utc_now(),
             })
         if len(self.temps) == 9:
-            vals = list(self.temps.values())
+            values = list(self.temps.values())
             updates.update({
-                "hv_temp_min_c": round(min(vals), 3),
-                "hv_temp_max_c": round(max(vals), 3),
-                "hv_temperature_slots_c": [self.temps[f"battery_temp_slot_{i}_c"] for i in range(1, 10)],
+                "hv_temp_min_c": round(min(values), 3),
+                "hv_temp_max_c": round(max(values), 3),
+                "hv_temperature_slots_c": [
+                    self.temps[f"battery_temp_slot_{i}_c"] for i in range(1, 10)
+                ],
                 "hv_temperature_slots_updated_utc": _utc_now(),
             })
         return updates
@@ -253,11 +363,10 @@ class DirectStatePublisher:
             self.pending.update(updates)
 
     def _flush(self) -> None:
-        if not self.pending:
-            return
-        payload = dict(self.pending)
-        self.pending.clear()
-        _atomic_write(self.state_file, payload)
+        if self.pending:
+            payload = dict(self.pending)
+            self.pending.clear()
+            _atomic_write(self.state_file, payload)
 
     def _handle(self, interface: str, can_id: int, data: bytes) -> None:
         updates: dict[str, Any] = {}
@@ -265,8 +374,6 @@ class DirectStatePublisher:
         self.bus_frames[interface] = self.bus_frames.get(interface, 0) + 1
         self.bus_last_seen[interface] = now
 
-        # Decode only on the established PCG-1 network for each signal family.
-        # All six interfaces are still observed for bus health and future work.
         if interface == self.primary_interface and can_id == 0x1D4:
             updates.update(decode_apm_command(data))
             updates["apm_command_source_bus"] = interface
@@ -293,57 +400,106 @@ class DirectStatePublisher:
             updates["direct_can_updated_utc"] = now
             self._queue(updates)
 
+    def _poll_uc2(self) -> bool:
+        got_any = False
+        for name, device, channel in UC2_LOGICAL_CHANNELS:
+            pending = self.receive_num(DEVICE_TYPE, device, channel)
+            if pending == U32_ERROR:
+                continue
+            requested = min(int(pending), UC2_BATCH_SIZE)
+            if requested <= 0:
+                continue
+            buffer = self.uc2_buffers[name]
+            received = self.receive(
+                DEVICE_TYPE, device, channel, buffer, requested, 0
+            )
+            if received == U32_ERROR:
+                continue
+            for frame in buffer[: int(received)]:
+                if frame.RemoteFlag or frame.ExternFlag or frame.DataLen > 8:
+                    continue
+                self._handle(
+                    name,
+                    int(frame.ID) & CAN_SFF_MASK,
+                    bytes(frame.Data[: int(frame.DataLen)]),
+                )
+                got_any = True
+        return got_any
+
+    def _poll_swcan(self) -> bool:
+        if self.swcan_socket is None:
+            return False
+        got_any = False
+        while True:
+            try:
+                frame = self.swcan_socket.recv(16)
+            except BlockingIOError:
+                break
+            if len(frame) < 16:
+                break
+            can_id_raw, dlc, payload = struct.unpack("=IB3x8s", frame)
+            if can_id_raw & (CAN_EFF_FLAG | CAN_RTR_FLAG | CAN_ERR_FLAG):
+                continue
+            self._handle(
+                SWCAN_LOGICAL_CHANNEL,
+                can_id_raw & CAN_SFF_MASK,
+                payload[: min(int(dlc), 8)],
+            )
+            got_any = True
+        return got_any
+
+    def _queue_health(self) -> None:
+        health: dict[str, Any] = {
+            "direct_can_interfaces_online": len(self.bus_last_seen),
+            "direct_can_interfaces_available": sum(
+                1 for value in self.bus_available.values() if value
+            ),
+            "direct_can_interfaces_configured": CAN_CAPABLE_CHANNEL_COUNT,
+            "current_vehicle_can_networks_configured": CURRENT_VEHICLE_NETWORK_COUNT,
+            "reserved_can_channel": RESERVED_CAN_CHANNEL,
+            "reserved_can_channel_status": "assignable_not_independent_volt_bus",
+            "bicm_bus_bitrate": 125000,
+            "bicm_bus_location": "secondary_dlc",
+            "bicm_bus_status": "known_logical_bus_route_pending",
+            "future_lin_interfaces_configured": len(FUTURE_LIN_INTERFACES),
+            "future_lin_interfaces_online": 0,
+            "future_lin_status": "reserved_not_installed",
+        }
+        for name in [n for n, _, _ in UC2_LOGICAL_CHANNELS] + [SWCAN_LOGICAL_CHANNEL]:
+            health[f"bus_{name}_available"] = self.bus_available.get(name, False)
+            health[f"bus_{name}_frames"] = self.bus_frames.get(name, 0)
+            if name in self.bus_last_seen:
+                health[f"bus_{name}_last_seen_utc"] = self.bus_last_seen[name]
+        health[f"bus_{RESERVED_CAN_CHANNEL}_available"] = False
+        health[f"bus_{RESERVED_CAN_CHANNEL}_frames"] = 0
+        self._queue(health)
+
     def run_forever(self) -> None:
         self.start()
         print(
-            "PCG-1 direct state publisher: interfaces="
-            + ",".join(self.interfaces)
-            + f" primary={self.primary_interface} hv={self.hv_interface}",
+            "PCG-1 direct state publisher: "
+            "UC2 can0..can3 @500k + "
+            f"{self.swcan_interface}->can4 SWCAN; "
+            f"primary={self.primary_interface} hv={self.hv_interface}; "
+            "can5 reserved",
             flush=True,
         )
         next_flush = time.monotonic()
         next_health = time.monotonic()
         try:
             while True:
-                for key, _ in self.selector.select(timeout=0.10):
-                    sock = key.fileobj
-                    interface = key.data
-                    try:
-                        frame = sock.recv(16)
-                    except BlockingIOError:
-                        continue
-                    if len(frame) < 16:
-                        continue
-                    can_id_raw, dlc, payload = struct.unpack("=IB3x8s", frame)
-                    if can_id_raw & (CAN_EFF_FLAG | CAN_RTR_FLAG | CAN_ERR_FLAG):
-                        continue
-                    can_id = can_id_raw & CAN_SFF_MASK
-                    data = payload[: min(int(dlc), 8)]
-                    self._handle(interface, can_id, data)
+                got_any = self._poll_uc2()
+                got_any = self._poll_swcan() or got_any
+                now = time.monotonic()
 
-                now_mono = time.monotonic()
-                if now_mono >= next_health:
-                    health: dict[str, Any] = {
-                        "direct_can_interfaces_online": len(self.bus_last_seen),
-                        "direct_can_interfaces_available": sum(
-                            1 for value in self.bus_open.values() if value
-                        ),
-                        "direct_can_interfaces_configured": len(self.interfaces),
-                        "future_lin_interfaces_configured": len(self.future_lin_interfaces),
-                        "future_lin_interfaces_online": 0,
-                        "future_lin_status": "reserved_not_installed",
-                    }
-                    for name in self.interfaces:
-                        health[f"bus_{name}_available"] = self.bus_open.get(name, False)
-                        health[f"bus_{name}_frames"] = self.bus_frames.get(name, 0)
-                        if name in self.bus_last_seen:
-                            health[f"bus_{name}_last_seen_utc"] = self.bus_last_seen[name]
-                    self._queue(health)
-                    next_health = now_mono + 1.0
-
-                if now_mono >= next_flush:
+                if now >= next_health:
+                    self._queue_health()
+                    next_health = now + 1.0
+                if now >= next_flush:
                     self._flush()
-                    next_flush = now_mono + 0.25
+                    next_flush = now + 0.25
+                if not got_any:
+                    time.sleep(0.002)
         finally:
             self._flush()
             self.close()
@@ -351,22 +507,17 @@ class DirectStatePublisher:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--interfaces",
-        default=",".join(DEFAULT_INTERFACES),
-        help="Comma-separated SocketCAN interfaces (default: can0..can5)",
-    )
+    parser.add_argument("--state-file", type=Path, default=DEFAULT_STATE_FILE)
+    parser.add_argument("--uc2-library", type=Path, default=DEFAULT_UC2_LIBRARY)
+    parser.add_argument("--swcan-interface", default=DEFAULT_SWCAN_INTERFACE)
     parser.add_argument("--primary-interface", default=DEFAULT_PRIMARY_INTERFACE)
     parser.add_argument("--hv-interface", default=DEFAULT_HV_INTERFACE)
-    parser.add_argument("--state-file", type=Path, default=DEFAULT_STATE_FILE)
     args = parser.parse_args(argv)
-    interfaces = [item.strip() for item in args.interfaces.split(",") if item.strip()]
-    if not interfaces:
-        raise SystemExit("at least one SocketCAN interface is required")
 
     DirectStatePublisher(
-        interfaces=interfaces,
         state_file=args.state_file,
+        uc2_library=args.uc2_library,
+        swcan_interface=args.swcan_interface,
         primary_interface=args.primary_interface,
         hv_interface=args.hv_interface,
     ).run_forever()
