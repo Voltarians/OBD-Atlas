@@ -41,11 +41,20 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         self.assertEqual(decoded["apm_hv_input_current_a"], -7.0)
         self.assertEqual(decoded["apm_current_a"], -5.0)
 
-    def test_default_configuration_uses_all_six_buses(self):
+    def test_default_configuration_matches_verified_pcg1_topology(self):
         self.assertEqual(
-            module.DEFAULT_INTERFACES,
-            ("can0", "can1", "can2", "can3", "can4", "can5"),
+            module.UC2_LOGICAL_CHANNELS,
+            (
+                ("can0", 0, 0),
+                ("can1", 0, 1),
+                ("can2", 1, 0),
+                ("can3", 1, 1),
+            ),
         )
+        self.assertEqual(module.SWCAN_LOGICAL_CHANNEL, "can4")
+        self.assertEqual(module.RESERVED_CAN_CHANNEL, "can5")
+        self.assertEqual(module.CURRENT_VEHICLE_NETWORK_COUNT, 5)
+        self.assertEqual(module.CAN_CAPABLE_CHANNEL_COUNT, 6)
         self.assertEqual(module.DEFAULT_PRIMARY_INTERFACE, "can1")
         self.assertEqual(module.DEFAULT_HV_INTERFACE, "can2")
         self.assertEqual(module.FUTURE_LIN_INTERFACES, ("lin0", "lin1", "lin2"))
