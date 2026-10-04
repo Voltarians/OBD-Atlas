@@ -109,6 +109,8 @@ STRING_FIELDS = {
     "bicm_bus_status",
     "logical_network_classifier",
     "physical_vehicle_bus_health",
+    "uc2_open_strategy",
+    "uc2_open_order",
     "apm_command_source_network",
     "apm_stats_source_network",
     "hv_pack_voltage_source_network",
