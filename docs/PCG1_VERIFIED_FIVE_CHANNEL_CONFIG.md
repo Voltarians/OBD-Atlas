@@ -64,3 +64,27 @@ All four UC2 channels and the RH02 SWCAN channel received frames simultaneously.
 - The native UC2 library can occasionally initialize a channel without useful receive traffic. Restarting OBD Atlas restored all five channels during validation.
 - UC2 device numbers are assigned by the vendor library and are not yet locked to USB serial number or physical topology. Confirm counters after every restart.
 - Shut down the Pi with `sudo shutdown -h now`, wait about 30 seconds, and only then remove vehicle power.
+
+
+## Promethean Core five-bus service verification
+
+Verified again in-vehicle on 2026-10-04 using the Promethean Core direct state publisher.
+
+The service opened the UC2 pair successfully and simultaneously received traffic on all five physical vehicle buses:
+
+- Atlas logical `can0`: live 500 kbit/s UC2 channel
+- Atlas logical `can1`: live 500 kbit/s UC2 channel
+- Atlas logical `can2`: live 500 kbit/s UC2 channel
+- Atlas logical `can3`: live 500 kbit/s UC2 channel
+- Atlas logical `can4`: live 33,333 bit/s RH02/candleLight SWCAN channel
+
+The Core health contract reported:
+
+```text
+direct_can_interfaces_online = 5
+physical_vehicle_buses_expected = 5
+physical_vehicle_buses_with_traffic = 5
+physical_vehicle_bus_health = all_expected_buses_live
+```
+
+This is the acceptance gate for the physical PCG-1 acquisition layer. Higher-level signal decoding remains independently evidence-gated.
