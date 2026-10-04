@@ -171,3 +171,15 @@ The live `can1` traffic has the same 105-ID signature as the published EVtools/O
 - `0x3E9`, bytes 1-2: vehicle speed in 1/100 mph
 
 Engine RPM and the old `0x206` battery-SOC note are not promoted yet because the available public references do not provide enough confidence in scaling/meaning for the project's evidence policy.
+
+
+## Additional OVMS-validated passive signals
+
+The current OVMS Volt/Ampera implementation independently validates additional passive primary-stream decoding on `can1`:
+
+- `0x0C9`: vehicle-on state from byte 1 bits 7:6, and motor RPM from bytes 2-3 shifted right two bits
+- `0x120`: odometer from bytes 1-4 divided by 64
+- `0x4C1`: ambient temperature from byte 5 / 2 - 40 C, coolant temperature from byte 3 - 40 C
+- `0x1F5`: complete PRNDL mapping 1=P, 2=R, 3=N, 4=D, 5=L
+
+These remain read-only, bus-qualified to `can1`, and carry source-reference provenance in Core state.
