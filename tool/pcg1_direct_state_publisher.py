@@ -300,17 +300,25 @@ def decode_system_12v_sensor(data: bytes) -> dict[str, Any]:
 
     Public OVMS Volt/Ampera evidence identifies extended arbitration ID
     0x10248040 as Battery_Voltage. Byte 2 is BatVlt at 0.1 V/LSB + 3 V,
-    byte 3 is battery SOC at 100/255 percent/LSB, and byte 5 is filtered
-    battery current at 0.5 A/LSB signed.
+    byte 3 is battery SOC at 100/255 percent/LSB, and byte 5, when present,
+    is filtered battery current at 0.5 A/LSB signed.
+
+    MY2011 evidence from PCG-1 shows a 5-byte frame (e.g. 02 02 73 B3 AC),
+    so voltage and SOC must not be suppressed merely because byte 5/current
+    is absent.
     """
-    if len(data) < 6:
+    if len(data) < 4:
         return {}
-    return {
+    updates = {
         "system_12v_voltage_v": round(float(data[2]) * 0.1 + 3.0, 3),
         "system_12v_soc_pct": round(float(data[3]) * 100.0 / 255.0, 3),
-        "system_12v_current_a": round(float(_signed8(data[5])) * 0.5, 3),
         "system_12v_updated_utc": _utc_now(),
     }
+    if len(data) >= 6:
+        updates["system_12v_current_a"] = round(
+            float(_signed8(data[5])) * 0.5, 3
+        )
+    return updates
 
 
 def decode_pack_voltage(data: bytes) -> dict[str, Any]:
