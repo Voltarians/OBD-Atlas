@@ -29,6 +29,8 @@ from typing import Any
 
 DEFAULT_STATE_FILE = Path("/run/promethean/vehicle_state.json")
 DEFAULT_INTERFACES = ("can0", "can1", "can2", "can3", "can4", "can5")
+DEFAULT_PRIMARY_INTERFACE = "can1"
+DEFAULT_HV_INTERFACE = "can2"
 
 CAN_EFF_FLAG = 0x80000000
 CAN_RTR_FLAG = 0x40000000
@@ -160,9 +162,17 @@ def _atomic_write(path: Path, updates: dict[str, Any]) -> None:
 
 
 class DirectStatePublisher:
-    def __init__(self, interfaces: list[str], state_file: Path) -> None:
+    def __init__(
+        self,
+        interfaces: list[str],
+        state_file: Path,
+        primary_interface: str = DEFAULT_PRIMARY_INTERFACE,
+        hv_interface: str = DEFAULT_HV_INTERFACE,
+    ) -> None:
         self.interfaces = interfaces
         self.state_file = state_file
+        self.primary_interface = primary_interface
+        self.hv_interface = hv_interface
         self.selector = selectors.DefaultSelector()
         self.cells: dict[int, float] = {}
         self.temps: dict[str, float] = {}
@@ -232,24 +242,24 @@ class DirectStatePublisher:
         self.bus_frames[interface] = self.bus_frames.get(interface, 0) + 1
         self.bus_last_seen[interface] = now
 
-        # IDs are decoded by validated signal identity, while the actual
-        # SocketCAN source is preserved alongside every promoted value.
-        if can_id == 0x1D4:
+        # Decode only on the established PCG-1 network for each signal family.
+        # All six interfaces are still observed for bus health and future work.
+        if interface == self.primary_interface and can_id == 0x1D4:
             updates.update(decode_apm_command(data))
             updates["apm_command_source_bus"] = interface
-        elif can_id == 0x1D6:
+        elif interface == self.primary_interface and can_id == 0x1D6:
             updates.update(decode_apm_stats(data))
             updates["apm_stats_source_bus"] = interface
-        elif can_id == 0x210:
+        elif interface == self.hv_interface and can_id == 0x210:
             updates.update(decode_pack_voltage(data))
             updates["hv_pack_voltage_source_bus"] = interface
-        elif can_id in CELL_IDS:
+        elif interface == self.hv_interface and can_id in CELL_IDS:
             self.cells.update(decode_cell_block(can_id, data))
             summary = self._battery_summary()
             if summary:
                 summary["hv_cell_slots_source_bus"] = interface
                 updates.update(summary)
-        elif can_id == 0x302:
+        elif interface == self.hv_interface and can_id == 0x302:
             self.temps.update(decode_battery_temps(data))
             summary = self._battery_summary()
             if summary:
@@ -263,7 +273,9 @@ class DirectStatePublisher:
     def run_forever(self) -> None:
         self.start()
         print(
-            "PCG-1 direct state publisher: interfaces=" + ",".join(self.interfaces),
+            "PCG-1 direct state publisher: interfaces="
+            + ",".join(self.interfaces)
+            + f" primary={self.primary_interface} hv={self.hv_interface}",
             flush=True,
         )
         next_flush = time.monotonic()
@@ -313,6 +325,8 @@ def main(argv: list[str] | None = None) -> int:
         default=",".join(DEFAULT_INTERFACES),
         help="Comma-separated SocketCAN interfaces (default: can0..can5)",
     )
+    parser.add_argument("--primary-interface", default=DEFAULT_PRIMARY_INTERFACE)
+    parser.add_argument("--hv-interface", default=DEFAULT_HV_INTERFACE)
     parser.add_argument("--state-file", type=Path, default=DEFAULT_STATE_FILE)
     args = parser.parse_args(argv)
     interfaces = [item.strip() for item in args.interfaces.split(",") if item.strip()]
@@ -322,6 +336,8 @@ def main(argv: list[str] | None = None) -> int:
     DirectStatePublisher(
         interfaces=interfaces,
         state_file=args.state_file,
+        primary_interface=args.primary_interface,
+        hv_interface=args.hv_interface,
     ).run_forever()
     return 0
 
