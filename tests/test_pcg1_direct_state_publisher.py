@@ -193,20 +193,26 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
             places=3,
         )
 
-    def test_soc_candidate_0x206_is_evidence_only_and_bus_qualified(self):
-        decoded = module.decode_soc_candidate_0x206(bytes.fromhex("0010AABB"))
-        self.assertEqual(decoded["raw_u16_be"], 16)
-        self.assertEqual(decoded["community_energy_quarter_kwh_candidate"], 4.0)
+    def test_primary_bus_0x206_decodes_my2011_soc(self):
+        decoded = module.decode_soc_candidate_0x206(bytes.fromhex("5A7E00"))
+        self.assertEqual(decoded["raw_u16_be"], 23166)
+        self.assertAlmostEqual(decoded["remaining_energy_kwh"], 5.7915, places=4)
+        self.assertAlmostEqual(decoded["soc_pct_nominal_16kwh"], 36.197, places=3)
 
         publisher = module.DirectStatePublisher(
             state_file=Path("/tmp/unused-state.json"),
             uc2_library=Path("/tmp/unused-libusbcan.so"),
         )
-        publisher._handle("can1", 0x206, bytes.fromhex("0010AABB"))
-        self.assertEqual(
-            publisher.pending["soc_candidate_0x206_can1_status"],
-            "candidate_not_validated",
+        publisher._handle("can1", 0x206, bytes.fromhex("5A7E00"))
+        self.assertAlmostEqual(
+            publisher.pending["hv_remaining_energy_kwh"], 5.7915, places=4
         )
+        self.assertAlmostEqual(publisher.pending["hv_soc_pct"], 36.197, places=3)
+        self.assertEqual(publisher.pending["hv_soc_source_bus"], "can1")
+
+        # Same CAN ID on can2 is the distinct eight-byte cell-voltage mux.
+        publisher.pending.clear()
+        publisher._handle("can2", 0x206, bytes.fromhex("182E181EC1A05800"))
         self.assertNotIn("hv_soc_pct", publisher.pending)
 
     def test_passive_driving_signals_are_bus_qualified(self):
