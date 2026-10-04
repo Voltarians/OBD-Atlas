@@ -188,3 +188,33 @@ These remain read-only, bus-qualified to `can1`, and carry source-reference prov
 ## Required UC2 native open order
 
 PCG-1 now always opens UC2 native device 1 before device 0. The only permitted open sequence is `1->0`. Runtime recovery also reopens the pair in `1->0`; `0->1` is no longer attempted.
+
+
+## Final five-bus acceptance after connector reseat
+
+A final in-vehicle validation on 2026-10-04 established a clean five-bus steady state after reseating the Device 1 CAN0 vehicle connector. The earlier `can2` outage was therefore traced to the physical connection rather than the Atlas decoder, UC2 device order, or CAN channel initialization sequence.
+
+Observed steady-state evidence after the reseat:
+
+- `can0`: 2,962 frames, 9 unique IDs
+- `can1`: 14,632 frames, 105 unique IDs
+- `can2`: 3,805 frames, 27 unique IDs
+- `can3`: 5,545 frames, 27 unique IDs
+- `can4`: 7 frames, 3 unique IDs
+- `physical_vehicle_buses_with_traffic = 5`
+- `physical_vehicle_bus_health = all_expected_buses_live`
+- `validated_hv_bus_receiving = true`
+- `validated_hv_signal_evidence = true`
+- `validated_primary_bus_receiving = true`
+- `validated_primary_signal_evidence = true`
+- `validated_signal_bus_health = validated_sources_live`
+
+The passive HV decoder again populated all 96 measurement slots from `can2`, with pack voltage 362.125 V, a minimum slot of 1.3225 V, a maximum slot of 3.87875 V, and a 2556.25 mV spread. The severely degraded measurements remain intentionally unfiltered.
+
+The UC2 startup strategy remains conservative because it is working reliably with the repaired physical connection:
+
+- native device order: `1->0`
+- per-device channel initialization: `CAN1` before `CAN0`
+- per-device channel start: `CAN1` before `CAN0`
+
+A zero-frame channel that initializes and starts successfully should prompt a physical connector/wiring check before further software-order changes.
