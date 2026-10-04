@@ -77,6 +77,50 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         )
         self.assertIsNone(module.classify_logical_network("can0", 0x589))
 
+    def test_legacy_passive_driving_signal_decoders(self):
+        self.assertEqual(
+            module.decode_legacy_vehicle_speed(bytes([0x0B, 0xAC])),
+            {
+                "vehicle_speed_raw": 2988,
+                "vehicle_speed_mph": 29.88,
+                "vehicle_speed_updated_utc": module.decode_legacy_vehicle_speed(
+                    bytes([0x0B, 0xAC])
+                )["vehicle_speed_updated_utc"],
+            },
+        )
+
+        accelerator = module.decode_legacy_accelerator(
+            bytes([0x00, 0x00, 0x00, 0x00, 0xFE])
+        )
+        self.assertEqual(accelerator["accelerator_raw"], 254)
+        self.assertEqual(accelerator["accelerator_pct"], 100.0)
+
+        brake = module.decode_legacy_brake(bytes([0x00, 0x1E]))
+        self.assertEqual(brake["brake_raw"], 30)
+
+        drive = module.decode_legacy_drive_position(bytes([0x02]))
+        self.assertEqual(drive["drive_position_raw"], 2)
+        self.assertEqual(drive["drive_position"], "DRIVE_OR_LOW")
+
+        shift = module.decode_legacy_shift_position(
+            bytes([0x00, 0x00, 0x00, 0x01])
+        )
+        self.assertEqual(shift["shift_position_raw"], 1)
+        self.assertEqual(shift["shift_position"], "PARK")
+
+    def test_passive_driving_signals_are_bus_qualified(self):
+        publisher = module.DirectStatePublisher(
+            state_file=Path("/tmp/unused-state.json"),
+            uc2_library=Path("/tmp/unused-libusbcan.so"),
+        )
+
+        publisher._handle("can3", 0x3E9, bytes([0x0B, 0xAC]))
+        self.assertNotIn("vehicle_speed_mph", publisher.pending)
+
+        publisher._handle("can1", 0x3E9, bytes([0x0B, 0xAC]))
+        self.assertEqual(publisher.pending["vehicle_speed_mph"], 29.88)
+        self.assertEqual(publisher.pending["vehicle_speed_source_bus"], "can1")
+
     def test_reused_ids_do_not_decode_on_wrong_physical_bus(self):
         publisher = module.DirectStatePublisher(
             state_file=Path("/tmp/unused-state.json"),
