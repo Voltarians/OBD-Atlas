@@ -91,11 +91,11 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         self.assertIn("hv_pack_voltage_v", publisher.pending)
 
         publisher.pending.clear()
-        publisher._handle("can3", 0x1D4, bytes([0x00, 0x99]))
+        publisher._handle("can1", 0x1D4, bytes([0x00, 0x99]))
         self.assertNotIn("apm_requested_voltage_v", publisher.pending)
 
-        publisher._handle("can1", 0x1D4, bytes([0x00, 0x99]))
-        self.assertEqual(publisher.pending["apm_command_source_bus"], "can1")
+        publisher._handle("can3", 0x1D4, bytes([0x00, 0x99]))
+        self.assertEqual(publisher.pending["apm_command_source_bus"], "can3")
         self.assertAlmostEqual(
             publisher.pending["apm_requested_voltage_v"],
             12.047,
@@ -120,14 +120,22 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
             state_file=Path("/tmp/unused-state.json"),
             uc2_library=Path("/tmp/unused-libusbcan.so"),
         )
-        publisher.bus_last_seen["can1"] = "2026-10-04T00:00:00Z"
+        publisher.bus_last_seen["can3"] = "2026-10-04T00:00:00Z"
         publisher.bus_last_seen["can2"] = "2026-10-04T00:00:00Z"
+        publisher.id_source_frames[0x1D4]["can3"] = 1
+        publisher.id_source_frames[0x1D6]["can3"] = 1
+        publisher.id_source_frames[0x210]["can2"] = 1
+        publisher.id_source_frames[0x302]["can2"] = 1
+        for can_id in module.CELL_IDS:
+            publisher.id_source_frames[can_id]["can2"] = 1
         publisher._queue_health()
 
-        self.assertEqual(publisher.pending["validated_primary_bus"], "can1")
+        self.assertEqual(publisher.pending["validated_primary_bus"], "can3")
         self.assertEqual(publisher.pending["validated_hv_bus"], "can2")
         self.assertTrue(publisher.pending["validated_primary_bus_receiving"])
         self.assertTrue(publisher.pending["validated_hv_bus_receiving"])
+        self.assertTrue(publisher.pending["validated_primary_signal_evidence"])
+        self.assertTrue(publisher.pending["validated_hv_signal_evidence"])
         self.assertEqual(
             publisher.pending["validated_signal_bus_health"],
             "validated_sources_live",
@@ -153,7 +161,7 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         self.assertEqual(module.HIDDEN_INTERNAL_BUS_NAME, "bicm_internal_125k")
         self.assertEqual(module.CAN_CAPABLE_CHANNEL_COUNT, 6)
         self.assertEqual(module.UC2_OPEN_ORDERS, ((0, 1), (1, 0)))
-        self.assertEqual(module.DEFAULT_PRIMARY_INTERFACE, "can1")
+        self.assertEqual(module.DEFAULT_PRIMARY_INTERFACE, "can3")
         self.assertEqual(module.DEFAULT_HV_INTERFACE, "can2")
         self.assertEqual(module.UC2_RECEIVE_BURST_LIMIT, 64)
         self.assertEqual(module.UC2_RECEIVE_WAIT_MS, 100)
