@@ -102,6 +102,34 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         self.assertEqual(shift["shift_position_raw"], 1)
         self.assertEqual(shift["shift_position"], "PARK")
 
+    def test_ovms_passive_state_decoders(self):
+        frame = bytes([0x80, 0x01, 0x90, 0x00, 0x7F])
+        decoded = module.decode_legacy_accelerator(frame)
+        self.assertTrue(decoded["vehicle_on"])
+        self.assertEqual(decoded["motor_rpm"], 100)
+
+        odo = module.decode_legacy_odometer(bytes([0x00, 0x01, 0x00, 0x00]))
+        self.assertEqual(odo["odometer_raw"], 65536)
+        self.assertEqual(odo["odometer_miles"], 1024.0)
+
+        temps = module.decode_legacy_ambient_coolant(
+            bytes([0x00, 0x00, 0x50, 0x00, 0x78])
+        )
+        self.assertEqual(temps["coolant_temperature_c"], 40.0)
+        self.assertEqual(temps["ambient_temperature_c"], 20.0)
+
+        for raw, state in (
+            (1, "PARK"),
+            (2, "REVERSE"),
+            (3, "NEUTRAL"),
+            (4, "DRIVE"),
+            (5, "LOW"),
+        ):
+            decoded_shift = module.decode_legacy_shift_position(
+                bytes([0x00, 0x00, 0x00, raw])
+            )
+            self.assertEqual(decoded_shift["shift_position"], state)
+
     def test_passive_driving_signals_are_bus_qualified(self):
         publisher = module.DirectStatePublisher(
             state_file=Path("/tmp/unused-state.json"),
