@@ -183,7 +183,7 @@ The first evidence-backed values published without any diagnostic dongle are:
 - **HV Battery cell health:** the 0x200/0x202/0x204/0x206 multiplex structure is accumulated across all 96 passive measurement slots; Core receives min, max, delta and the 96-slot vector only when all 96 slots have been observed.
 - **Battery thermal:** 0x302 is accumulated into the nine passive temperature slots and Core receives min/max plus the nine-slot vector when both mux groups have been observed.
 - **Network health:** the four UC2 channels plus the RH02 SWCAN channel are counted and timestamped under the established Atlas logical names `can0` through `can4`. The sixth CAN-capable route is reported as reserved rather than falsely opened as Linux `can5`.
-- **BICM network:** the known 125 kbit/s BICM bus is located on the secondary DLC. It is tracked as a logical vehicle network while its exact concurrent acquisition route is kept separate until that routing is validated.
+- **BICM network:** community documentation identifies a separate 125 kbit/s internal CAN on BECM X2 pins 11/12 between the BECM and the battery interface modules. The BECM presents consolidated battery data on the vehicle's 500 kbit/s CAN. Any route from that internal network to the secondary DLC must be validated separately on the installed vehicle wiring.
 
 Candidate pack current and unvalidated APM/HV semantics remain excluded until their evidence gates are met.
 
@@ -245,11 +245,4 @@ Initial evidence-backed logical classifications are:
 frames on Atlas logical can4         -> swcan
 ```
 
-Unknown arbitration IDs remain unclassified. The suspected sixth network is represented as
-`sixth_id_defined_pending` and will not be promoted until its arbitration-ID set is identified
-from captures. The 125 kbit/s BICM network remains recorded as located on the secondary DLC,
-with its ID/routing relationship pending validation.
-
-Core receives both physical-source provenance and logical-network provenance for promoted
-signals. This allows a logical sub-network carried within an existing acquisition channel to
-be represented without inventing another Linux CAN interface.
+Unknown arbitration IDs remain unclassified. The community-documented battery-interface network is not modeled as an ID-only subnetwork of a 500 kbit/s bus. Community work on the Gen-1 Volt/Ampera battery identifies a separate 125 kbit/s internal CAN between the BECM and the battery interface modules on BECM connector X2 (CAN low on pin 11, CAN high on pin 12). The BECM then exposes consolidated battery information on the vehicle's 500 kbit/s CAN. PCG-1 therefore treats the 125 kbit/s BICM network as a distinct internal CAN network. Whether and how that internal network is routed to the vehicle's secondary DLC remains a separate installation-specific validation step. Core provenance continues to keep physical acquisition source and logical network separate.
