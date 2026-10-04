@@ -64,7 +64,7 @@ def _signed8(value: int) -> int:
 def decode_apm_command(data: bytes) -> dict[str, Any]:
     if len(data) < 2:
         return {}
-    requested_v = data[1] * (10.0 / 127.0)
+    requested_v = data[1] * 0.0787402
     return {
         "apm_status_raw": int(data[0]),
         "apm_requested_voltage_v": round(requested_v, 3),
@@ -76,8 +76,8 @@ def decode_apm_stats(data: bytes) -> dict[str, Any]:
     if len(data) < 7:
         return {}
     # Project-validated DBC candidates from the primary DLC 6/14 path.
-    hv_input_current_a = _signed8(data[1]) * 0.1 - 5.0
-    lv_sensed_voltage_v = float(data[2])
+    hv_input_current_a = _signed8(data[1]) * 0.15 - 7.0
+    lv_sensed_voltage_v = data[2] * 0.0787402
     temp1_c = float(data[3]) - 40.0
     temp2_c = float(data[4]) - 40.0
     lv_output_current_a = float(_signed8(data[5]))
@@ -86,6 +86,7 @@ def decode_apm_stats(data: bytes) -> dict[str, Any]:
         "apm_hv_input_current_a": round(hv_input_current_a, 3),
         "apm_output_voltage_v": round(lv_sensed_voltage_v, 3),
         "apm_current_a": round(lv_output_current_a, 3),
+        "apm_power_w": round(lv_sensed_voltage_v * lv_output_current_a, 3),
         "apm_temperature_c": round(max(temp1_c, temp2_c), 3),
         "apm_temperature_1_c": round(temp1_c, 3),
         "apm_temperature_2_c": round(temp2_c, 3),
