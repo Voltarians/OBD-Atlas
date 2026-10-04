@@ -78,6 +78,13 @@ FLOAT_FIELDS = {
     "power_electronics_coolant_temp_c",
     "engine_coolant_temp_c",
 
+    # Climate
+    "cabin_temperature_c",
+    "climate_blower_pct",
+    "coolant_heater_power_kw",
+    "ac_evaporator_temperature_c",
+    "heater_core_inlet_temperature_c",
+
     # Drive unit / vehicle
     "motor_a_rpm",
     "motor_b_rpm",
@@ -125,6 +132,11 @@ INT_FIELDS = {
     "apm_status_raw",
     "apm_counter_raw",
     "hv_cell_measurement_slots_complete",
+    "ac_compressor_rpm",
+    "climate_ac_mode_raw",
+    "remote_climate_status_raw",
+    "driver_seat_heat_raw",
+    "passenger_seat_heat_raw",
 }
 STRING_FIELDS = {
     "uc2_runtime_recovery_reason",
@@ -197,6 +209,8 @@ STRING_FIELDS = {
     "hv_pack_voltage_source_network",
     "hv_cell_slots_source_network",
     "hv_temperature_slots_source_network",
+    "climate_source_bus",
+    "climate_source_reference",
 }
 STRING_LIST_FIELDS = {
     "bus_can5_top_ids",
@@ -216,6 +230,9 @@ BOOL_FIELDS = {
     "validated_hv_bus_receiving",
     "validated_primary_signal_evidence",
     "validated_hv_signal_evidence",
+    "climate_ac_active",
+    "remote_climate_active",
+    "seat_heat_active",
 }
 
 FLOAT_LIST_FIELDS = {
