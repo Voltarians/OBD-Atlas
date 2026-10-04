@@ -74,8 +74,7 @@ LOGICAL_NETWORKS = (
     "primary_powertrain",
     "hv_energy_management",
     "swcan",
-    "bicm_125k",
-    "sixth_id_defined_pending",
+    "bicm_internal_125k",
 )
 
 
@@ -517,10 +516,10 @@ class DirectStatePublisher:
             "reserved_can_channel": RESERVED_CAN_CHANNEL,
             "reserved_can_channel_status": "assignable_not_independent_volt_bus",
             "bicm_bus_bitrate": 125000,
-            "bicm_bus_location": "secondary_dlc",
-            "bicm_bus_status": "known_logical_network_id_route_pending",
+            "bicm_bus_location": "becm_x2_internal_can",
+            "bicm_bus_connector": "BECM_X2_pins_11_12_CAN_L_CAN_H",
+            "bicm_bus_status": "community_documented_internal_can_route_to_secondary_dlc_pending_validation",
             "logical_network_classifier": "id_family_v1",
-            "sixth_logical_network_status": "id_defined_pending_evidence",
             "unclassified_can_frames": self.unclassified_frames,
             "future_lin_interfaces_configured": len(FUTURE_LIN_INTERFACES),
             "future_lin_interfaces_online": 0,
