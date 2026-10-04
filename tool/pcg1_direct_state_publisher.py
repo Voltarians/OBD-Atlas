@@ -386,6 +386,42 @@ def decode_soc_candidate_0x206(data: bytes) -> dict[str, Any]:
     }
 
 
+def decode_swcan_hv_pack_data(can_id: int, data: bytes) -> dict[str, Any]:
+    """Decode passive SWCAN HV pack voltage/current and displayed power."""
+    updates: dict[str, Any] = {}
+
+    if can_id == 0x1058E0CB and len(data) >= 4:
+        voltage_raw = ((int(data[2]) & 0x0F) << 8) | int(data[3])
+        current_raw = ((int(data[0]) & 0x1F) << 8) | int(data[1])
+        if current_raw > 4095:
+            current_raw -= 8192
+
+        voltage_v = voltage_raw * 0.125
+        # GM wire sign is charge-positive; publish discharge-positive to match
+        # the existing Promethean/OVMS convention used for propulsion power.
+        current_a = -(current_raw * 0.15)
+        updates.update({
+            "hv_pack_voltage_swcan_v": round(voltage_v, 3),
+            "hv_pack_current_a": round(current_a, 3),
+            "hv_pack_power_kw": round(voltage_v * current_a / 1000.0, 3),
+            "hv_pack_current_source_bus": SWCAN_LOGICAL_CHANNEL,
+            "hv_pack_current_source_reference": "ovms_voltampera_swcan_0x1058E0CB",
+        })
+
+    elif can_id == 0x102C40CB and len(data) >= 7:
+        raw = ((int(data[5]) & 0x3F) << 7) | (int(data[6]) >> 1)
+        displayed_kw = raw * 0.5 - 326.6
+        updates["hv_display_power_kw"] = round(displayed_kw, 3)
+        updates["hv_display_power_source_bus"] = SWCAN_LOGICAL_CHANNEL
+        updates["hv_display_power_source_reference"] = (
+            "ovms_voltampera_swcan_0x102C40CB"
+        )
+
+    if updates:
+        updates["hv_swcan_updated_utc"] = _utc_now()
+    return updates
+
+
 def decode_pack_voltage(data: bytes) -> dict[str, Any]:
     if len(data) < 2:
         return {}
@@ -869,6 +905,10 @@ class DirectStatePublisher:
                 "ovms_voltampera_swcan_0x10248040_intelligent_battery_sensor"
             )
         elif interface == SWCAN_LOGICAL_CHANNEL and can_id & CAN_EFF_MASK:
+            hv_swcan = decode_swcan_hv_pack_data(can_id, data)
+            if hv_swcan:
+                updates.update(hv_swcan)
+
             energy = decode_swcan_energy_metrics(can_id, data)
             if energy:
                 updates.update(energy)
