@@ -151,6 +151,14 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
             publisher.pending["system_12v_voltage_v"], 13.8, places=3
         )
 
+    def test_system_12v_sensor_decodes_my2011_five_byte_frame(self):
+        decoded = module.decode_system_12v_sensor(
+            bytes.fromhex("020273B3AC")
+        )
+        self.assertAlmostEqual(decoded["system_12v_voltage_v"], 14.5, places=3)
+        self.assertAlmostEqual(decoded["system_12v_soc_pct"], 70.196, places=3)
+        self.assertNotIn("system_12v_current_a", decoded)
+
     def test_passive_driving_signals_are_bus_qualified(self):
         publisher = module.DirectStatePublisher(
             state_file=Path("/tmp/unused-state.json"),
