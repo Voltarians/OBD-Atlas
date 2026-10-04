@@ -31,6 +31,9 @@ FLOAT_FIELDS = {
     "direct_can_warmup_remaining_s",
     "direct_can_uptime_s",
     # 12-V / APM
+    "system_12v_voltage_v",
+    "system_12v_soc_pct",
+    "system_12v_current_a",
     "bus12_voltage_v",
     "apm_output_voltage_v",
     "apm_requested_voltage_v",
@@ -151,6 +154,8 @@ STRING_FIELDS = {
     "hv_pack_voltage_source_bus",
     "hv_cell_slots_source_bus",
     "hv_temperature_slots_source_bus",
+    "system_12v_source_bus",
+    "system_12v_source_reference",
     "bus12_voltage_source",
     "future_lin_status",
     "reserved_can_channel",
