@@ -24,14 +24,58 @@ DEFAULT_PORT = 47001
 DEFAULT_INTERVAL = 1.0
 
 FLOAT_FIELDS = {
+    # 12-V / APM
     "bus12_voltage_v",
     "apm_output_voltage_v",
     "apm_current_a",
     "apm_power_w",
+    "apm_temperature_c",
+
+    # High-voltage battery
+    "hv_pack_voltage_v",
+    "hv_pack_current_a",
+    "hv_pack_power_kw",
+    "hv_soc_pct",
+    "hv_cell_min_v",
+    "hv_cell_max_v",
+    "hv_cell_delta_mv",
+    "hv_temp_min_c",
+    "hv_temp_max_c",
+    "isolation_kohm",
+
+    # Energy / charging
+    "drive_power_kw",
+    "regen_power_kw",
+    "charger_power_kw",
+
+    # Thermal
+    "battery_coolant_temp_c",
+    "power_electronics_coolant_temp_c",
+    "engine_coolant_temp_c",
+
+    # Drive unit / vehicle
+    "motor_a_rpm",
+    "motor_b_rpm",
+    "drive_torque_nm",
+    "inverter_temperature_c",
+    "vehicle_speed_mph",
+}
+INT_FIELDS = {
+    "dtc_count",
+    "network_modules_online",
+    "network_modules_expected",
 }
 STRING_FIELDS = {
     "apm_state",
     "dc_dc_state",
+    "hvil_state",
+    "contactor_state",
+    "charging_state",
+    "drive_state",
+}
+STRING_LIST_FIELDS = {
+    "active_dtcs",
+    "offline_modules",
 }
 
 
@@ -54,10 +98,28 @@ def normalize_state(raw: Any) -> dict[str, Any]:
         if isinstance(value, (int, float)):
             out[key] = float(value)
 
+    for key in INT_FIELDS:
+        value = source.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            out[key] = value
+
     for key in STRING_FIELDS:
         value = source.get(key)
         if isinstance(value, str) and value.strip():
             out[key] = value.strip()
+
+    for key in STRING_LIST_FIELDS:
+        value = source.get(key)
+        if isinstance(value, list):
+            cleaned = [
+                item.strip()
+                for item in value
+                if isinstance(item, str) and item.strip()
+            ]
+            if cleaned:
+                out[key] = cleaned
 
     apm = source.get("apm")
     if isinstance(apm, dict):
