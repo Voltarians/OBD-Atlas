@@ -105,3 +105,26 @@ The live Core state included:
 - all nine passive battery temperature slots populated
 
 Promethean Core and Voltarian must preserve and report these low measurements exactly as decoded. Do not clip, suppress, replace, or reject a measurement solely because it is outside the expected healthy-cell range. Missing/invalid transport evidence must be handled separately from a genuinely low measured voltage.
+
+
+## Five physical plus one hidden bus model
+
+Promethean Core must keep two counts distinct:
+
+- **5 directly acquired physical vehicle buses**: four 500 kbit/s classic CAN buses plus one 33,333 bit/s SWCAN bus.
+- **1 additional known hidden/internal vehicle bus**: the 125 kbit/s BICM/BECM internal CAN.
+
+Therefore the current vehicle-network model is **5 directly acquired + 1 hidden/internal = 6 known vehicle buses**.
+
+The hidden BICM/BECM bus is not counted in `physical_vehicle_buses_with_traffic` until PCG-1 has a validated direct acquisition route for it. It is also not the same thing as the reserved PCG-1 `can5` hardware channel. Those are separate architectural concepts.
+
+Core telemetry exposes this explicitly as:
+
+```text
+physical_vehicle_buses_expected = 5
+known_hidden_internal_buses = 1
+total_known_vehicle_buses = 6
+hidden_internal_bus_name = bicm_internal_125k
+hidden_internal_bus_bitrate = 125000
+hidden_internal_bus_status = known_internal_not_directly_acquired
+```
