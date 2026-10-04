@@ -145,6 +145,21 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         self.assertEqual(publisher.pending["bus_can1_unique_ids"], 0)
         self.assertEqual(publisher.pending["bus_can5_unique_ids"], 0)
 
+    def test_health_reports_warmup_timing(self):
+        publisher = module.DirectStatePublisher(
+            state_file=Path("/tmp/unused-state.json"),
+            uc2_library=Path("/tmp/unused-libusbcan.so"),
+        )
+        publisher.started_monotonic = module.time.monotonic() - 5.0
+        publisher._queue_health()
+
+        self.assertTrue(publisher.pending["direct_can_warmup_active"])
+        self.assertGreaterEqual(publisher.pending["direct_can_uptime_s"], 5.0)
+        self.assertGreater(
+            publisher.pending["direct_can_warmup_remaining_s"],
+            0.0,
+        )
+
     def test_health_uses_startup_warmup_before_declaring_missing_sources(self):
         publisher = module.DirectStatePublisher(
             state_file=Path("/tmp/unused-state.json"),
