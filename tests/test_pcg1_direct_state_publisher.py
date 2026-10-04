@@ -145,6 +145,42 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         self.assertEqual(publisher.pending["bus_can1_unique_ids"], 0)
         self.assertEqual(publisher.pending["bus_can5_unique_ids"], 0)
 
+    def test_health_uses_startup_warmup_before_declaring_missing_sources(self):
+        publisher = module.DirectStatePublisher(
+            state_file=Path("/tmp/unused-state.json"),
+            uc2_library=Path("/tmp/unused-libusbcan.so"),
+        )
+        publisher.started_monotonic = module.time.monotonic()
+        publisher._queue_health()
+
+        self.assertEqual(
+            publisher.pending["physical_vehicle_bus_health"],
+            "starting_waiting_for_bus_traffic",
+        )
+        self.assertEqual(
+            publisher.pending["validated_signal_bus_health"],
+            "starting_waiting_for_signal_evidence",
+        )
+
+    def test_health_declares_missing_sources_after_warmup(self):
+        publisher = module.DirectStatePublisher(
+            state_file=Path("/tmp/unused-state.json"),
+            uc2_library=Path("/tmp/unused-libusbcan.so"),
+        )
+        publisher.started_monotonic = (
+            module.time.monotonic() - module.HEALTH_WARMUP_SECONDS - 1.0
+        )
+        publisher._queue_health()
+
+        self.assertEqual(
+            publisher.pending["physical_vehicle_bus_health"],
+            "missing_expected_bus_traffic",
+        )
+        self.assertEqual(
+            publisher.pending["validated_signal_bus_health"],
+            "validated_source_missing",
+        )
+
     def test_health_reports_validated_signal_source_buses(self):
         publisher = module.DirectStatePublisher(
             state_file=Path("/tmp/unused-state.json"),
@@ -195,6 +231,7 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         self.assertEqual(module.DEFAULT_HV_INTERFACE, "can2")
         self.assertEqual(module.UC2_RECEIVE_BURST_LIMIT, 64)
         self.assertEqual(module.UC2_RECEIVE_WAIT_MS, 100)
+        self.assertEqual(module.HEALTH_WARMUP_SECONDS, 15.0)
         self.assertEqual(module.FUTURE_LIN_INTERFACES, ("lin0", "lin1", "lin2"))
         self.assertEqual(
             module.PHYSICAL_BUS_ROLES["can0"],
