@@ -274,6 +274,7 @@ class DirectStatePublisher:
 
         logical = [name for name, _, _ in UC2_LOGICAL_CHANNELS] + [SWCAN_LOGICAL_CHANNEL]
         self.bus_frames = {name: 0 for name in logical}
+        self.bus_ids = {name: set() for name in logical}
         self.bus_last_seen: dict[str, str] = {}
         self.bus_available = {name: False for name in logical}
         self.bus_available[RESERVED_CAN_CHANNEL] = False
@@ -469,6 +470,8 @@ class DirectStatePublisher:
         updates: dict[str, Any] = {}
         now = _utc_now()
         self.bus_frames[interface] = self.bus_frames.get(interface, 0) + 1
+        if interface in self.bus_ids:
+            self.bus_ids[interface].add(can_id)
         self.bus_last_seen[interface] = now
 
         if can_id in self.id_source_frames and interface in self.id_source_frames[can_id]:
@@ -654,10 +657,12 @@ class DirectStatePublisher:
         for name in [n for n, _, _ in UC2_LOGICAL_CHANNELS] + [SWCAN_LOGICAL_CHANNEL]:
             health[f"bus_{name}_available"] = self.bus_available.get(name, False)
             health[f"bus_{name}_frames"] = self.bus_frames.get(name, 0)
+            health[f"bus_{name}_unique_ids"] = len(self.bus_ids.get(name, set()))
             if name in self.bus_last_seen:
                 health[f"bus_{name}_last_seen_utc"] = self.bus_last_seen[name]
         health[f"bus_{RESERVED_CAN_CHANNEL}_available"] = False
         health[f"bus_{RESERVED_CAN_CHANNEL}_frames"] = 0
+        health[f"bus_{RESERVED_CAN_CHANNEL}_unique_ids"] = 0
 
         source_evidence: list[str] = []
         for can_id in SOURCE_EVIDENCE_IDS:
