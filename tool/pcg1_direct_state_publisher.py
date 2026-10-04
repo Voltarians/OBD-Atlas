@@ -28,8 +28,7 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_STATE_FILE = Path("/run/promethean/vehicle_state.json")
-DEFAULT_PRIMARY = "can3"
-DEFAULT_HV = "can0"
+DEFAULT_INTERFACES = ("can0", "can1", "can2", "can3", "can4", "can5")
 
 CAN_EFF_FLAG = 0x80000000
 CAN_RTR_FLAG = 0x40000000
@@ -160,26 +159,26 @@ def _atomic_write(path: Path, updates: dict[str, Any]) -> None:
 
 
 class DirectStatePublisher:
-    def __init__(self, primary: str, hv: str, state_file: Path) -> None:
-        self.primary_name = primary
-        self.hv_name = hv
+    def __init__(self, interfaces: list[str], state_file: Path) -> None:
+        self.interfaces = interfaces
         self.state_file = state_file
         self.selector = selectors.DefaultSelector()
         self.cells: dict[int, float] = {}
         self.temps: dict[str, float] = {}
         self.sockets: list[socket.socket] = []
+        self.bus_frames: dict[str, int] = {name: 0 for name in interfaces}
+        self.bus_last_seen: dict[str, str] = {}
 
-    def _open_can(self, interface: str, role: str) -> None:
+    def _open_can(self, interface: str) -> None:
         sock = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
         sock.bind((interface,))
         sock.setblocking(False)
-        self.selector.register(sock, selectors.EVENT_READ, role)
+        self.selector.register(sock, selectors.EVENT_READ, interface)
         self.sockets.append(sock)
 
     def start(self) -> None:
-        self._open_can(self.primary_name, "primary")
-        if self.hv_name != self.primary_name:
-            self._open_can(self.hv_name, "hv")
+        for interface in self.interfaces:
+            self._open_can(interface)
 
     def close(self) -> None:
         for sock in self.sockets:
@@ -215,37 +214,50 @@ class DirectStatePublisher:
         if updates:
             _atomic_write(self.state_file, updates)
 
-    def _handle(self, role: str, can_id: int, data: bytes) -> None:
+    def _handle(self, interface: str, can_id: int, data: bytes) -> None:
         updates: dict[str, Any] = {}
-        if role == "primary":
-            if can_id == 0x1D4:
-                updates.update(decode_apm_command(data))
-            elif can_id == 0x1D6:
-                updates.update(decode_apm_stats(data))
-        elif role == "hv":
-            if can_id == 0x210:
-                updates.update(decode_pack_voltage(data))
-            elif can_id in CELL_IDS:
-                self.cells.update(decode_cell_block(can_id, data))
-                self._publish_battery_summary()
-            elif can_id == 0x302:
-                self.temps.update(decode_battery_temps(data))
-                self._publish_battery_summary()
+        now = _utc_now()
+        self.bus_frames[interface] = self.bus_frames.get(interface, 0) + 1
+        self.bus_last_seen[interface] = now
+
+        # IDs are decoded by validated signal identity, while the actual
+        # SocketCAN source is preserved alongside every promoted value.
+        if can_id == 0x1D4:
+            updates.update(decode_apm_command(data))
+            updates["apm_command_source_bus"] = interface
+        elif can_id == 0x1D6:
+            updates.update(decode_apm_stats(data))
+            updates["apm_stats_source_bus"] = interface
+        elif can_id == 0x210:
+            updates.update(decode_pack_voltage(data))
+            updates["hv_pack_voltage_source_bus"] = interface
+        elif can_id in CELL_IDS:
+            self.cells.update(decode_cell_block(can_id, data))
+            updates["hv_cell_slots_source_bus"] = interface
+            self._publish_battery_summary()
+        elif can_id == 0x302:
+            self.temps.update(decode_battery_temps(data))
+            updates["hv_temperature_slots_source_bus"] = interface
+            self._publish_battery_summary()
+
+        updates[f"bus_{interface}_frames"] = self.bus_frames[interface]
+        updates[f"bus_{interface}_last_seen_utc"] = now
+        updates["direct_can_interfaces_online"] = len(self.bus_last_seen)
         if updates:
-            updates["direct_can_updated_utc"] = _utc_now()
+            updates["direct_can_updated_utc"] = now
             _atomic_write(self.state_file, updates)
 
     def run_forever(self) -> None:
         self.start()
         print(
-            f"PCG-1 direct state publisher: primary={self.primary_name} hv={self.hv_name}",
+            "PCG-1 direct state publisher: interfaces=" + ",".join(self.interfaces),
             flush=True,
         )
         try:
             while True:
                 for key, _ in self.selector.select(timeout=1.0):
                     sock = key.fileobj
-                    role = key.data
+                    interface = key.data
                     try:
                         frame = sock.recv(16)
                     except BlockingIOError:
@@ -257,21 +269,26 @@ class DirectStatePublisher:
                         continue
                     can_id = can_id_raw & CAN_SFF_MASK
                     data = payload[: min(int(dlc), 8)]
-                    self._handle(role, can_id, data)
+                    self._handle(interface, can_id, data)
         finally:
             self.close()
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--primary-interface", default=DEFAULT_PRIMARY)
-    parser.add_argument("--hv-interface", default=DEFAULT_HV)
+    parser.add_argument(
+        "--interfaces",
+        default=",".join(DEFAULT_INTERFACES),
+        help="Comma-separated SocketCAN interfaces (default: can0..can5)",
+    )
     parser.add_argument("--state-file", type=Path, default=DEFAULT_STATE_FILE)
     args = parser.parse_args(argv)
+    interfaces = [item.strip() for item in args.interfaces.split(",") if item.strip()]
+    if not interfaces:
+        raise SystemExit("at least one SocketCAN interface is required")
 
     DirectStatePublisher(
-        primary=args.primary_interface,
-        hv=args.hv_interface,
+        interfaces=interfaces,
         state_file=args.state_file,
     ).run_forever()
     return 0
