@@ -211,6 +211,8 @@ STRING_FIELDS = {
     "hv_temperature_slots_source_network",
     "climate_source_bus",
     "climate_source_reference",
+    "climate_ac_state",
+    "climate_general_status_raw_hex",
 }
 STRING_LIST_FIELDS = {
     "bus_can5_top_ids",
