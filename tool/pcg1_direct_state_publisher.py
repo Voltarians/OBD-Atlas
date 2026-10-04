@@ -71,6 +71,7 @@ UC2_RECEIVE_WAIT_MS = 100
 TIMING_500K = (0x00, 0x1C)
 UC2_OPEN_ORDERS = ((0, 1), (1, 0))
 HEALTH_WARMUP_SECONDS = 15.0
+UC2_RUNTIME_RECOVERY_LIMIT = 1
 
 CAN_EFF_FLAG = 0x80000000
 CAN_RTR_FLAG = 0x40000000
@@ -395,6 +396,8 @@ class DirectStatePublisher:
         self.library: C.CDLL | None = None
         self.opened_devices: list[int] = []
         self.uc2_open_order: tuple[int, int] | None = None
+        self.uc2_runtime_recovery_count = 0
+        self.uc2_runtime_recovery_reason: str | None = None
         self.uc2_buffers = {
             name: VciCanObj()
             for name, _, _ in UC2_LOGICAL_CHANNELS
@@ -402,7 +405,10 @@ class DirectStatePublisher:
         self.swcan_socket: socket.socket | None = None
         self.started_monotonic = time.monotonic()
 
-    def _open_uc2(self) -> None:
+    def _open_uc2(
+        self,
+        open_orders: tuple[tuple[int, int], ...] = UC2_OPEN_ORDERS,
+    ) -> None:
         if not self.uc2_library_path.is_file():
             raise RuntimeError(f"UC2 library not found: {self.uc2_library_path}")
 
@@ -433,7 +439,7 @@ class DirectStatePublisher:
         # Keep the physical/logical mapping fixed, but try both native open
         # orders before giving up.
         last_error: RuntimeError | None = None
-        for open_order in UC2_OPEN_ORDERS:
+        for open_order in open_orders:
             self.opened_devices.clear()
             try:
                 for device in open_order:
@@ -516,14 +522,19 @@ class DirectStatePublisher:
         self.bus_available[SWCAN_LOGICAL_CHANNEL] = True
 
     def start(self) -> None:
+        # This publisher is the authoritative writer for its state file. Start
+        # each process with a fresh snapshot so per-run fields such as
+        # bus_*_last_seen_utc cannot survive from a previous process.
+        try:
+            self.state_file.unlink()
+        except FileNotFoundError:
+            pass
+
         self._open_uc2()
         self._open_swcan()
         self.started_monotonic = time.monotonic()
 
-    def close(self) -> None:
-        if self.swcan_socket is not None:
-            self.swcan_socket.close()
-            self.swcan_socket = None
+    def _close_uc2(self) -> None:
         if self.library is not None:
             for device in reversed(self.opened_devices):
                 for channel in (1, 0):
@@ -536,6 +547,63 @@ class DirectStatePublisher:
                 except Exception:
                     pass
         self.opened_devices.clear()
+        for name, _device, _channel in UC2_LOGICAL_CHANNELS:
+            self.bus_available[name] = False
+
+    def _reset_uc2_runtime_telemetry(self) -> None:
+        for name, _device, _channel in UC2_LOGICAL_CHANNELS:
+            self.bus_frames[name] = 0
+            self.bus_ids[name].clear()
+            self.bus_id_frames[name].clear()
+            self.bus_last_seen.pop(name, None)
+        for can_id in SOURCE_EVIDENCE_IDS:
+            for name, _device, _channel in UC2_LOGICAL_CHANNELS:
+                self.id_source_frames[can_id][name] = 0
+
+    def _recover_partial_uc2(self) -> bool:
+        if self.uc2_runtime_recovery_count >= UC2_RUNTIME_RECOVERY_LIMIT:
+            return False
+
+        uc2_names = [name for name, _device, _channel in UC2_LOGICAL_CHANNELS]
+        active = [name for name in uc2_names if self.bus_frames.get(name, 0) > 0]
+        silent = [name for name in uc2_names if self.bus_frames.get(name, 0) == 0]
+        if not active or not silent:
+            return False
+
+        current = self.uc2_open_order
+        alternate_first = (
+            (1, 0) if current == (0, 1) else (0, 1)
+        )
+        alternate_orders = (
+            alternate_first,
+            (0, 1) if alternate_first == (1, 0) else (1, 0),
+        )
+
+        self.uc2_runtime_recovery_count += 1
+        self.uc2_runtime_recovery_reason = (
+            "partial_uc2_traffic:"
+            + ",".join(f"active={name}" for name in active)
+            + ";"
+            + ",".join(f"silent={name}" for name in silent)
+        )
+        print(
+            "PCG-1 direct state publisher: partial UC2 traffic detected; "
+            f"active={active} silent={silent}; retrying with alternate open order",
+            flush=True,
+        )
+
+        self._close_uc2()
+        self._reset_uc2_runtime_telemetry()
+        time.sleep(0.25)
+        self._open_uc2(alternate_orders)
+        self.started_monotonic = time.monotonic()
+        return True
+
+    def close(self) -> None:
+        if self.swcan_socket is not None:
+            self.swcan_socket.close()
+            self.swcan_socket = None
+        self._close_uc2()
         self.library = None
 
     def _battery_summary(self) -> dict[str, Any]:
@@ -777,6 +845,8 @@ class DirectStatePublisher:
                 )
             ),
             "uc2_open_strategy": "auto_0_1_then_1_0",
+            "uc2_runtime_recovery_count": self.uc2_runtime_recovery_count,
+            "uc2_runtime_recovery_reason": self.uc2_runtime_recovery_reason,
             "uc2_open_order": (
                 None
                 if self.uc2_open_order is None
@@ -874,6 +944,13 @@ class DirectStatePublisher:
                 got_any = self._poll_uc2()
                 got_any = self._poll_swcan() or got_any
                 now = time.monotonic()
+
+                if (
+                    now - self.started_monotonic >= HEALTH_WARMUP_SECONDS
+                    and self._recover_partial_uc2()
+                ):
+                    next_health = time.monotonic()
+                    next_flush = time.monotonic()
 
                 if now >= next_health:
                     self._queue_health()
