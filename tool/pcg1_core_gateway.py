@@ -85,6 +85,7 @@ STRING_FIELDS = {
     "hv_pack_voltage_source_bus",
     "hv_cell_slots_source_bus",
     "hv_temperature_slots_source_bus",
+    "bus12_voltage_source",
 }
 STRING_LIST_FIELDS = {
     "active_dtcs",
