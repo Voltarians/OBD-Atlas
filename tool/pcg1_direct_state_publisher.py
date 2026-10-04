@@ -422,6 +422,42 @@ def decode_swcan_hv_pack_data(can_id: int, data: bytes) -> dict[str, Any]:
     return updates
 
 
+def decode_swcan_climate(can_id: int, data: bytes) -> dict[str, Any]:
+    """Decode passive Gen-1 Volt SWCAN climate broadcasts."""
+    u: dict[str, Any] = {}
+
+    if can_id == 0x10734099 and len(data) >= 1:
+        mode = (int(data[0]) >> 4) & 0x03
+        if mode in (1, 2):
+            u["climate_ac_active"] = mode == 2
+            u["climate_ac_mode_raw"] = mode
+    elif can_id == 0x10814099 and len(data) >= 2:
+        u["climate_blower_pct"] = round(float(data[1]) * 0.39, 2)
+    elif can_id == 0x10440099 and len(data) >= 6:
+        u["cabin_temperature_c"] = round(float(data[5]) / 2.0 - 40.0, 2)
+    elif can_id == 0x1047809D and len(data) >= 2:
+        u["coolant_heater_power_kw"] = round(float(data[1]) * 0.02, 3)
+    elif can_id == 0x102700CB and len(data) >= 4:
+        u["ac_evaporator_temperature_c"] = round(float(data[1]) * 0.5 - 40.0, 2)
+        u["ac_compressor_rpm"] = ((int(data[2]) & 0x3F) << 8) | int(data[3])
+    elif can_id == 0x106D4099 and len(data) >= 3 and int(data[2]) != 0:
+        u["heater_core_inlet_temperature_c"] = float(int(data[2]) - 40)
+    elif can_id == 0x10390040 and len(data) >= 1:
+        raw = int(data[0])
+        u["remote_climate_active"] = bool((raw >> 1) & 0x01)
+        u["remote_climate_status_raw"] = raw
+    elif can_id == 0x107220A9 and len(data) >= 4:
+        u["driver_seat_heat_raw"] = int(data[2])
+        u["passenger_seat_heat_raw"] = int(data[3])
+        u["seat_heat_active"] = any(int(x) != 0 for x in data[:4])
+
+    if u:
+        u["climate_source_bus"] = SWCAN_LOGICAL_CHANNEL
+        u["climate_source_reference"] = "ovms_voltampera_passive_swcan_climate"
+        u["climate_updated_utc"] = _utc_now()
+    return u
+
+
 def decode_pack_voltage(data: bytes) -> dict[str, Any]:
     if len(data) < 2:
         return {}
@@ -908,6 +944,10 @@ class DirectStatePublisher:
             hv_swcan = decode_swcan_hv_pack_data(can_id, data)
             if hv_swcan:
                 updates.update(hv_swcan)
+
+            climate = decode_swcan_climate(can_id, data)
+            if climate:
+                updates.update(climate)
 
             energy = decode_swcan_energy_metrics(can_id, data)
             if energy:
