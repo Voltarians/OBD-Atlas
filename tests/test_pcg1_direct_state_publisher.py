@@ -16,6 +16,7 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
     def test_apm_command_matches_core_decoder(self):
         decoded = module.decode_apm_command(bytes([0x00, 0x99]))
         self.assertEqual(decoded["apm_status_raw"], 0)
+        self.assertEqual(decoded["apm_state"], "OFF")
         self.assertAlmostEqual(decoded["apm_requested_voltage_v"], 12.047, places=3)
 
     def test_apm_stats_match_core_decoder(self):
@@ -25,6 +26,8 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         self.assertEqual(decoded["apm_status_raw"], 0xA0)
         self.assertAlmostEqual(decoded["apm_hv_input_current_a"], -1.0, places=3)
         self.assertAlmostEqual(decoded["apm_output_voltage_v"], 14.409, places=3)
+        self.assertAlmostEqual(decoded["bus12_voltage_v"], 14.409, places=3)
+        self.assertEqual(decoded["bus12_voltage_source"], "apm_0x1d6_low_voltage_sensed")
         self.assertEqual(decoded["apm_temperature_1_c"], 23.0)
         self.assertEqual(decoded["apm_temperature_2_c"], 24.0)
         self.assertEqual(decoded["apm_current_a"], 5.0)
