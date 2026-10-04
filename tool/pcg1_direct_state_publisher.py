@@ -361,19 +361,28 @@ def decode_swcan_energy_metrics(can_id: int, data: bytes) -> dict[str, Any]:
 
 
 def decode_soc_candidate_0x206(data: bytes) -> dict[str, Any]:
-    """Record the community-reported 0x206 SOC/energy candidate without promotion.
+    """Decode the historical primary-bus 0x206 SOC/remaining-energy signal.
 
-    Atlas already uses 0x206 on the validated HV bus as one member of the
-    multiplexed cell-voltage family, so this candidate must remain bus-qualified
-    and evidence-only until an independent SOC reference proves a mapping.
+    Contemporary Volt/Ampera reverse-engineering notes document a 3-byte 0x206
+    frame on the primary high-speed powertrain bus. The first two bytes are a
+    big-endian counter whose value divided by 4000 is remaining battery energy
+    in kWh. Example from the original evidence: 0x69C3 / 4000 = 6.76875 kWh,
+    described as about 42% of the 2011/2012 16 kWh gross pack.
+
+    This decoder returns both the directly supported remaining-energy value and
+    a 2011/2012 nominal-pack SOC percentage. It must only be promoted when the
+    frame is observed on Atlas can1 with the historical 3-byte shape; can2 uses
+    the same CAN ID for a distinct 8-byte multiplexed cell-voltage message.
     """
-    if len(data) < 2:
+    if len(data) != 3:
         return {}
     raw16 = (int(data[0]) << 8) | int(data[1])
+    remaining_kwh = raw16 / 4000.0
     return {
         "raw_hex": data.hex().upper(),
         "raw_u16_be": raw16,
-        "community_energy_quarter_kwh_candidate": round(raw16 * 0.25, 3),
+        "remaining_energy_kwh": round(remaining_kwh, 5),
+        "soc_pct_nominal_16kwh": round(remaining_kwh * 100.0 / 16.0, 3),
     }
 
 
@@ -785,11 +794,26 @@ class DirectStatePublisher:
             if candidate:
                 prefix = f"soc_candidate_0x206_{interface}_"
                 updates.update({prefix + key: value for key, value in candidate.items()})
-                updates[prefix + "status"] = "candidate_not_validated"
                 updates[prefix + "reference"] = (
-                    "atlas_community_vehicle_can_candidate_0x206"
+                    "historical_evtools_ovms_volt_primary_0x206"
                 )
                 updates[prefix + "updated_utc"] = now
+
+                # Atlas can1 matches the historical Primary Powertrain Bus and
+                # carries the documented 3-byte 0x206 shape. Promote only that
+                # bus/shape. The can2 8-byte 0x206 frame remains the separate
+                # validated cell-voltage mux and never enters this decoder.
+                if interface == "can1":
+                    updates["hv_remaining_energy_kwh"] = candidate[
+                        "remaining_energy_kwh"
+                    ]
+                    updates["hv_soc_pct"] = candidate["soc_pct_nominal_16kwh"]
+                    updates["hv_soc_source_bus"] = interface
+                    updates["hv_soc_source_reference"] = (
+                        "historical_evtools_ovms_0x206_raw_div4000_"
+                        "2011_2012_16kwh_nominal"
+                    )
+                    updates["hv_soc_updated_utc"] = now
 
         # Decode only on the validated physical bus. CAN IDs are reused across
         # multiple Volt networks, so ID-family matches alone are not sufficient
