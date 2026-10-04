@@ -228,6 +228,68 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
 
         self.assertFalse(state_file.exists())
 
+    def test_uc2_channel_init_sequence_primes_can1_before_can0(self):
+        publisher = module.DirectStatePublisher(
+            state_file=Path("/tmp/unused-state.json"),
+            uc2_library=Path("/tmp/unused-libusbcan.so"),
+        )
+
+        calls = []
+        publisher.open_device = lambda *_args: 1
+        publisher.close_device = lambda *_args: 1
+        publisher.reset_can = lambda *_args: 1
+        publisher.init_can = (
+            lambda _dtype, device, channel, _config:
+            calls.append(("init", device, channel)) or 1
+        )
+        publisher.start_can = (
+            lambda _dtype, device, channel:
+            calls.append(("start", device, channel)) or 1
+        )
+
+        class FakeLibrary:
+            pass
+
+        original_cdll = module.C.CDLL
+        original_bind = module._bind
+        original_is_file = module.Path.is_file
+        try:
+            module.C.CDLL = lambda _path: FakeLibrary()
+            module._bind = lambda _library, name, _args: getattr(publisher, {
+                "VCI_OpenDevice": "open_device",
+                "VCI_CloseDevice": "close_device",
+                "VCI_InitCAN": "init_can",
+                "VCI_StartCAN": "start_can",
+                "VCI_ResetCAN": "reset_can",
+                "VCI_GetReceiveNum": "receive_num",
+                "VCI_Receive": "receive",
+            }[name], lambda *_args: 0)
+            module.Path.is_file = lambda _self: True
+            publisher._open_uc2(((1, 0),))
+        finally:
+            module.C.CDLL = original_cdll
+            module._bind = original_bind
+            module.Path.is_file = original_is_file
+
+        self.assertEqual(
+            [call for call in calls if call[0] == "init"],
+            [
+                ("init", 1, 1),
+                ("init", 1, 0),
+                ("init", 0, 1),
+                ("init", 0, 0),
+            ],
+        )
+        self.assertEqual(
+            [call for call in calls if call[0] == "start"],
+            [
+                ("start", 1, 1),
+                ("start", 1, 0),
+                ("start", 0, 1),
+                ("start", 0, 0),
+            ],
+        )
+
     def test_partial_uc2_runtime_recovery_prefers_alternate_open_order(self):
         publisher = module.DirectStatePublisher(
             state_file=Path("/tmp/unused-state.json"),
