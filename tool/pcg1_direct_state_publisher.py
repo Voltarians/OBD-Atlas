@@ -29,6 +29,7 @@ from typing import Any
 
 DEFAULT_STATE_FILE = Path("/run/promethean/vehicle_state.json")
 DEFAULT_INTERFACES = ("can0", "can1", "can2", "can3", "can4", "can5")
+FUTURE_LIN_INTERFACES = ("lin0", "lin1", "lin2")
 DEFAULT_PRIMARY_INTERFACE = "can1"
 DEFAULT_HV_INTERFACE = "can2"
 
@@ -185,6 +186,7 @@ class DirectStatePublisher:
         self.bus_frames: dict[str, int] = {name: 0 for name in interfaces}
         self.bus_last_seen: dict[str, str] = {}
         self.pending: dict[str, Any] = {}
+        self.future_lin_interfaces = FUTURE_LIN_INTERFACES
 
     def _open_can(self, interface: str) -> None:
         sock = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
@@ -307,6 +309,10 @@ class DirectStatePublisher:
                 if now_mono >= next_health:
                     health: dict[str, Any] = {
                         "direct_can_interfaces_online": len(self.bus_last_seen),
+                        "direct_can_interfaces_configured": len(self.interfaces),
+                        "future_lin_interfaces_configured": len(self.future_lin_interfaces),
+                        "future_lin_interfaces_online": 0,
+                        "future_lin_status": "reserved_not_installed",
                     }
                     for name in self.interfaces:
                         health[f"bus_{name}_frames"] = self.bus_frames.get(name, 0)
