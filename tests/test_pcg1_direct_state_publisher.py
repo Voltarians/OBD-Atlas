@@ -193,6 +193,22 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
             places=3,
         )
 
+    def test_soc_candidate_0x206_is_evidence_only_and_bus_qualified(self):
+        decoded = module.decode_soc_candidate_0x206(bytes.fromhex("0010AABB"))
+        self.assertEqual(decoded["raw_u16_be"], 16)
+        self.assertEqual(decoded["community_energy_quarter_kwh_candidate"], 4.0)
+
+        publisher = module.DirectStatePublisher(
+            state_file=Path("/tmp/unused-state.json"),
+            uc2_library=Path("/tmp/unused-libusbcan.so"),
+        )
+        publisher._handle("can1", 0x206, bytes.fromhex("0010AABB"))
+        self.assertEqual(
+            publisher.pending["soc_candidate_0x206_can1_status"],
+            "candidate_not_validated",
+        )
+        self.assertNotIn("hv_soc_pct", publisher.pending)
+
     def test_passive_driving_signals_are_bus_qualified(self):
         publisher = module.DirectStatePublisher(
             state_file=Path("/tmp/unused-state.json"),
