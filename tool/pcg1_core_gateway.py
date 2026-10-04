@@ -116,6 +116,9 @@ STRING_FIELDS = {
     "hidden_internal_bus_status",
     "uc2_open_strategy",
     "uc2_open_order",
+    "validated_primary_bus",
+    "validated_hv_bus",
+    "validated_signal_bus_health",
     "apm_command_source_network",
     "apm_stats_source_network",
     "hv_pack_voltage_source_network",
@@ -126,6 +129,11 @@ STRING_LIST_FIELDS = {
     "active_dtcs",
     "offline_modules",
 }
+BOOL_FIELDS = {
+    "validated_primary_bus_receiving",
+    "validated_hv_bus_receiving",
+}
+
 FLOAT_LIST_FIELDS = {
     "hv_cell_slots_v",
     "hv_temperature_slots_c",
@@ -162,6 +170,11 @@ def normalize_state(raw: Any) -> dict[str, Any]:
         value = source.get(key)
         if isinstance(value, str) and value.strip():
             out[key] = value.strip()
+
+    for key in BOOL_FIELDS:
+        value = source.get(key)
+        if isinstance(value, bool):
+            out[key] = value
 
     for key in STRING_LIST_FIELDS:
         value = source.get(key)
