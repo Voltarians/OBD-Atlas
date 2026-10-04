@@ -169,6 +169,7 @@ class DirectStatePublisher:
         self.sockets: list[socket.socket] = []
         self.bus_frames: dict[str, int] = {name: 0 for name in interfaces}
         self.bus_last_seen: dict[str, str] = {}
+        self.pending: dict[str, Any] = {}
 
     def _open_can(self, interface: str) -> None:
         sock = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
@@ -190,7 +191,7 @@ class DirectStatePublisher:
             sock.close()
         self.selector.close()
 
-    def _publish_battery_summary(self) -> None:
+    def _battery_summary(self) -> dict[str, Any]:
         updates: dict[str, Any] = {}
         if len(self.cells) == 96:
             values = list(self.cells.values())
@@ -212,8 +213,18 @@ class DirectStatePublisher:
                 "hv_temperature_slots_c": [self.temps[f"battery_temp_slot_{i}_c"] for i in range(1, 10)],
                 "hv_temperature_slots_updated_utc": _utc_now(),
             })
+        return updates
+
+    def _queue(self, updates: dict[str, Any]) -> None:
         if updates:
-            _atomic_write(self.state_file, updates)
+            self.pending.update(updates)
+
+    def _flush(self) -> None:
+        if not self.pending:
+            return
+        payload = dict(self.pending)
+        self.pending.clear()
+        _atomic_write(self.state_file, payload)
 
     def _handle(self, interface: str, can_id: int, data: bytes) -> None:
         updates: dict[str, Any] = {}
@@ -234,19 +245,20 @@ class DirectStatePublisher:
             updates["hv_pack_voltage_source_bus"] = interface
         elif can_id in CELL_IDS:
             self.cells.update(decode_cell_block(can_id, data))
-            updates["hv_cell_slots_source_bus"] = interface
-            self._publish_battery_summary()
+            summary = self._battery_summary()
+            if summary:
+                summary["hv_cell_slots_source_bus"] = interface
+                updates.update(summary)
         elif can_id == 0x302:
             self.temps.update(decode_battery_temps(data))
-            updates["hv_temperature_slots_source_bus"] = interface
-            self._publish_battery_summary()
+            summary = self._battery_summary()
+            if summary:
+                summary["hv_temperature_slots_source_bus"] = interface
+                updates.update(summary)
 
-        updates[f"bus_{interface}_frames"] = self.bus_frames[interface]
-        updates[f"bus_{interface}_last_seen_utc"] = now
-        updates["direct_can_interfaces_online"] = len(self.bus_last_seen)
         if updates:
             updates["direct_can_updated_utc"] = now
-            _atomic_write(self.state_file, updates)
+            self._queue(updates)
 
     def run_forever(self) -> None:
         self.start()
@@ -254,9 +266,11 @@ class DirectStatePublisher:
             "PCG-1 direct state publisher: interfaces=" + ",".join(self.interfaces),
             flush=True,
         )
+        next_flush = time.monotonic()
+        next_health = time.monotonic()
         try:
             while True:
-                for key, _ in self.selector.select(timeout=1.0):
+                for key, _ in self.selector.select(timeout=0.10):
                     sock = key.fileobj
                     interface = key.data
                     try:
@@ -271,7 +285,24 @@ class DirectStatePublisher:
                     can_id = can_id_raw & CAN_SFF_MASK
                     data = payload[: min(int(dlc), 8)]
                     self._handle(interface, can_id, data)
+
+                now_mono = time.monotonic()
+                if now_mono >= next_health:
+                    health: dict[str, Any] = {
+                        "direct_can_interfaces_online": len(self.bus_last_seen),
+                    }
+                    for name in self.interfaces:
+                        health[f"bus_{name}_frames"] = self.bus_frames.get(name, 0)
+                        if name in self.bus_last_seen:
+                            health[f"bus_{name}_last_seen_utc"] = self.bus_last_seen[name]
+                    self._queue(health)
+                    next_health = now_mono + 1.0
+
+                if now_mono >= next_flush:
+                    self._flush()
+                    next_flush = now_mono + 0.25
         finally:
+            self._flush()
             self.close()
 
 
