@@ -98,6 +98,11 @@ INT_FIELDS = {
     "hv_cell_measurement_slots_complete",
 }
 STRING_FIELDS = {
+    "physical_bus_role_can4",
+    "physical_bus_role_can3",
+    "physical_bus_role_can2",
+    "physical_bus_role_can1",
+    "physical_bus_role_can0",
     "apm_state",
     "dc_dc_state",
     "hvil_state",
