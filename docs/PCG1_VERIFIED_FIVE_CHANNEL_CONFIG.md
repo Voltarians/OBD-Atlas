@@ -128,3 +128,18 @@ hidden_internal_bus_name = bicm_internal_125k
 hidden_internal_bus_bitrate = 125000
 hidden_internal_bus_status = known_internal_not_directly_acquired
 ```
+
+
+## Validated signal-source buses
+
+Live in-vehicle source-evidence captured on 2026-10-04 established these decoder source buses:
+
+- APM / 12 V command and status: `can3`
+  - `0x1D4` observed on `can3`
+  - `0x1D6` observed on `can3`
+- HV battery: `can2`
+  - `0x210` observed on `can2`
+  - `0x302` observed on `can2`
+  - `0x200`, `0x202`, `0x204`, and `0x206` observed on `can2`
+
+The `0x200/202/204/206` ID family also appears on other physical buses, proving that CAN ID alone is insufficient to select a decoder. Signal decoding must remain qualified by the validated physical source bus.
