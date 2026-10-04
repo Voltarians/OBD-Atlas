@@ -1,0 +1,17 @@
+[Unit]
+Description=PCG-1 direct vehicle-state publisher for Promethean Core
+After=network.target
+Before=promethean-pcg1-gateway.service
+
+[Service]
+Type=simple
+User=monroe
+Group=monroe
+ExecStart=/usr/bin/python3 /usr/local/lib/promethean/pcg1_direct_state_publisher.py --state-file /run/promethean/vehicle_state.json --uc2-library /home/monroe/promethean/rust-can-zlg-lib/library/linux/aarch64/libusbcan.so --swcan-interface can0
+Restart=always
+RestartSec=1
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
