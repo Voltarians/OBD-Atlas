@@ -102,6 +102,19 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
             places=3,
         )
 
+    def test_source_evidence_tracks_reused_ids_by_physical_bus(self):
+        publisher = module.DirectStatePublisher(
+            state_file=Path("/tmp/unused-state.json"),
+            uc2_library=Path("/tmp/unused-libusbcan.so"),
+        )
+        publisher._handle("can0", 0x210, bytes([0xB5, 0x40]))
+        publisher._handle("can2", 0x210, bytes([0xB5, 0x40]))
+        publisher._handle("can2", 0x210, bytes([0xB5, 0x40]))
+        publisher._queue_health()
+
+        evidence = publisher.pending["validated_id_source_evidence"]
+        self.assertIn("0x210:can0=1,can2=2", evidence)
+
     def test_health_reports_validated_signal_source_buses(self):
         publisher = module.DirectStatePublisher(
             state_file=Path("/tmp/unused-state.json"),
