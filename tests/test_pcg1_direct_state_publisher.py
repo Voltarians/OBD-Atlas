@@ -115,6 +115,22 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         evidence = publisher.pending["validated_id_source_evidence"]
         self.assertIn("0x210:can0=1,can2=2", evidence)
 
+    def test_health_reports_top_ids_per_bus(self):
+        publisher = module.DirectStatePublisher(
+            state_file=Path("/tmp/unused-state.json"),
+            uc2_library=Path("/tmp/unused-libusbcan.so"),
+        )
+        publisher._handle("can0", 0x100, b"")
+        publisher._handle("can0", 0x101, b"")
+        publisher._handle("can0", 0x100, b"")
+        publisher._queue_health()
+
+        self.assertEqual(
+            publisher.pending["bus_can0_top_ids"],
+            ["0x100=2", "0x101=1"],
+        )
+        self.assertEqual(publisher.pending["bus_can5_top_ids"], [])
+
     def test_health_reports_unique_id_count_per_bus(self):
         publisher = module.DirectStatePublisher(
             state_file=Path("/tmp/unused-state.json"),
