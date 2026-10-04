@@ -1,8 +1,12 @@
 source,network,bitrate_kbps,can_id_hex,signal_or_message,decode,confidence,notes
+Open Vehicle Monitoring System Volt/Ampera notes,vehicle_high_speed,500,0x0BC,Vehicle_On_Off_State,byte 1; bit 7 reportedly ON and bit 4 reportedly OFF,community_derived,Legacy community report; bit numbering and mutual exclusivity require Atlas capture validation
 Vehicle Reverse Engineering Wiki,vehicle_high_speed,500,0x1EF,Engine_RPM,bytes 3-4,community_derived,Community wiki; validate against Atlas captures before promotion
 Vehicle Reverse Engineering Wiki,vehicle_high_speed,500,0x1F5,Shift_Position,byte 4; 1=P 2=R N/D/L mappings reported,community_derived,Community wiki; validate exact enum values
 Vehicle Reverse Engineering Wiki,vehicle_high_speed,500,0x206,Battery_SOC_or_energy,bytes 1-2; reported ~0.250 kWh units,community_derived,Interpretation uncertain in source; retain as candidate
 Vehicle Reverse Engineering Wiki,vehicle_high_speed,500,0x3E9,Vehicle_Speed,bytes 1-2; 1/64 km/h,community_derived,Useful event-alignment signal
+Open Vehicle Monitoring System Volt/Ampera notes,vehicle_high_speed,500,0x4C1,Outside_Air_Temperature,byte 5; reported Fahrenheit offset 50 or Celsius = raw/2 - 40,community_derived,Conflicting unit interpretations are preserved; validate against a known ambient temperature
+Open Vehicle Monitoring System Volt/Ampera notes,vehicle_high_speed,500,0x514,VIN_Fragment_1,bytes 1-8 interpreted as ASCII,community_derived,Reported first passive VIN fragment; preserve vehicle identity internally but do not export the VIN
+Open Vehicle Monitoring System Volt/Ampera notes,vehicle_high_speed,500,0x4E1,VIN_Fragment_2,bytes 1-8 interpreted as ASCII,community_derived,Reported second passive VIN fragment; reported full VIN is prefix 1 plus 0x514 and 0x4E1 payloads; do not export the VIN
 Vehicle Reverse Engineering Wiki,diagnostic_response,500,0x5EC,Onboard_Charger_Current,byte 3; 0.2 A/count,community_derived,Response mapping reported by community wiki
 Vehicle Reverse Engineering Wiki,diagnostic_response,500,0x5EC,Onboard_Charger_Voltage,byte 4; 2 V/count,community_derived,Response mapping reported by community wiki
 Vehicle Reverse Engineering Wiki,diagnostic_response,500,0x5EC,Outside_Air_Temperature,byte 5; 0.5 C/count with +40 offset convention reported,community_derived,Validate sign/offset convention
