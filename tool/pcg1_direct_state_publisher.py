@@ -73,6 +73,10 @@ UC2_OPEN_ORDERS = ((0, 1), (1, 0))
 HEALTH_WARMUP_SECONDS = 15.0
 UC2_RUNTIME_RECOVERY_LIMIT = 1
 
+
+class PartialUc2TrafficError(RuntimeError):
+    """Raised when in-process UC2 recovery cannot restore all four channels."""
+
 CAN_EFF_FLAG = 0x80000000
 CAN_RTR_FLAG = 0x40000000
 CAN_ERR_FLAG = 0x20000000
@@ -561,14 +565,24 @@ class DirectStatePublisher:
                 self.id_source_frames[can_id][name] = 0
 
     def _recover_partial_uc2(self) -> bool:
-        if self.uc2_runtime_recovery_count >= UC2_RUNTIME_RECOVERY_LIMIT:
-            return False
-
         uc2_names = [name for name, _device, _channel in UC2_LOGICAL_CHANNELS]
         active = [name for name in uc2_names if self.bus_frames.get(name, 0) > 0]
         silent = [name for name in uc2_names if self.bus_frames.get(name, 0) == 0]
         if not active or not silent:
             return False
+
+        if self.uc2_runtime_recovery_count >= UC2_RUNTIME_RECOVERY_LIMIT:
+            reason = (
+                "partial UC2 traffic persisted after in-process recovery; "
+                f"active={active} silent={silent}"
+            )
+            self.uc2_runtime_recovery_reason = reason
+            print(
+                "PCG-1 direct state publisher: "
+                f"{reason}; exiting for clean systemd restart",
+                flush=True,
+            )
+            raise PartialUc2TrafficError(reason)
 
         current = self.uc2_open_order
         alternate_first = (
