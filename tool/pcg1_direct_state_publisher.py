@@ -81,6 +81,7 @@ CAN_EFF_FLAG = 0x80000000
 CAN_RTR_FLAG = 0x40000000
 CAN_ERR_FLAG = 0x20000000
 CAN_SFF_MASK = 0x000007FF
+CAN_EFF_MASK = 0x1FFFFFFF
 
 CELL_IDS = {0x200: 0, 0x202: 1, 0x204: 2, 0x206: 3}
 
@@ -291,6 +292,24 @@ def decode_legacy_ambient_coolant(data: bytes) -> dict[str, Any]:
         "ambient_temperature_c": round(int(data[4]) / 2.0 - 40.0, 3),
         "coolant_temperature_c": round(float(int(data[2]) - 40), 3),
         "ambient_coolant_updated_utc": _utc_now(),
+    }
+
+
+def decode_system_12v_sensor(data: bytes) -> dict[str, Any]:
+    """Decode the Volt intelligent battery sensor broadcast on SWCAN.
+
+    Public OVMS Volt/Ampera evidence identifies extended arbitration ID
+    0x10248040 as Battery_Voltage. Byte 2 is BatVlt at 0.1 V/LSB + 3 V,
+    byte 3 is battery SOC at 100/255 percent/LSB, and byte 5 is filtered
+    battery current at 0.5 A/LSB signed.
+    """
+    if len(data) < 6:
+        return {}
+    return {
+        "system_12v_voltage_v": round(float(data[2]) * 0.1 + 3.0, 3),
+        "system_12v_soc_pct": round(float(data[3]) * 100.0 / 255.0, 3),
+        "system_12v_current_a": round(float(_signed8(data[5])) * 0.5, 3),
+        "system_12v_updated_utc": _utc_now(),
     }
 
 
@@ -735,6 +754,12 @@ class DirectStatePublisher:
             updates["ambient_temperature_source_reference"] = "ovms_voltampera_0x4c1"
             updates["coolant_temperature_source_bus"] = interface
             updates["coolant_temperature_source_reference"] = "ovms_voltampera_0x4c1"
+        elif interface == SWCAN_LOGICAL_CHANNEL and can_id == 0x10248040:
+            updates.update(decode_system_12v_sensor(data))
+            updates["system_12v_source_bus"] = interface
+            updates["system_12v_source_reference"] = (
+                "ovms_voltampera_swcan_0x10248040_intelligent_battery_sensor"
+            )
         elif interface == self.hv_interface and can_id == 0x210:
             updates.update(decode_pack_voltage(data))
             updates["hv_pack_voltage_source_bus"] = interface
@@ -810,11 +835,13 @@ class DirectStatePublisher:
             if len(frame) < 16:
                 break
             can_id_raw, dlc, payload = struct.unpack("=IB3x8s", frame)
-            if can_id_raw & (CAN_EFF_FLAG | CAN_RTR_FLAG | CAN_ERR_FLAG):
+            if can_id_raw & (CAN_RTR_FLAG | CAN_ERR_FLAG):
                 continue
+            is_extended = bool(can_id_raw & CAN_EFF_FLAG)
+            can_id = can_id_raw & (CAN_EFF_MASK if is_extended else CAN_SFF_MASK)
             self._handle(
                 SWCAN_LOGICAL_CHANNEL,
-                can_id_raw & CAN_SFF_MASK,
+                can_id,
                 payload[: min(int(dlc), 8)],
             )
             got_any = True
