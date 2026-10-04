@@ -196,6 +196,17 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         self.assertEqual(module.UC2_RECEIVE_BURST_LIMIT, 64)
         self.assertEqual(module.UC2_RECEIVE_WAIT_MS, 100)
         self.assertEqual(module.FUTURE_LIN_INTERFACES, ("lin0", "lin1", "lin2"))
+        self.assertEqual(
+            module.PHYSICAL_BUS_ROLES["can0"],
+            "high_voltage_energy_management",
+        )
+        self.assertEqual(
+            module.PHYSICAL_BUS_ROLES["can1"],
+            "high_voltage_powertrain_expansion",
+        )
+        self.assertEqual(module.PHYSICAL_BUS_ROLES["can2"], "chassis_expansion")
+        self.assertEqual(module.PHYSICAL_BUS_ROLES["can3"], "primary_powertrain")
+        self.assertEqual(module.PHYSICAL_BUS_ROLES["can4"], "body_electrical_swcan")
 
 
 if __name__ == "__main__":
