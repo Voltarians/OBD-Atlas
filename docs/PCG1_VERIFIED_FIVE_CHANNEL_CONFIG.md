@@ -143,3 +143,18 @@ Live in-vehicle source-evidence captured on 2026-10-04 established these decoder
   - `0x200`, `0x202`, `0x204`, and `0x206` observed on `can2`
 
 The `0x200/202/204/206` ID family also appears on other physical buses, proving that CAN ID alone is insufficient to select a decoder. Signal decoding must remain qualified by the validated physical source bus.
+
+
+## Physical bus role names
+
+The installed connector/pin mapping corresponds to the community-documented Gen-1 Volt/Ampera five-bus topology:
+
+| Atlas bus | Vehicle connection | Physical topology role |
+|---|---|---|
+| `can0` | Auxiliary X84B pins 3/11 | High-Voltage Energy Management |
+| `can1` | Auxiliary X84B pins 12/13 | High-Voltage Powertrain Expansion |
+| `can2` | Primary X84 pins 12/13 | Chassis Expansion |
+| `can3` | Primary X84 pins 6/14 | Primary Powertrain |
+| `can4` | Primary X84 pin 1 + reference ground | Body Electrical / low-speed SWCAN |
+
+These are physical topology labels, not decoder-selection rules. Live evidence shows that some IDs are gatewayed/reused across physical buses. Current evidence-backed decoder sources remain APM on `can3` and the validated passive battery measurement decoder on `can2`.
