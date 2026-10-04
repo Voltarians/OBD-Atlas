@@ -428,9 +428,18 @@ def decode_swcan_climate(can_id: int, data: bytes) -> dict[str, Any]:
 
     if can_id == 0x10734099 and len(data) >= 1:
         mode = (int(data[0]) >> 4) & 0x03
-        if mode in (1, 2):
-            u["climate_ac_active"] = mode == 2
-            u["climate_ac_mode_raw"] = mode
+        u["climate_ac_mode_raw"] = mode
+        u["climate_general_status_raw_hex"] = data.hex().upper()
+        if mode == 1:
+            u["climate_ac_active"] = False
+            u["climate_ac_state"] = "OFF"
+        elif mode == 2:
+            u["climate_ac_active"] = True
+            u["climate_ac_state"] = "ACTIVE"
+        else:
+            # Preserve MY2011 evidence rather than silently dropping the frame.
+            # OVMS only documents 1=off and 2=active; mode 0/3 remain unknown.
+            u["climate_ac_state"] = f"UNKNOWN_RAW_{mode}"
     elif can_id == 0x10814099 and len(data) >= 2:
         u["climate_blower_pct"] = round(float(data[1]) * 0.39, 2)
     elif can_id == 0x10440099 and len(data) >= 6:
