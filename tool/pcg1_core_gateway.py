@@ -132,6 +132,12 @@ STRING_FIELDS = {
     "hv_temperature_slots_source_network",
 }
 STRING_LIST_FIELDS = {
+    "bus_can5_top_ids",
+    "bus_can4_top_ids",
+    "bus_can3_top_ids",
+    "bus_can2_top_ids",
+    "bus_can1_top_ids",
+    "bus_can0_top_ids",
     "active_dtcs",
     "offline_modules",
     "validated_id_source_evidence",
