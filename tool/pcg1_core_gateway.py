@@ -69,6 +69,7 @@ INT_FIELDS = {
     "network_modules_online",
     "network_modules_expected",
     "direct_can_interfaces_online",
+    "direct_can_interfaces_available",
     "direct_can_interfaces_configured",
     "future_lin_interfaces_configured",
     "future_lin_interfaces_online",
