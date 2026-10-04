@@ -249,7 +249,7 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         self.assertEqual(publisher.uc2_runtime_recovery_count, 1)
         self.assertIn("silent=can2", publisher.uc2_runtime_recovery_reason)
         self.assertIn("silent=can3", publisher.uc2_runtime_recovery_reason)
-        self.assertEqual(opened[0][0], (1, 0))
+        self.assertEqual(opened[0], ((1, 0),))
         self.assertEqual(publisher.bus_frames["can0"], 0)
         self.assertEqual(publisher.bus_frames["can1"], 0)
 
@@ -368,7 +368,7 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         self.assertEqual(module.TOTAL_KNOWN_VEHICLE_BUSES, 6)
         self.assertEqual(module.HIDDEN_INTERNAL_BUS_NAME, "bicm_internal_125k")
         self.assertEqual(module.CAN_CAPABLE_CHANNEL_COUNT, 6)
-        self.assertEqual(module.UC2_OPEN_ORDERS, ((0, 1), (1, 0)))
+        self.assertEqual(module.UC2_OPEN_ORDERS, ((1, 0),))
         self.assertEqual(module.DEFAULT_PRIMARY_INTERFACE, "can3")
         self.assertEqual(module.DEFAULT_HV_INTERFACE, "can2")
         self.assertEqual(module.UC2_RECEIVE_BURST_LIMIT, 64)
