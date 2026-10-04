@@ -77,35 +77,30 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         )
         self.assertIsNone(module.classify_logical_network("can0", 0x589))
 
-    def test_validated_apm_id_decodes_on_any_acquired_physical_bus(self):
+    def test_reused_ids_do_not_decode_on_wrong_physical_bus(self):
         publisher = module.DirectStatePublisher(
             state_file=Path("/tmp/unused-state.json"),
             uc2_library=Path("/tmp/unused-libusbcan.so"),
         )
+
+        publisher._handle("can0", 0x210, bytes([0xB5, 0x40]))
+        self.assertNotIn("hv_pack_voltage_v", publisher.pending)
+
+        publisher._handle("can2", 0x210, bytes([0xB5, 0x40]))
+        self.assertEqual(publisher.pending["hv_pack_voltage_source_bus"], "can2")
+        self.assertIn("hv_pack_voltage_v", publisher.pending)
+
+        publisher.pending.clear()
         publisher._handle("can3", 0x1D4, bytes([0x00, 0x99]))
-        self.assertEqual(publisher.pending["apm_command_source_bus"], "can3")
-        self.assertEqual(
-            publisher.pending["apm_command_source_network"],
-            "primary_powertrain",
-        )
+        self.assertNotIn("apm_requested_voltage_v", publisher.pending)
+
+        publisher._handle("can1", 0x1D4, bytes([0x00, 0x99]))
+        self.assertEqual(publisher.pending["apm_command_source_bus"], "can1")
         self.assertAlmostEqual(
             publisher.pending["apm_requested_voltage_v"],
             12.047,
             places=3,
         )
-
-    def test_validated_hv_id_decodes_on_any_acquired_physical_bus(self):
-        publisher = module.DirectStatePublisher(
-            state_file=Path("/tmp/unused-state.json"),
-            uc2_library=Path("/tmp/unused-libusbcan.so"),
-        )
-        publisher._handle("can0", 0x210, bytes([0xB5, 0x40]))
-        self.assertEqual(publisher.pending["hv_pack_voltage_source_bus"], "can0")
-        self.assertEqual(
-            publisher.pending["hv_pack_voltage_source_network"],
-            "hv_energy_management",
-        )
-        self.assertIn("hv_pack_voltage_v", publisher.pending)
 
     def test_default_configuration_matches_verified_pcg1_topology(self):
         self.assertEqual(
