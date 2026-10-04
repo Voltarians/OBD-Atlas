@@ -54,7 +54,7 @@ HIDDEN_INTERNAL_BUS_NAME = "bicm_internal_125k"
 CAN_CAPABLE_CHANNEL_COUNT = 6
 FUTURE_LIN_INTERFACES = ("lin0", "lin1", "lin2")
 
-DEFAULT_PRIMARY_INTERFACE = "can1"
+DEFAULT_PRIMARY_INTERFACE = "can3"
 DEFAULT_HV_INTERFACE = "can2"
 
 DEVICE_TYPE = 4  # ZLG/LYS USBCAN2
@@ -624,11 +624,29 @@ class DirectStatePublisher:
             "validated_hv_bus": self.hv_interface,
             "validated_primary_bus_receiving": self.primary_interface in self.bus_last_seen,
             "validated_hv_bus_receiving": self.hv_interface in self.bus_last_seen,
+            "validated_primary_signal_evidence": (
+                self.id_source_frames[0x1D4].get(self.primary_interface, 0) > 0
+                and self.id_source_frames[0x1D6].get(self.primary_interface, 0) > 0
+            ),
+            "validated_hv_signal_evidence": (
+                self.id_source_frames[0x210].get(self.hv_interface, 0) > 0
+                and self.id_source_frames[0x302].get(self.hv_interface, 0) > 0
+                and all(
+                    self.id_source_frames[can_id].get(self.hv_interface, 0) > 0
+                    for can_id in CELL_IDS
+                )
+            ),
             "validated_signal_bus_health": (
                 "validated_sources_live"
                 if (
-                    self.primary_interface in self.bus_last_seen
-                    and self.hv_interface in self.bus_last_seen
+                    self.id_source_frames[0x1D4].get(self.primary_interface, 0) > 0
+                    and self.id_source_frames[0x1D6].get(self.primary_interface, 0) > 0
+                    and self.id_source_frames[0x210].get(self.hv_interface, 0) > 0
+                    and self.id_source_frames[0x302].get(self.hv_interface, 0) > 0
+                    and all(
+                        self.id_source_frames[can_id].get(self.hv_interface, 0) > 0
+                        for can_id in CELL_IDS
+                    )
                 )
                 else "validated_source_missing"
             ),
