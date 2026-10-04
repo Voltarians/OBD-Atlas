@@ -211,6 +211,48 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         self.assertEqual(publisher.pending["bus_can1_unique_ids"], 0)
         self.assertEqual(publisher.pending["bus_can5_unique_ids"], 0)
 
+    def test_start_removes_stale_state_file(self):
+        state_file = Path("/tmp/pcg1-stale-state-test.json")
+        state_file.write_text(
+            '{"bus_can2_last_seen_utc":"stale"}',
+            encoding="utf-8",
+        )
+        publisher = module.DirectStatePublisher(
+            state_file=state_file,
+            uc2_library=Path("/tmp/unused-libusbcan.so"),
+        )
+        publisher._open_uc2 = lambda: None
+        publisher._open_swcan = lambda: None
+
+        publisher.start()
+
+        self.assertFalse(state_file.exists())
+
+    def test_partial_uc2_runtime_recovery_prefers_alternate_open_order(self):
+        publisher = module.DirectStatePublisher(
+            state_file=Path("/tmp/unused-state.json"),
+            uc2_library=Path("/tmp/unused-libusbcan.so"),
+        )
+        publisher.uc2_open_order = (0, 1)
+        publisher.bus_frames["can0"] = 100
+        publisher.bus_frames["can1"] = 200
+        publisher.bus_frames["can2"] = 0
+        publisher.bus_frames["can3"] = 0
+
+        opened = []
+        publisher._close_uc2 = lambda: None
+        publisher._open_uc2 = lambda orders=module.UC2_OPEN_ORDERS: opened.append(orders)
+
+        recovered = publisher._recover_partial_uc2()
+
+        self.assertTrue(recovered)
+        self.assertEqual(publisher.uc2_runtime_recovery_count, 1)
+        self.assertIn("silent=can2", publisher.uc2_runtime_recovery_reason)
+        self.assertIn("silent=can3", publisher.uc2_runtime_recovery_reason)
+        self.assertEqual(opened[0][0], (1, 0))
+        self.assertEqual(publisher.bus_frames["can0"], 0)
+        self.assertEqual(publisher.bus_frames["can1"], 0)
+
     def test_health_reports_warmup_timing(self):
         publisher = module.DirectStatePublisher(
             state_file=Path("/tmp/unused-state.json"),
@@ -313,6 +355,7 @@ class Pcg1DirectStatePublisherTests(unittest.TestCase):
         self.assertEqual(module.UC2_RECEIVE_BURST_LIMIT, 64)
         self.assertEqual(module.UC2_RECEIVE_WAIT_MS, 100)
         self.assertEqual(module.HEALTH_WARMUP_SECONDS, 15.0)
+        self.assertEqual(module.UC2_RUNTIME_RECOVERY_LIMIT, 1)
         self.assertEqual(module.FUTURE_LIN_INTERFACES, ("lin0", "lin1", "lin2"))
         self.assertEqual(
             module.PHYSICAL_BUS_ROLES["can0"],
