@@ -69,6 +69,9 @@ INT_FIELDS = {
     "network_modules_online",
     "network_modules_expected",
     "direct_can_interfaces_online",
+    "direct_can_interfaces_configured",
+    "future_lin_interfaces_configured",
+    "future_lin_interfaces_online",
     "apm_status_raw",
     "apm_counter_raw",
     "hv_cell_measurement_slots_complete",
@@ -86,6 +89,7 @@ STRING_FIELDS = {
     "hv_cell_slots_source_bus",
     "hv_temperature_slots_source_bus",
     "bus12_voltage_source",
+    "future_lin_status",
 }
 STRING_LIST_FIELDS = {
     "active_dtcs",
