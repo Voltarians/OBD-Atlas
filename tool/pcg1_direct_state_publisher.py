@@ -455,7 +455,21 @@ class DirectStatePublisher:
                     self.opened_devices.append(device)
 
                 timing0, timing1 = TIMING_500K
-                for _name, device, channel in UC2_LOGICAL_CHANNELS:
+                logical_name_by_port = {
+                    (device, channel): name
+                    for name, device, channel in UC2_LOGICAL_CHANNELS
+                }
+                init_sequence = [
+                    (device, channel)
+                    for device in open_order
+                    for channel in (1, 0)
+                ]
+
+                # These UC2 adapters have shown a repeatable native-library
+                # quirk where CAN0 may fail VCI_InitCAN until CAN1 on the same
+                # device has been initialized first. Preserve the required
+                # device order (1->0), but prime CAN1 before CAN0 per device.
+                for device, channel in init_sequence:
                     config = VciInitConfig(
                         0, 0xFFFFFFFF, 0, 1, timing0, timing1, 1
                     )
@@ -468,22 +482,25 @@ class DirectStatePublisher:
                         raise RuntimeError(
                             f"VCI_InitCAN failed for UC2 device {device} "
                             f"CAN{channel} using order "
-                            f"{open_order[0]}->{open_order[1]}"
+                            f"{open_order[0]}->{open_order[1]} "
+                            "with CAN1-before-CAN0 priming"
                         )
 
-                for name, device, channel in UC2_LOGICAL_CHANNELS:
+                for device, channel in init_sequence:
                     if self.start_can(DEVICE_TYPE, device, channel) != 1:
                         raise RuntimeError(
                             f"VCI_StartCAN failed for UC2 device {device} "
                             f"CAN{channel} using order "
-                            f"{open_order[0]}->{open_order[1]}"
+                            f"{open_order[0]}->{open_order[1]} "
+                            "with CAN1-before-CAN0 priming"
                         )
-                    self.bus_available[name] = True
+                    self.bus_available[logical_name_by_port[(device, channel)]] = True
 
                 self.uc2_open_order = open_order
                 print(
                     "PCG-1 direct state publisher: UC2 native open order "
-                    f"{open_order[0]}->{open_order[1]} succeeded",
+                    f"{open_order[0]}->{open_order[1]} succeeded; "
+                    "CAN1-before-CAN0 priming active",
                     flush=True,
                 )
                 return
@@ -852,6 +869,7 @@ class DirectStatePublisher:
                 )
             ),
             "uc2_open_strategy": "required_1_0_only",
+            "uc2_channel_init_strategy": "can1_before_can0_per_device",
             "uc2_runtime_recovery_count": self.uc2_runtime_recovery_count,
             "uc2_runtime_recovery_reason": self.uc2_runtime_recovery_reason,
             "uc2_open_order": (
