@@ -72,3 +72,7 @@ See `docs/LINUX_PCG1.md` for Raspberry Pi, SocketCAN and PCG-1 setup.
 ## Architecture
 
 See `docs/OFFLINE_ARCHITECTURE.md` and `docs/LINUX_PCG1.md`.
+
+## License
+
+OBD Atlas is licensed under the [Apache License, Version 2.0](LICENSE). Third-party dependencies and materials retain their respective licenses. Contributions should not include third-party proprietary code or confidential vehicle-manufacturer material without appropriate rights.
