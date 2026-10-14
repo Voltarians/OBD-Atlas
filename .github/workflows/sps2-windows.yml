@@ -2,23 +2,39 @@ name: Build SPS2 Capture Windows
 on:
   workflow_dispatch:
   push:
-    branches: [feature/sps2-capture-windows]
+    branches:
+      - feature/sps2-capture-windows
     paths:
       - 'sps2-windows/**'
       - '.github/workflows/sps2-windows.yml'
 jobs:
   windows:
     runs-on: windows-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Python setup
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install PyInstaller
-        run: python -m pip install --upgrade pip pyinstaller
-      - name: Build executable
-        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name SPS2Capture sps2-windows/sps2_capture.py
-      - name: Upload executable
+      - name: Verify source
+        shell: pwsh
+        run: |
+          Get-Location
+          Get-ChildItem sps2-windows
+          python -m py_compile sps2-windows/sps2_capture.py
+      - name: Install packager
+        run: python -m pip install --upgrade pyinstaller
+      - name: Package executable
+        run: python -m PyInstaller --onefile --windowed --clean --noconfirm --name SPS2Capture sps2-windows/sps2_capture.py
+      - name: Inspect output
+        shell: pwsh
+        run: |
+          Get-ChildItem dist
+          if (!(Test-Path dist/SPS2Capture.exe)) { throw "Executable missing" }
+      - name: Upload Windows executable
         uses: actions/upload-artifact@v4
         with:
           name: SPS2Capture-Windows
